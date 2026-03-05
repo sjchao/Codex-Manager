@@ -391,7 +391,23 @@
   font-size: 12px;
 }
 
+.settings-inline-input {
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: #fff;
+  font-size: 12px;
+}
+
 .settings-card-gateway .settings-inline-select {
+  width: 100%;
+  min-width: 0;
+}
+
+.settings-card-gateway .settings-inline-input {
   width: 100%;
   min-width: 0;
 }
@@ -426,6 +442,15 @@
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
+}
+
+.settings-proxy-strip {
+  padding: 10px 2px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 90%, #ffffff);
+}
+
+.settings-proxy-strip .settings-row-actions {
+  margin-top: 0;
 }
 
 .settings-card-update .settings-row {
@@ -541,6 +566,27 @@
 
 .settings-row-actions > button {
   flex: 0 0 auto;
+}
+
+.settings-row-proxy {
+  flex-wrap: nowrap;
+  gap: 8px;
+}
+
+.settings-row-proxy .settings-field-label {
+  flex: 0 0 auto;
+  margin-right: 0;
+  white-space: nowrap;
+}
+
+.settings-row-proxy .settings-inline-input {
+  flex: 1 1 0;
+  width: auto;
+  min-width: 0;
+}
+
+.settings-row-proxy .hint {
+  white-space: nowrap;
 }
 
 .settings-theme {

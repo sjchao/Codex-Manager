@@ -45,6 +45,33 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
         "gateway/backgroundTasks/get" => {
             super::as_json(crate::usage_refresh::background_tasks_settings())
         }
+        "gateway/upstreamProxy/get" => super::as_json(serde_json::json!({
+            "proxyUrl": crate::gateway::current_upstream_proxy_url(),
+            "envKey": "CODEXMANAGER_UPSTREAM_PROXY_URL",
+            "requiresRestart": false,
+        })),
+        "gateway/upstreamProxy/set" => {
+            let requested = req
+                .params
+                .as_ref()
+                .and_then(|params| params.get("proxyUrl"))
+                .and_then(|value| match value {
+                    Value::Null => Some(None),
+                    Value::String(text) => Some(Some(text.as_str())),
+                    _ => None,
+                })
+                .or_else(|| super::str_param(req, "url").map(|value| Some(value)));
+            let proxy_url = requested.unwrap_or(None);
+            super::value_or_error(crate::gateway::set_upstream_proxy_url(proxy_url).map(
+                |applied| {
+                    serde_json::json!({
+                        "proxyUrl": applied,
+                        "envKey": "CODEXMANAGER_UPSTREAM_PROXY_URL",
+                        "requiresRestart": false,
+                    })
+                },
+            ))
+        }
         "gateway/backgroundTasks/set" => {
             let patch = crate::usage_refresh::BackgroundTasksSettingsPatch {
                 usage_polling_enabled: super::bool_param(req, "usagePollingEnabled")

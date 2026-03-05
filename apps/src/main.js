@@ -9,6 +9,8 @@ import {
   serviceGatewayBackgroundTasksSet,
   serviceGatewayHeaderPolicyGet,
   serviceGatewayHeaderPolicySet,
+  serviceGatewayUpstreamProxyGet,
+  serviceGatewayUpstreamProxySet,
   serviceGatewayRouteStrategyGet,
   serviceGatewayRouteStrategySet,
   serviceUsageRefresh,
@@ -93,6 +95,7 @@ const ROUTE_STRATEGY_STORAGE_KEY = "codexmanager.gateway.route_strategy";
 const ROUTE_STRATEGY_ORDERED = "ordered";
 const ROUTE_STRATEGY_BALANCED = "balanced";
 const CPA_NO_COOKIE_HEADER_MODE_STORAGE_KEY = "codexmanager.gateway.cpa_no_cookie_header_mode";
+const UPSTREAM_PROXY_URL_STORAGE_KEY = "codexmanager.gateway.upstream_proxy_url";
 const BACKGROUND_TASKS_SETTINGS_STORAGE_KEY = "codexmanager.gateway.background_tasks";
 const DEFAULT_BACKGROUND_TASKS_SETTINGS = {
   usagePollingEnabled: true,
@@ -132,6 +135,8 @@ let routeStrategySyncInFlight = null;
 let routeStrategySyncedProbeId = -1;
 let cpaNoCookieHeaderModeSyncInFlight = null;
 let cpaNoCookieHeaderModeSyncedProbeId = -1;
+let upstreamProxySyncInFlight = null;
+let upstreamProxySyncedProbeId = -1;
 let backgroundTasksSyncInFlight = null;
 let backgroundTasksSyncedProbeId = -1;
 let apiModelsRemoteRefreshInFlight = null;
@@ -529,6 +534,120 @@ async function syncCpaNoCookieHeaderModeOnStartup() {
     cpaNoCookieHeaderModeSyncedProbeId = state.serviceProbeId;
   } catch {
     setCpaNoCookieHeaderModeToggle(readCpaNoCookieHeaderModeSetting());
+  }
+}
+
+function normalizeUpstreamProxyUrl(value) {
+  if (value == null) {
+    return "";
+  }
+  return String(value).trim();
+}
+
+function readUpstreamProxyUrlSetting() {
+  if (typeof localStorage === "undefined") {
+    return "";
+  }
+  return normalizeUpstreamProxyUrl(localStorage.getItem(UPSTREAM_PROXY_URL_STORAGE_KEY));
+}
+
+function saveUpstreamProxyUrlSetting(value) {
+  if (typeof localStorage === "undefined") {
+    return;
+  }
+  localStorage.setItem(UPSTREAM_PROXY_URL_STORAGE_KEY, normalizeUpstreamProxyUrl(value));
+}
+
+function setUpstreamProxyInput(value) {
+  if (!dom.upstreamProxyUrlInput) {
+    return;
+  }
+  dom.upstreamProxyUrlInput.value = normalizeUpstreamProxyUrl(value);
+}
+
+function setUpstreamProxyHint(message) {
+  if (!dom.upstreamProxyHint) {
+    return;
+  }
+  dom.upstreamProxyHint.textContent = message;
+}
+
+function initUpstreamProxySetting() {
+  const proxyUrl = readUpstreamProxyUrlSetting();
+  if (typeof localStorage !== "undefined" && localStorage.getItem(UPSTREAM_PROXY_URL_STORAGE_KEY) == null) {
+    saveUpstreamProxyUrlSetting(proxyUrl);
+  }
+  setUpstreamProxyInput(proxyUrl);
+  setUpstreamProxyHint("保存后立即生效。");
+}
+
+function resolveUpstreamProxyUrlFromPayload(payload) {
+  const picked = pickFirstValue(payload, ["proxyUrl", "result.proxyUrl", "url", "result.url"]);
+  return normalizeUpstreamProxyUrl(picked);
+}
+
+async function applyUpstreamProxyToService(proxyUrl, { silent = true } = {}) {
+  const normalized = normalizeUpstreamProxyUrl(proxyUrl);
+  if (upstreamProxySyncInFlight) {
+    return upstreamProxySyncInFlight;
+  }
+  upstreamProxySyncInFlight = (async () => {
+    const connected = await ensureConnected();
+    serviceLifecycle.updateServiceToggle();
+    if (!connected) {
+      if (!silent) {
+        showToast("服务未连接，稍后会自动应用上游代理", "error");
+      }
+      return false;
+    }
+    const response = await serviceGatewayUpstreamProxySet(normalized || null);
+    const applied = resolveUpstreamProxyUrlFromPayload(response);
+    saveUpstreamProxyUrlSetting(applied);
+    setUpstreamProxyInput(applied);
+    setUpstreamProxyHint("保存后立即生效。");
+    upstreamProxySyncedProbeId = state.serviceProbeId;
+    if (!silent) {
+      showToast(applied ? "上游代理已保存并生效" : "已清空上游代理，恢复直连");
+    }
+    return true;
+  })();
+
+  try {
+    return await upstreamProxySyncInFlight;
+  } catch (err) {
+    if (!silent) {
+      showToast(`保存失败：${normalizeErrorMessage(err)}`, "error");
+      setUpstreamProxyHint(`保存失败：${normalizeErrorMessage(err)}`);
+    }
+    return false;
+  } finally {
+    upstreamProxySyncInFlight = null;
+  }
+}
+
+async function syncUpstreamProxyOnStartup() {
+  const connected = await ensureConnected();
+  serviceLifecycle.updateServiceToggle();
+  if (!connected) {
+    return;
+  }
+
+  const hasLocalSetting = typeof localStorage !== "undefined"
+    && localStorage.getItem(UPSTREAM_PROXY_URL_STORAGE_KEY) != null;
+  if (hasLocalSetting) {
+    await applyUpstreamProxyToService(readUpstreamProxyUrlSetting(), { silent: true });
+    return;
+  }
+
+  try {
+    const response = await serviceGatewayUpstreamProxyGet();
+    const proxyUrl = resolveUpstreamProxyUrlFromPayload(response);
+    saveUpstreamProxyUrlSetting(proxyUrl);
+    setUpstreamProxyInput(proxyUrl);
+    setUpstreamProxyHint("保存后立即生效。");
+    upstreamProxySyncedProbeId = state.serviceProbeId;
+  } catch {
+    setUpstreamProxyInput(readUpstreamProxyUrlSetting());
   }
 }
 
@@ -1341,6 +1460,9 @@ async function refreshAll(options = {}) {
     if (cpaNoCookieHeaderModeSyncedProbeId !== state.serviceProbeId) {
       await applyCpaNoCookieHeaderModeToService(readCpaNoCookieHeaderModeSetting(), { silent: true });
     }
+    if (upstreamProxySyncedProbeId !== state.serviceProbeId) {
+      await applyUpstreamProxyToService(readUpstreamProxyUrlSetting(), { silent: true });
+    }
     if (backgroundTasksSyncedProbeId !== state.serviceProbeId) {
       await applyBackgroundTasksToService(readBackgroundTasksSetting(), { silent: true });
     }
@@ -1673,6 +1795,16 @@ function bindEvents() {
       void applyCpaNoCookieHeaderModeToService(enabled, { silent: false });
     });
   }
+  if (dom.upstreamProxySave && dom.upstreamProxySave.dataset.bound !== "1") {
+    dom.upstreamProxySave.dataset.bound = "1";
+    dom.upstreamProxySave.addEventListener("click", () => {
+      void withButtonBusy(dom.upstreamProxySave, "保存中...", async () => {
+        const value = normalizeUpstreamProxyUrl(dom.upstreamProxyUrlInput ? dom.upstreamProxyUrlInput.value : "");
+        saveUpstreamProxyUrlSetting(value);
+        await applyUpstreamProxyToService(value, { silent: false });
+      });
+    });
+  }
   if (dom.backgroundTasksSave && dom.backgroundTasksSave.dataset.bound !== "1") {
     dom.backgroundTasksSave.dataset.bound = "1";
     dom.backgroundTasksSave.addEventListener("click", () => {
@@ -1712,6 +1844,7 @@ function bootstrap() {
   initUpdateAutoCheckSetting();
   initRouteStrategySetting();
   initCpaNoCookieHeaderModeSetting();
+  initUpstreamProxySetting();
   initBackgroundTasksSetting();
   void bootstrapUpdateStatus();
   serviceLifecycle.restoreServiceAddr();
@@ -1723,6 +1856,7 @@ function bootstrap() {
   void serviceLifecycle.autoStartService().finally(() => {
     void syncRouteStrategyOnStartup();
     void syncCpaNoCookieHeaderModeOnStartup();
+    void syncUpstreamProxyOnStartup();
     void syncBackgroundTasksOnStartup();
     setStartupMask(false);
   });

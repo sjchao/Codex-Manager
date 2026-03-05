@@ -66,3 +66,24 @@ fn stable_proxy_index_is_deterministic() {
     assert_eq!(idx1, idx2);
     assert!(idx1.expect("index") < 5);
 }
+
+#[test]
+fn set_upstream_proxy_url_updates_env_and_cache() {
+    let _guard = EnvGuard::set(ENV_UPSTREAM_PROXY_URL, "");
+
+    let applied = set_upstream_proxy_url(Some("http://127.0.0.1:7890")).expect("set proxy");
+    assert_eq!(applied.as_deref(), Some("http://127.0.0.1:7890"));
+    assert_eq!(
+        std::env::var(ENV_UPSTREAM_PROXY_URL).ok().as_deref(),
+        Some("http://127.0.0.1:7890")
+    );
+    assert_eq!(
+        upstream_proxy_url().as_deref(),
+        Some("http://127.0.0.1:7890")
+    );
+
+    let cleared = set_upstream_proxy_url(None).expect("clear proxy");
+    assert!(cleared.is_none());
+    assert_eq!(std::env::var(ENV_UPSTREAM_PROXY_URL).ok(), None);
+    assert_eq!(upstream_proxy_url(), None);
+}

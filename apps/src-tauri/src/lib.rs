@@ -308,6 +308,22 @@ async fn service_gateway_background_tasks_set(
 }
 
 #[tauri::command]
+async fn service_gateway_upstream_proxy_get(
+  addr: Option<String>,
+) -> Result<serde_json::Value, String> {
+  rpc_call_in_background("gateway/upstreamProxy/get", addr, None).await
+}
+
+#[tauri::command]
+async fn service_gateway_upstream_proxy_set(
+  addr: Option<String>,
+  proxy_url: Option<String>,
+) -> Result<serde_json::Value, String> {
+  let params = serde_json::json!({ "proxyUrl": proxy_url });
+  rpc_call_in_background("gateway/upstreamProxy/set", addr, Some(params)).await
+}
+
+#[tauri::command]
 async fn service_login_start(
   addr: Option<String>,
   login_type: String,
@@ -514,6 +530,8 @@ pub fn run() {
       service_gateway_header_policy_set,
       service_gateway_background_tasks_get,
       service_gateway_background_tasks_set,
+      service_gateway_upstream_proxy_get,
+      service_gateway_upstream_proxy_set,
       service_login_start,
       service_login_status,
       service_login_complete,

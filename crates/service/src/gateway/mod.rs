@@ -52,8 +52,9 @@ pub(crate) use metrics::{
     begin_rpc_request, duration_to_millis, gateway_metrics_prometheus, record_usage_refresh_outcome,
 };
 use protocol_adapter::{
-    adapt_request_for_protocol, adapt_upstream_response, adapt_upstream_response_with_tool_name_restore_map,
-    build_anthropic_error_body, convert_openai_chat_stream_chunk_with_tool_name_restore_map,
+    adapt_request_for_protocol, adapt_upstream_response,
+    adapt_upstream_response_with_tool_name_restore_map, build_anthropic_error_body,
+    convert_openai_chat_stream_chunk_with_tool_name_restore_map,
     convert_openai_completions_stream_chunk, ResponseAdapter, ToolNameRestoreMap,
 };
 pub(super) use request_helpers::{
@@ -155,6 +156,17 @@ pub(crate) fn set_cpa_no_cookie_header_mode(enabled: bool) -> bool {
         if enabled { "1" } else { "0" },
     );
     enabled
+}
+
+pub(crate) fn current_upstream_proxy_url() -> Option<String> {
+    runtime_config::upstream_proxy_url()
+}
+
+pub(crate) fn set_upstream_proxy_url(proxy_url: Option<&str>) -> Result<Option<String>, String> {
+    let applied = runtime_config::set_upstream_proxy_url(proxy_url)?;
+    // 中文注释：用量轮询和 token 刷新复用独立 HTTP client，代理变更后同步重建，避免继续走旧网络路径。
+    crate::usage_http::reload_usage_http_client_from_env();
+    Ok(applied)
 }
 
 pub(crate) fn manual_preferred_account() -> Option<String> {

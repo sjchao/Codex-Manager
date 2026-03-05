@@ -50,7 +50,7 @@ where
     }
     if super::super::is_openai_api_base(base) {
         match handle_openai_base_attempt(
-            client,
+            &client,
             storage,
             method,
             path,
@@ -86,7 +86,7 @@ where
     }
 
     let (upstream, auth_token) = match run_primary_upstream_flow(
-        client,
+        &client,
         storage,
         method,
         request,
@@ -129,7 +129,7 @@ where
     };
 
     match process_upstream_post_retry_flow(
-        client,
+        &client,
         storage,
         method,
         base,

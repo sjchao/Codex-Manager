@@ -1,10 +1,12 @@
 use codexmanager_core::usage::usage_endpoint;
 use reqwest::blocking::Client;
+use reqwest::Proxy;
 use std::sync::{OnceLock, RwLock};
 use std::time::Duration;
 
 static USAGE_HTTP_CLIENT: OnceLock<RwLock<Client>> = OnceLock::new();
 const USAGE_HTTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+const ENV_UPSTREAM_PROXY_URL: &str = "CODEXMANAGER_UPSTREAM_PROXY_URL";
 // NOTE: rely on reqwest built-in timeout (covers the full request including response body read).
 // Avoid background worker threads + recv_timeout which cannot cancel the underlying read.
 const USAGE_HTTP_TOTAL_TIMEOUT: Duration = Duration::from_secs(60);
@@ -19,14 +21,27 @@ pub(crate) struct RefreshTokenResponse {
 }
 
 fn build_usage_http_client() -> Client {
-    Client::builder()
+    let mut builder = Client::builder()
         // 中文注释：轮询链路复用连接池可降低握手开销；不复用会在多账号刷新时放大短连接抖动。
         .connect_timeout(USAGE_HTTP_CONNECT_TIMEOUT)
         .timeout(USAGE_HTTP_TOTAL_TIMEOUT)
         .pool_max_idle_per_host(8)
-        .pool_idle_timeout(Some(Duration::from_secs(60)))
-        .build()
-        .unwrap_or_else(|_| Client::new())
+        .pool_idle_timeout(Some(Duration::from_secs(60)));
+    if let Some(proxy_url) = current_upstream_proxy_url() {
+        match Proxy::all(proxy_url.as_str()) {
+            Ok(proxy) => {
+                builder = builder.proxy(proxy);
+            }
+            Err(err) => {
+                log::warn!(
+                    "event=usage_http_proxy_invalid proxy={} err={}",
+                    proxy_url,
+                    err
+                );
+            }
+        }
+    }
+    builder.build().unwrap_or_else(|_| Client::new())
 }
 
 pub(crate) fn usage_http_client() -> Client {
@@ -39,6 +54,17 @@ fn rebuild_usage_http_client() {
     let lock = USAGE_HTTP_CLIENT.get_or_init(|| RwLock::new(next.clone()));
     let mut current = crate::lock_utils::write_recover(lock, "usage_http_client");
     *current = next;
+}
+
+pub(crate) fn reload_usage_http_client_from_env() {
+    rebuild_usage_http_client();
+}
+
+fn current_upstream_proxy_url() -> Option<String> {
+    std::env::var(ENV_UPSTREAM_PROXY_URL)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
 pub(crate) fn fetch_usage_snapshot(

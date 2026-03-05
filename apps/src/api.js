@@ -451,6 +451,21 @@ export async function serviceGatewayBackgroundTasksSet(settings = {}) {
   return invoke("service_gateway_background_tasks_set", withAddr(payload));
 }
 
+export async function serviceGatewayUpstreamProxyGet() {
+  if (!isTauriRuntime()) {
+    return rpcInvoke("gateway/upstreamProxy/get");
+  }
+  return invoke("service_gateway_upstream_proxy_get", withAddr());
+}
+
+export async function serviceGatewayUpstreamProxySet(proxyUrl) {
+  const normalized = proxyUrl == null ? null : String(proxyUrl);
+  if (!isTauriRuntime()) {
+    return rpcInvoke("gateway/upstreamProxy/set", { proxyUrl: normalized });
+  }
+  return invoke("service_gateway_upstream_proxy_set", withAddr({ proxyUrl: normalized }));
+}
+
 // 登录
 export async function serviceLoginStart(payload) {
   if (!isTauriRuntime()) {

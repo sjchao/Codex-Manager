@@ -488,6 +488,41 @@
                                 </div>
                             </div>
 
+                            <div class="settings-proxy-strip">
+                                <div class="settings-row settings-row-proxy settings-row-actions">
+                                    <label
+                                        class="hint settings-field-label settings-field-label-with-tip"
+                                        for="upstreamProxyUrlInput"
+                                    >
+                                        <span>OpenAI 上游代理</span>
+                                        <span
+                                            class="settings-inline-tip"
+                                            tabindex="0"
+                                            role="note"
+                                            title="示例：http://127.0.0.1:7890。留空表示直连上游。"
+                                            aria-label="OpenAI 上游代理说明：填写代理地址后，上游请求会通过该代理转发；留空表示直连。"
+                                            >?</span
+                                        >
+                                    </label>
+                                    <input
+                                        id="upstreamProxyUrlInput"
+                                        class="settings-inline-input mono"
+                                        type="text"
+                                        placeholder="http://127.0.0.1:7890"
+                                    />
+                                    <button
+                                        id="upstreamProxySave"
+                                        class="secondary"
+                                        type="button"
+                                    >
+                                        保存代理
+                                    </button>
+                                    <div id="upstreamProxyHint" class="hint">
+                                        保存后立即生效。
+                                    </div>
+                                </div>
+                            </div>
+
                             <div
                                 class="panel settings-card settings-card-background settings-card-background-modern"
                             >

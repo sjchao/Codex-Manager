@@ -30,7 +30,7 @@ pub(crate) fn fetch_models_for_picker() -> Result<Vec<ModelOption>, String> {
     for (account, mut token) in candidates {
         let client = super::upstream_client_for_account(account.id.as_str());
         match send_models_request(
-            client,
+            &client,
             &storage,
             &method,
             &upstream_base,
@@ -45,7 +45,7 @@ pub(crate) fn fetch_models_for_picker() -> Result<Vec<ModelOption>, String> {
                 if err.contains("text/html") || err.contains("cloudflare") {
                     if let Some(fallback_base) = upstream_fallback_base.as_deref() {
                         if let Ok(response_body) = send_models_request(
-                            client,
+                            &client,
                             &storage,
                             &method,
                             fallback_base,

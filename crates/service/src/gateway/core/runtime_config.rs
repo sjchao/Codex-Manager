@@ -5,8 +5,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{OnceLock, RwLock};
 use std::time::Duration;
 
-static UPSTREAM_CLIENT: OnceLock<Client> = OnceLock::new();
-static UPSTREAM_CLIENT_POOL: OnceLock<UpstreamClientPool> = OnceLock::new();
+static UPSTREAM_CLIENT: OnceLock<RwLock<Client>> = OnceLock::new();
+static UPSTREAM_CLIENT_POOL: OnceLock<RwLock<UpstreamClientPool>> = OnceLock::new();
 static RUNTIME_CONFIG_LOADED: OnceLock<()> = OnceLock::new();
 static REQUEST_GATE_WAIT_TIMEOUT_MS: AtomicU64 =
     AtomicU64::new(DEFAULT_REQUEST_GATE_WAIT_TIMEOUT_MS);
@@ -23,6 +23,7 @@ static CPA_NO_COOKIE_HEADER_MODE: AtomicBool = AtomicBool::new(DEFAULT_CPA_NO_CO
 static STRICT_REQUEST_PARAM_ALLOWLIST: AtomicBool =
     AtomicBool::new(DEFAULT_STRICT_REQUEST_PARAM_ALLOWLIST);
 static UPSTREAM_COOKIE: OnceLock<RwLock<Option<String>>> = OnceLock::new();
+static UPSTREAM_PROXY_URL: OnceLock<RwLock<Option<String>>> = OnceLock::new();
 static TOKEN_EXCHANGE_CLIENT_ID: OnceLock<RwLock<String>> = OnceLock::new();
 static TOKEN_EXCHANGE_ISSUER: OnceLock<RwLock<String>> = OnceLock::new();
 
@@ -51,8 +52,9 @@ const ENV_STRICT_REQUEST_PARAM_ALLOWLIST: &str = "CODEXMANAGER_STRICT_REQUEST_PA
 const ENV_TOKEN_EXCHANGE_CLIENT_ID: &str = "CODEXMANAGER_CLIENT_ID";
 const ENV_TOKEN_EXCHANGE_ISSUER: &str = "CODEXMANAGER_ISSUER";
 const ENV_PROXY_LIST: &str = "CODEXMANAGER_PROXY_LIST";
+const ENV_UPSTREAM_PROXY_URL: &str = "CODEXMANAGER_UPSTREAM_PROXY_URL";
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct UpstreamClientPool {
     proxies: Vec<String>,
     clients: Vec<Client>,
@@ -70,11 +72,9 @@ impl UpstreamClientPool {
     }
 }
 
-pub(crate) fn upstream_client() -> &'static Client {
-    UPSTREAM_CLIENT.get_or_init(|| {
-        ensure_runtime_config_loaded();
-        build_upstream_client()
-    })
+pub(crate) fn upstream_client() -> Client {
+    ensure_runtime_config_loaded();
+    crate::lock_utils::read_recover(upstream_client_lock(), "upstream_client").clone()
 }
 
 pub(crate) fn fresh_upstream_client() -> Client {
@@ -82,29 +82,31 @@ pub(crate) fn fresh_upstream_client() -> Client {
     build_upstream_client()
 }
 
-pub(crate) fn upstream_client_for_account(account_id: &str) -> &'static Client {
+pub(crate) fn upstream_client_for_account(account_id: &str) -> Client {
     ensure_runtime_config_loaded();
-    let pool = upstream_client_pool();
-    pool.client_for_account(account_id)
-        .unwrap_or_else(upstream_client)
+    let cached =
+        crate::lock_utils::read_recover(upstream_client_pool_lock(), "upstream_client_pool")
+            .client_for_account(account_id)
+            .cloned();
+    cached.unwrap_or_else(upstream_client)
 }
 
 pub(crate) fn fresh_upstream_client_for_account(account_id: &str) -> Client {
     ensure_runtime_config_loaded();
-    let pool = upstream_client_pool();
+    let pool = crate::lock_utils::read_recover(upstream_client_pool_lock(), "upstream_client_pool");
     if let Some(proxy_url) = pool.proxy_for_account(account_id) {
         return build_upstream_client_with_proxy(Some(proxy_url));
     }
     build_upstream_client()
 }
 
-fn upstream_connect_timeout() -> Duration {
-    ensure_runtime_config_loaded();
+fn upstream_connect_timeout_cached() -> Duration {
     Duration::from_secs(UPSTREAM_CONNECT_TIMEOUT_SECS.load(Ordering::Relaxed))
 }
 
 fn build_upstream_client() -> Client {
-    build_upstream_client_with_proxy(None)
+    let proxy_url = current_upstream_proxy_url();
+    build_upstream_client_with_proxy(proxy_url.as_deref())
 }
 
 fn build_upstream_client_with_proxy(proxy_url: Option<&str>) -> Client {
@@ -112,7 +114,7 @@ fn build_upstream_client_with_proxy(proxy_url: Option<&str>) -> Client {
         // 中文注释：显式关闭总超时，避免长时流式响应在客户端层被误判超时中断。
         .timeout(None::<Duration>)
         // 中文注释：连接阶段设置超时，避免网络异常时线程长期卡死占满并发槽位。
-        .connect_timeout(upstream_connect_timeout())
+        .connect_timeout(upstream_connect_timeout_cached())
         .pool_max_idle_per_host(32)
         .pool_idle_timeout(Some(Duration::from_secs(90)))
         .tcp_keepalive(Some(Duration::from_secs(30)));
@@ -194,6 +196,29 @@ pub(crate) fn front_proxy_max_body_bytes() -> usize {
 pub(super) fn upstream_cookie() -> Option<String> {
     ensure_runtime_config_loaded();
     crate::lock_utils::read_recover(upstream_cookie_cell(), "upstream_cookie").clone()
+}
+
+pub(super) fn upstream_proxy_url() -> Option<String> {
+    ensure_runtime_config_loaded();
+    current_upstream_proxy_url()
+}
+
+pub(super) fn set_upstream_proxy_url(proxy_url: Option<&str>) -> Result<Option<String>, String> {
+    ensure_runtime_config_loaded();
+    let normalized = normalize_upstream_proxy_url(proxy_url)?;
+
+    if let Some(value) = normalized.as_deref() {
+        std::env::set_var(ENV_UPSTREAM_PROXY_URL, value);
+    } else {
+        std::env::remove_var(ENV_UPSTREAM_PROXY_URL);
+    }
+
+    let mut cached_proxy_url =
+        crate::lock_utils::write_recover(upstream_proxy_url_cell(), "upstream_proxy_url");
+    *cached_proxy_url = normalized.clone();
+    drop(cached_proxy_url);
+    refresh_upstream_clients_from_runtime_config();
+    Ok(normalized)
 }
 
 pub(super) fn token_exchange_client_id() -> String {
@@ -287,6 +312,14 @@ pub(super) fn reload_from_env() {
     let mut cached_issuer =
         crate::lock_utils::write_recover(token_exchange_issuer_cell(), "token_exchange_issuer");
     *cached_issuer = issuer;
+
+    let proxy_url = env_non_empty(ENV_UPSTREAM_PROXY_URL);
+    let mut cached_proxy_url =
+        crate::lock_utils::write_recover(upstream_proxy_url_cell(), "upstream_proxy_url");
+    *cached_proxy_url = proxy_url;
+    drop(cached_proxy_url);
+
+    refresh_upstream_clients_from_runtime_config();
 }
 
 const ENV_UPSTREAM_COOKIE: &str = "CODEXMANAGER_UPSTREAM_COOKIE";
@@ -295,12 +328,31 @@ fn ensure_runtime_config_loaded() {
     let _ = RUNTIME_CONFIG_LOADED.get_or_init(|| reload_from_env());
 }
 
-fn upstream_client_pool() -> &'static UpstreamClientPool {
-    UPSTREAM_CLIENT_POOL.get_or_init(build_upstream_client_pool)
+fn upstream_client_lock() -> &'static RwLock<Client> {
+    UPSTREAM_CLIENT.get_or_init(|| RwLock::new(build_upstream_client()))
+}
+
+fn upstream_client_pool_lock() -> &'static RwLock<UpstreamClientPool> {
+    UPSTREAM_CLIENT_POOL.get_or_init(|| RwLock::new(build_upstream_client_pool()))
+}
+
+fn refresh_upstream_clients_from_runtime_config() {
+    let client = build_upstream_client();
+    let mut client_lock =
+        crate::lock_utils::write_recover(upstream_client_lock(), "upstream_client");
+    *client_lock = client;
+    drop(client_lock);
+
+    let pool = build_upstream_client_pool();
+    let mut pool_lock =
+        crate::lock_utils::write_recover(upstream_client_pool_lock(), "upstream_client_pool");
+    *pool_lock = pool;
 }
 
 fn build_upstream_client_pool() -> UpstreamClientPool {
-    ensure_runtime_config_loaded();
+    if current_upstream_proxy_url().is_some() {
+        return UpstreamClientPool::default();
+    }
     let raw_proxies = parse_proxy_list_env();
     if raw_proxies.is_empty() {
         return UpstreamClientPool::default();
@@ -333,6 +385,14 @@ fn build_upstream_client_pool() -> UpstreamClientPool {
 
 fn upstream_cookie_cell() -> &'static RwLock<Option<String>> {
     UPSTREAM_COOKIE.get_or_init(|| RwLock::new(None))
+}
+
+fn upstream_proxy_url_cell() -> &'static RwLock<Option<String>> {
+    UPSTREAM_PROXY_URL.get_or_init(|| RwLock::new(None))
+}
+
+fn current_upstream_proxy_url() -> Option<String> {
+    crate::lock_utils::read_recover(upstream_proxy_url_cell(), "upstream_proxy_url").clone()
 }
 
 fn token_exchange_client_id_cell() -> &'static RwLock<String> {
@@ -371,6 +431,17 @@ fn env_bool_or(name: &str, default: bool) -> bool {
         "0" | "false" | "no" | "off" => false,
         _ => default,
     }
+}
+
+fn normalize_upstream_proxy_url(proxy_url: Option<&str>) -> Result<Option<String>, String> {
+    let normalized = proxy_url
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    if let Some(value) = normalized.as_deref() {
+        Proxy::all(value).map_err(|err| format!("invalid proxy url: {err}"))?;
+    }
+    Ok(normalized)
 }
 
 fn parse_proxy_list_env() -> Vec<String> {
