@@ -369,7 +369,9 @@ CODEXMANAGER_GATEWAY_KEEPALIVE_INTERVAL_SECS=180
 
 <p align="center">
   <img src="assets/images/group.jpg" alt="交流群二维码" width="280" />
+  <img src="assets/images/qq_group.jpg" alt="QQ 交流群二维码" width="280" />
 </p>
 
 - Telegram 交流群：<https://t.me/+8o2Eu7GPMIFjNDM1>
+- QQ 交流群：扫码加入
 - 微信公众号：七线牛马
