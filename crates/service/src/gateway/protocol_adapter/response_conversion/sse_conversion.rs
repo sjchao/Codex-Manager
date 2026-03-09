@@ -2,8 +2,8 @@ use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
 use super::json_conversion::{
-    convert_openai_json_to_anthropic, extract_function_call_arguments_raw, map_finish_reason,
-    parse_tool_arguments_as_object,
+    convert_openai_json_to_anthropic, extract_function_call_arguments_raw,
+    extract_responses_reasoning_text, map_finish_reason, parse_tool_arguments_as_object,
 };
 
 pub(super) fn convert_anthropic_json_to_sse(
@@ -157,6 +157,57 @@ pub(super) fn convert_anthropic_json_to_sse(
                 );
                 content_block_index += 1;
             }
+            "thinking" => {
+                let thinking = block_obj
+                    .get("thinking")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                let signature = block_obj
+                    .get("signature")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                append_sse_event(
+                    &mut out,
+                    "content_block_start",
+                    &json!({
+                        "type": "content_block_start",
+                        "index": content_block_index,
+                        "content_block": { "type": "thinking", "thinking": "" }
+                    }),
+                );
+                if !thinking.is_empty() {
+                    append_sse_event(
+                        &mut out,
+                        "content_block_delta",
+                        &json!({
+                            "type": "content_block_delta",
+                            "index": content_block_index,
+                            "delta": { "type": "thinking_delta", "thinking": thinking }
+                        }),
+                    );
+                }
+                if let Some(signature) = signature.filter(|value| !value.is_empty()) {
+                    append_sse_event(
+                        &mut out,
+                        "content_block_delta",
+                        &json!({
+                            "type": "content_block_delta",
+                            "index": content_block_index,
+                            "delta": { "type": "signature_delta", "signature": signature }
+                        }),
+                    );
+                }
+                append_sse_event(
+                    &mut out,
+                    "content_block_stop",
+                    &json!({
+                        "type": "content_block_stop",
+                        "index": content_block_index,
+                    }),
+                );
+                content_block_index += 1;
+            }
             _ => {}
         }
     }
@@ -206,6 +257,7 @@ pub(super) fn convert_openai_sse_to_anthropic(
     let mut input_tokens: i64 = 0;
     let mut output_tokens: i64 = 0;
     let mut content_text = String::new();
+    let mut reasoning_blocks: BTreeMap<usize, StreamingReasoningBlock> = BTreeMap::new();
     let mut tool_calls: BTreeMap<usize, StreamingToolCall> = BTreeMap::new();
     let mut completed_response: Option<Value> = None;
 
@@ -229,10 +281,61 @@ pub(super) fn convert_openai_sse_to_anthropic(
                     }
                     continue;
                 }
+                "response.reasoning_summary_text.delta" => {
+                    let index = value
+                        .get("output_index")
+                        .and_then(Value::as_u64)
+                        .map(|v| v as usize)
+                        .unwrap_or(0);
+                    let entry = reasoning_blocks.entry(index).or_default();
+                    if let Some(fragment) = value.get("delta").and_then(Value::as_str) {
+                        entry.summary.push_str(fragment);
+                    }
+                    continue;
+                }
+                "response.reasoning_text.delta" => {
+                    let index = value
+                        .get("output_index")
+                        .and_then(Value::as_u64)
+                        .map(|v| v as usize)
+                        .unwrap_or(0);
+                    let entry = reasoning_blocks.entry(index).or_default();
+                    if let Some(fragment) = value.get("delta").and_then(Value::as_str) {
+                        entry.content.push_str(fragment);
+                    }
+                    continue;
+                }
+                "response.reasoning_summary_part.added" => {
+                    let index = value
+                        .get("output_index")
+                        .and_then(Value::as_u64)
+                        .map(|v| v as usize)
+                        .unwrap_or(0);
+                    let entry = reasoning_blocks.entry(index).or_default();
+                    if !entry.summary.is_empty() && !entry.summary.ends_with("\n\n") {
+                        entry.summary.push_str("\n\n");
+                    }
+                    continue;
+                }
                 "response.output_item.done" => {
                     let Some(item_obj) = value.get("item").and_then(Value::as_object) else {
                         continue;
                     };
+                    let item_type = item_obj
+                        .get("type")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default();
+                    if item_type == "reasoning" {
+                        let index = value
+                            .get("output_index")
+                            .or_else(|| item_obj.get("index"))
+                            .and_then(Value::as_u64)
+                            .map(|v| v as usize)
+                            .unwrap_or(reasoning_blocks.len());
+                        let entry = reasoning_blocks.entry(index).or_default();
+                        merge_reasoning_item(item_obj, entry);
+                        continue;
+                    }
                     if item_obj
                         .get("type")
                         .and_then(Value::as_str)
@@ -259,6 +362,26 @@ pub(super) fn convert_openai_sse_to_anthropic(
                     }
                     if let Some(arguments_raw) = extract_function_call_arguments_raw(item_obj) {
                         entry.arguments = arguments_raw;
+                    }
+                    continue;
+                }
+                "response.output_item.added" => {
+                    let Some(item_obj) = value.get("item").and_then(Value::as_object) else {
+                        continue;
+                    };
+                    let item_type = item_obj
+                        .get("type")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default();
+                    if item_type == "reasoning" {
+                        let index = value
+                            .get("output_index")
+                            .or_else(|| item_obj.get("index"))
+                            .and_then(Value::as_u64)
+                            .map(|v| v as usize)
+                            .unwrap_or(reasoning_blocks.len());
+                        let entry = reasoning_blocks.entry(index).or_default();
+                        merge_reasoning_item(item_obj, entry);
                     }
                     continue;
                 }
@@ -380,7 +503,9 @@ pub(super) fn convert_openai_sse_to_anthropic(
         let response_bytes = serde_json::to_vec(&response)
             .map_err(|err| format!("serialize completed response failed: {err}"))?;
         let (anthropic_json, _) = convert_openai_json_to_anthropic(&response_bytes)?;
-        if completed_has_effective_output || (content_text.is_empty() && tool_calls.is_empty()) {
+        if completed_has_effective_output
+            || (content_text.is_empty() && tool_calls.is_empty() && reasoning_blocks.is_empty())
+        {
             return convert_anthropic_json_to_sse(&anthropic_json);
         }
     }
@@ -415,6 +540,11 @@ pub(super) fn convert_openai_sse_to_anthropic(
             }
         }),
     );
+    for reasoning_block in reasoning_blocks.values() {
+        if append_reasoning_content_block(&mut out, content_block_index, reasoning_block) {
+            content_block_index += 1;
+        }
+    }
     if !content_text.is_empty() {
         append_sse_event(
             &mut out,
@@ -626,6 +756,50 @@ pub(super) fn convert_anthropic_sse_to_json(
                     if let Some(obj) = entry.as_object_mut() {
                         obj.insert("input".to_string(), input_value);
                     }
+                } else if delta_type == "thinking_delta" {
+                    let fragment = value
+                        .get("delta")
+                        .and_then(|delta| delta.get("thinking").or_else(|| delta.get("text")))
+                        .and_then(Value::as_str)
+                        .unwrap_or_default();
+                    let entry = content_blocks.entry(index).or_insert_with(|| {
+                        json!({
+                            "type": "thinking",
+                            "thinking": "",
+                        })
+                    });
+                    let existing = entry
+                        .get("thinking")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default();
+                    let mut merged = existing.to_string();
+                    merged.push_str(fragment);
+                    if let Some(obj) = entry.as_object_mut() {
+                        obj.insert("type".to_string(), Value::String("thinking".to_string()));
+                        obj.insert("thinking".to_string(), Value::String(merged));
+                    }
+                } else if delta_type == "signature_delta" {
+                    let fragment = value
+                        .get("delta")
+                        .and_then(|delta| delta.get("signature"))
+                        .and_then(Value::as_str)
+                        .unwrap_or_default();
+                    let entry = content_blocks.entry(index).or_insert_with(|| {
+                        json!({
+                            "type": "thinking",
+                            "thinking": "",
+                        })
+                    });
+                    let existing = entry
+                        .get("signature")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default();
+                    let mut merged = existing.to_string();
+                    merged.push_str(fragment);
+                    if let Some(obj) = entry.as_object_mut() {
+                        obj.insert("type".to_string(), Value::String("thinking".to_string()));
+                        obj.insert("signature".to_string(), Value::String(merged));
+                    }
                 } else {
                     let fragment = value
                         .get("delta")
@@ -699,6 +873,116 @@ struct StreamingToolCall {
     id: Option<String>,
     name: Option<String>,
     arguments: String,
+}
+
+#[derive(Default)]
+struct StreamingReasoningBlock {
+    content: String,
+    summary: String,
+    signature: Option<String>,
+}
+
+fn merge_reasoning_item(
+    item_obj: &serde_json::Map<String, Value>,
+    entry: &mut StreamingReasoningBlock,
+) {
+    let content = extract_responses_reasoning_text(item_obj);
+    if !content.is_empty() {
+        entry.content = content;
+    }
+    let summary = item_obj
+        .get("summary")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    item.get("text")
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(ToString::to_string)
+                })
+                .collect::<Vec<_>>()
+                .join("\n\n")
+        })
+        .unwrap_or_default();
+    if !summary.is_empty() && entry.summary.is_empty() {
+        entry.summary = summary;
+    }
+    if let Some(signature) = item_obj
+        .get("encrypted_content")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        entry.signature = Some(signature.to_string());
+    }
+}
+
+fn append_reasoning_content_block(
+    out: &mut String,
+    content_block_index: usize,
+    reasoning_block: &StreamingReasoningBlock,
+) -> bool {
+    let thinking = if !reasoning_block.content.is_empty() {
+        reasoning_block.content.as_str()
+    } else {
+        reasoning_block.summary.as_str()
+    };
+    if thinking.is_empty() && reasoning_block.signature.is_none() {
+        return false;
+    }
+    append_sse_event(
+        out,
+        "content_block_start",
+        &json!({
+            "type": "content_block_start",
+            "index": content_block_index,
+            "content_block": { "type": "thinking", "thinking": "" }
+        }),
+    );
+    if !thinking.is_empty() {
+        append_sse_event(
+            out,
+            "content_block_delta",
+            &json!({
+                "type": "content_block_delta",
+                "index": content_block_index,
+                "delta": {
+                    "type": "thinking_delta",
+                    "thinking": thinking,
+                }
+            }),
+        );
+    }
+    if let Some(signature) = reasoning_block
+        .signature
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    {
+        append_sse_event(
+            out,
+            "content_block_delta",
+            &json!({
+                "type": "content_block_delta",
+                "index": content_block_index,
+                "delta": {
+                    "type": "signature_delta",
+                    "signature": signature,
+                }
+            }),
+        );
+    }
+    append_sse_event(
+        out,
+        "content_block_stop",
+        &json!({
+            "type": "content_block_stop",
+            "index": content_block_index,
+        }),
+    );
+    true
 }
 
 fn to_tool_input_partial_json(value: &Value) -> Option<String> {

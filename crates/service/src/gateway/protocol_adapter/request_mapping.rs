@@ -607,21 +607,23 @@ pub(super) fn convert_anthropic_messages_request(body: &[u8]) -> Result<(Vec<u8>
             }
         }),
     );
-    let resolved_reasoning = obj
-        .get("reasoning")
-        .and_then(Value::as_object)
-        .and_then(|value| value.get("effort"))
-        .and_then(Value::as_str)
-        .and_then(crate::reasoning_effort::normalize_reasoning_effort)
-        .unwrap_or(DEFAULT_ANTHROPIC_REASONING)
-        .to_string();
-    out.insert(
-        "reasoning".to_string(),
-        json!({
-            "effort": resolved_reasoning,
-        }),
+    let resolved_reasoning = resolve_anthropic_reasoning_effort(obj).to_string();
+    let mut reasoning = serde_json::Map::new();
+    reasoning.insert(
+        "effort".to_string(),
+        Value::String(resolved_reasoning.clone()),
     );
+    if let Some(summary) = resolve_anthropic_reasoning_summary(obj) {
+        reasoning.insert("summary".to_string(), Value::String(summary.to_string()));
+    }
+    out.insert("reasoning".to_string(), Value::Object(reasoning));
     out.insert("input".to_string(), Value::Array(input_items));
+    if let Some(encrypted_content) = extract_latest_anthropic_thinking_signature(source_messages) {
+        out.insert(
+            "encrypted_content".to_string(),
+            Value::String(encrypted_content),
+        );
+    }
 
     // 中文注释：参考 CLIProxyAPI 的行为：Claude 入口需要一个稳定的 prompt_cache_key，
     // 并在上游请求头把 Session_id/Conversation_id 与之对齐，才能显著降低 challenge 命中率。
@@ -684,6 +686,98 @@ fn resolve_anthropic_upstream_model(source: &serde_json::Map<String, Value>) -> 
         Some(model) if model.to_ascii_lowercase().contains("codex") => model.to_string(),
         _ => DEFAULT_ANTHROPIC_MODEL.to_string(),
     }
+}
+
+fn resolve_anthropic_reasoning_effort(source: &serde_json::Map<String, Value>) -> &'static str {
+    source
+        .get("reasoning")
+        .and_then(Value::as_object)
+        .and_then(|value| value.get("effort"))
+        .and_then(Value::as_str)
+        .or_else(|| {
+            source
+                .get("output_config")
+                .and_then(Value::as_object)
+                .and_then(|value| value.get("effort"))
+                .and_then(Value::as_str)
+        })
+        .or_else(|| source.get("effort").and_then(Value::as_str))
+        .and_then(crate::reasoning_effort::normalize_reasoning_effort)
+        .unwrap_or(DEFAULT_ANTHROPIC_REASONING)
+}
+
+fn resolve_anthropic_reasoning_summary(
+    source: &serde_json::Map<String, Value>,
+) -> Option<&'static str> {
+    match source.get("thinking") {
+        Some(Value::Bool(true)) => Some("detailed"),
+        Some(Value::Bool(false)) => Some("none"),
+        Some(Value::String(text)) => match text.trim().to_ascii_lowercase().as_str() {
+            "enabled" | "on" | "true" => Some("detailed"),
+            "disabled" | "off" | "false" => Some("none"),
+            _ => None,
+        },
+        Some(Value::Object(obj)) => {
+            let thinking_type = obj
+                .get("type")
+                .and_then(Value::as_str)
+                .map(|value| value.trim().to_ascii_lowercase());
+            match thinking_type.as_deref() {
+                Some("disabled") => Some("none"),
+                Some("enabled") => Some("detailed"),
+                _ if obj
+                    .get("budget_tokens")
+                    .and_then(Value::as_i64)
+                    .is_some_and(|value| value > 0) =>
+                {
+                    Some("detailed")
+                }
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+fn extract_latest_anthropic_thinking_signature(messages: &[Value]) -> Option<String> {
+    for message in messages.iter().rev() {
+        let Some(message_obj) = message.as_object() else {
+            continue;
+        };
+        let Some(content) = message_obj.get("content") else {
+            continue;
+        };
+        let blocks = if let Some(array) = content.as_array() {
+            array
+        } else if content.is_object() {
+            std::slice::from_ref(content)
+        } else {
+            continue;
+        };
+        for block in blocks.iter().rev() {
+            let Some(block_obj) = block.as_object() else {
+                continue;
+            };
+            let block_type = block_obj
+                .get("type")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            if !matches!(block_type, "thinking" | "redacted_thinking") {
+                continue;
+            }
+            let signature = block_obj
+                .get("signature")
+                .or_else(|| block_obj.get("encrypted_content"))
+                .or_else(|| block_obj.get("data"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty());
+            if let Some(signature) = signature {
+                return Some(signature.to_string());
+            }
+        }
+    }
+    None
 }
 
 fn append_assistant_messages(messages: &mut Vec<Value>, content: &Value) -> Result<(), String> {

@@ -232,6 +232,11 @@ fn build_anthropic_message_from_responses(value: &Value) -> Result<Value, String
                     }));
                     has_tool_use = true;
                 }
+                "reasoning" => {
+                    if let Some(block) = map_responses_reasoning_item_to_anthropic(item_obj) {
+                        content_blocks.push(block);
+                    }
+                }
                 _ => {}
             }
         }
@@ -314,6 +319,76 @@ fn push_anthropic_text_block(content_blocks: &mut Vec<Value>, text: &str) -> boo
         "text": trimmed,
     }));
     true
+}
+
+fn map_responses_reasoning_item_to_anthropic(
+    item_obj: &serde_json::Map<String, Value>,
+) -> Option<Value> {
+    let thinking = extract_responses_reasoning_text(item_obj);
+    let signature = item_obj
+        .get("encrypted_content")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string);
+    if thinking.is_empty() && signature.is_none() {
+        return None;
+    }
+
+    let mut block = serde_json::Map::new();
+    block.insert("type".to_string(), Value::String("thinking".to_string()));
+    block.insert("thinking".to_string(), Value::String(thinking));
+    if let Some(signature) = signature {
+        block.insert("signature".to_string(), Value::String(signature));
+    }
+    Some(Value::Object(block))
+}
+
+pub(super) fn extract_responses_reasoning_text(
+    item_obj: &serde_json::Map<String, Value>,
+) -> String {
+    let content = collect_reasoning_text(item_obj.get("content"), true);
+    if !content.is_empty() {
+        return content;
+    }
+    collect_reasoning_text(item_obj.get("summary"), false)
+}
+
+fn collect_reasoning_text(value: Option<&Value>, content_mode: bool) -> String {
+    let Some(items) = value.and_then(Value::as_array) else {
+        return String::new();
+    };
+
+    let mut parts = Vec::new();
+    for item in items {
+        let Some(obj) = item.as_object() else {
+            continue;
+        };
+        let item_type = obj.get("type").and_then(Value::as_str).unwrap_or_default();
+        let type_matches = if content_mode {
+            matches!(item_type, "reasoning_text" | "text")
+        } else {
+            matches!(item_type, "summary_text" | "text")
+        };
+        if !type_matches {
+            continue;
+        }
+        let Some(text) = obj
+            .get("text")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            continue;
+        };
+        parts.push(text.to_string());
+    }
+
+    if content_mode {
+        parts.join("")
+    } else {
+        parts.join("\n\n")
+    }
 }
 
 fn extract_openai_text_content(value: &Value) -> Result<String, String> {
