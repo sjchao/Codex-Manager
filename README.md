@@ -258,13 +258,16 @@ pwsh -NoLogo -NoProfile -File scripts/tests/gateway_regression_suite.ps1 `
 ### 加载与优先级
 - 桌面端 / `codexmanager-service` / `codexmanager-web` 均会在可执行文件同目录按顺序查找环境文件：`codexmanager.env` -> `CodexManager.env` -> `.env`（命中第一个即停止）。
 - 环境文件中只会注入“当前进程尚未定义”的变量，已有系统/用户变量不会被覆盖。
-- 绝大多数变量均为可选；若运行目录不可写（如安装目录），可用 `CODEXMANAGER_DB_PATH` 指向可写路径。
-- 下表按“常用/高级”拆分；若需要完整列表，可在源码中搜索 `CODEXMANAGER_` 作为最终准入标准。
+- 存储初始化完成后，设置页“环境变量”保存的 `envOverrides` 会重新写回当前进程；对支持热更新的 service 运行时配置，会立即执行 reload。
+- 同一项配置的实际优先级可概括为：专属设置卡片/持久化 `envOverrides` > 当前进程已有环境变量 > 环境文件默认值。
+- `CODEXMANAGER_DB_PATH`、`CODEXMANAGER_RPC_TOKEN`、`CODEXMANAGER_RPC_TOKEN_FILE` 属于 bootstrap 变量，必须通过系统环境变量或 `.env` 提供，不能放到设置页通用环境变量编辑器里。
+- `CODEXMANAGER_SERVICE_ADDR`、`CODEXMANAGER_ROUTE_STRATEGY`、`CODEXMANAGER_CPA_NO_COOKIE_HEADER_MODE`、`CODEXMANAGER_UPSTREAM_PROXY_URL`，以及“后台任务”卡片对应的轮询/worker 变量，已经有专属设置项，优先在对应卡片中修改。
+- 绝大多数变量均为可选；若运行目录不可写（如安装目录），可用 `CODEXMANAGER_DB_PATH` 指向可写路径。下表按“常用/高级”拆分；源码中的 `CODEXMANAGER_` 定义仍是最终准入标准。
 
 ### 常用变量（`CODEXMANAGER_*`）
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `CODEXMANAGER_SERVICE_ADDR` | `localhost:48760` | service 监听地址；桌面端也会用它作为默认 RPC 目标地址。 |
+| `CODEXMANAGER_SERVICE_ADDR` | `localhost:48760` | service 监听地址；若填 `0.0.0.0:端口` / `::`，桌面端会把连接目标归一为 `localhost:端口`，并把监听模式识别为“全部网卡”。 |
 | `CODEXMANAGER_WEB_ADDR` | `localhost:48761` | Service 版本 Web UI 监听地址（仅 `codexmanager-web` 使用）。 |
 | `CODEXMANAGER_WEB_ROOT` | 同目录 `web/` | Web 静态资源目录（仅 `codexmanager-web` 使用；若使用内嵌前端资源则无需该目录）。 |
 | `CODEXMANAGER_WEB_NO_OPEN` | 未设置 | 若设置则 `codexmanager-web` 不会自动打开浏览器。 |
@@ -302,6 +305,7 @@ pwsh -NoLogo -NoProfile -File scripts/tests/gateway_regression_suite.ps1 `
 | `CODEXMANAGER_PROXY_LIST` | 未设置 | 上游代理池（最多 5 条，逗号/分号/换行分隔）。按 `account_id` 稳定哈希绑定到某个代理，避免同账号跨代理漂移。 |
 | `CODEXMANAGER_REQUEST_GATE_WAIT_TIMEOUT_MS` | `300` | 请求闸门等待预算（毫秒）。 |
 | `CODEXMANAGER_ACCOUNT_MAX_INFLIGHT` | `0` | 单账号并发软上限。`0` 表示不限制。 |
+| `CODEXMANAGER_STRICT_REQUEST_PARAM_ALLOWLIST` | `1` | 是否严格过滤非官方请求参数。默认只向上游保留兼容白名单字段；如需透传第三方私有参数，可显式设为 `0`。 |
 | `CODEXMANAGER_TRACE_BODY_PREVIEW_MAX_BYTES` | `0` | Trace body 预览最大字节数。`0` 表示关闭 body 预览。 |
 | `CODEXMANAGER_FRONT_PROXY_MAX_BODY_BYTES` | `16777216` | 前置代理允许的请求体最大字节数（默认 16 MiB）。 |
 | `CODEXMANAGER_HTTP_WORKER_FACTOR` | `4` | backend worker 数量系数，worker = `max(cpu * factor, worker_min)`（运行中修改需重启 service 生效）。 |
@@ -337,6 +341,7 @@ pwsh -NoLogo -NoProfile -File scripts/tests/gateway_regression_suite.ps1 `
 | `CODEXMANAGER_ROUTE_HEALTH_P2C_BALANCED_WINDOW` | `6` | `balanced` 模式下 P2C 参与窗口大小。 |
 | `CODEXMANAGER_ROUTE_STATE_TTL_SECS` | `21600` | 路由状态 TTL（秒），避免 key/model 高基数导致状态无限增长。 |
 | `CODEXMANAGER_ROUTE_STATE_CAPACITY` | `4096` | 路由状态容量上限。 |
+| `CODEXMANAGER_UPDATE_PRERELEASE` | 未设置（自动） | 桌面端更新通道是否包含 pre-release。未设置时：正式版仅跟踪正式版，当前版本本身若是预发布则继续跟踪预发布；可显式设为 `1/true/on/yes` 或 `0/false/off/no`。 |
 | `CODEXMANAGER_UPDATE_REPO` | `qxcnm/Codex-Manager` | 应用内更新检查的 GitHub 仓库（`owner/name`）。 |
 | `CODEXMANAGER_GITHUB_TOKEN` | 未设置 | 应用内“一键更新”用 GitHub token（也会回退到 `GITHUB_TOKEN`/`GH_TOKEN`）；不设置可能受 API 限流影响导致下载元数据降级。 |
 
@@ -364,8 +369,9 @@ CODEXMANAGER_GATEWAY_KEEPALIVE_INTERVAL_SECS=180
 
 说明：
 - 环境文件在**桌面端 / service / web 进程启动时**读取一次；修改文件后需要重启对应进程才会生效。
+- 设置页“环境变量”保存后会写入数据库中的 `app_settings`，下次启动仍会自动恢复；其中作用域为 service 且支持运行时刷新的变量会立即生效，其余变量需重启对应进程。
 - 桌面端会把 service 端口保存到本地存储；环境变量更多用于首次默认值（若需强制按环境变量重置，请在 UI 手动修改端口，或清理本地存储后重启）。
-- 环境文件只会注入“当前进程尚未定义”的变量；若你已在系统环境变量中设置了同名 `CODEXMANAGER_*`，则系统环境变量优先生效。
+- 环境文件只会注入“当前进程尚未定义”的变量；若你已在系统环境变量中设置了同名 `CODEXMANAGER_*`，则它会优先于 env 文件默认值，但对已支持持久化的变量，后续仍可能被设置页中的专属设置项或 `envOverrides` 覆盖。
 
 ## 常见问题
 - 授权回调失败：优先检查 `CODEXMANAGER_LOGIN_ADDR` 是否被占用，或在 UI 使用手动回调解析。

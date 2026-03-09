@@ -259,13 +259,16 @@ Troubleshooting guide:
 - Desktop / `codexmanager-service` / `codexmanager-web` load env files from executable directory in this order:
   - `codexmanager.env` -> `CodexManager.env` -> `.env` (first hit wins)
 - Existing process/system env vars are not overridden by env-file values.
-- Most vars are optional. If the run directory is not writable (for example an install directory), set `CODEXMANAGER_DB_PATH` to a writable path.
-- The tables below are split into common vs advanced knobs. For the full list, search `CODEXMANAGER_` in the source code as the source of truth.
+- After storage is initialized, the Settings page `envOverrides` snapshot is written back into the current process; service-side runtime knobs that support hot reload are refreshed immediately.
+- In practice, precedence is: dedicated settings cards / persisted `envOverrides` > already-defined process env vars > env-file fallback values.
+- `CODEXMANAGER_DB_PATH`, `CODEXMANAGER_RPC_TOKEN`, and `CODEXMANAGER_RPC_TOKEN_FILE` are bootstrap variables. They must stay in system env or `.env`, and are intentionally excluded from the generic Settings env editor.
+- `CODEXMANAGER_SERVICE_ADDR`, `CODEXMANAGER_ROUTE_STRATEGY`, `CODEXMANAGER_CPA_NO_COOKIE_HEADER_MODE`, `CODEXMANAGER_UPSTREAM_PROXY_URL`, plus the polling/worker knobs already exposed in the Background Tasks card, should be edited through their dedicated settings cards first.
+- Most vars are optional. If the run directory is not writable (for example an install directory), set `CODEXMANAGER_DB_PATH` to a writable path. The tables below are split into common vs advanced knobs; source `CODEXMANAGER_` definitions remain the final source of truth.
 
 ### Common Variables (`CODEXMANAGER_*`)
 | Variable | Default | Description |
 |---|---|---|
-| `CODEXMANAGER_SERVICE_ADDR` | `localhost:48760` | Service bind address and default RPC target used by desktop app. |
+| `CODEXMANAGER_SERVICE_ADDR` | `localhost:48760` | Service bind address. If set to `0.0.0.0:<port>` or `::`, the desktop app normalizes its RPC target to `localhost:<port>` and treats the bind mode as “all interfaces”. |
 | `CODEXMANAGER_WEB_ADDR` | `localhost:48761` | Service edition Web UI bind address (used by `codexmanager-web` only). |
 | `CODEXMANAGER_WEB_ROOT` | `web/` next to executable | Web static assets directory (used by `codexmanager-web` only; not needed when using embedded UI assets). |
 | `CODEXMANAGER_WEB_NO_OPEN` | Unset | If set, `codexmanager-web` will not auto-open the browser. |
@@ -284,6 +287,8 @@ Troubleshooting guide:
 | `CODEXMANAGER_DISABLE_POLLING` | Unset (polling enabled) | Legacy-compatible switch: if present (any value), disables usage polling thread. |
 | `CODEXMANAGER_USAGE_POLLING_ENABLED` | `true` | Global usage-polling switch (`1/true/on/yes` to enable, `0/false/off/no` to disable). If both this and `CODEXMANAGER_DISABLE_POLLING` are present, this one wins. |
 | `CODEXMANAGER_USAGE_POLL_INTERVAL_SECS` | `600` | Usage polling interval in seconds, minimum `30`. Invalid values fall back to default. |
+| `CODEXMANAGER_USAGE_POLL_BATCH_LIMIT` | `100` | Max accounts/tokens processed per background usage-polling cycle. Set `0` for no cap. Keeping this bounded is recommended for large account pools. |
+| `CODEXMANAGER_USAGE_POLL_CYCLE_BUDGET_SECS` | `30` | Max wall-clock budget for one background usage-polling cycle in seconds. Set `0` for no cap; the next cycle resumes from the saved cursor. |
 | `CODEXMANAGER_GATEWAY_KEEPALIVE_ENABLED` | `true` | Global gateway-keepalive switch (`1/true/on/yes` to enable, `0/false/off/no` to disable). |
 | `CODEXMANAGER_GATEWAY_KEEPALIVE_INTERVAL_SECS` | `180` | Gateway keepalive interval in seconds, minimum `30`. |
 | `CODEXMANAGER_TOKEN_REFRESH_POLLING_ENABLED` | `true` | Global token-refresh polling switch (`1/true/on/yes` to enable, `0/false/off/no` to disable). |
@@ -300,6 +305,7 @@ Troubleshooting guide:
 | `CODEXMANAGER_PROXY_LIST` | Unset | Upstream proxy pool (max 5 entries, separated by comma/semicolon/newlines). Each account is stably hash-mapped to one proxy to avoid proxy drift. |
 | `CODEXMANAGER_REQUEST_GATE_WAIT_TIMEOUT_MS` | `300` | Request-gate wait budget in milliseconds. |
 | `CODEXMANAGER_ACCOUNT_MAX_INFLIGHT` | `0` | Per-account soft inflight cap. `0` means unlimited. |
+| `CODEXMANAGER_STRICT_REQUEST_PARAM_ALLOWLIST` | `1` | Whether to strictly strip non-official request parameters before forwarding upstream. Default `1` keeps only supported allowlist fields; set `0` only if you intentionally need third-party/private params to pass through. |
 | `CODEXMANAGER_TRACE_BODY_PREVIEW_MAX_BYTES` | `0` | Max bytes for trace body preview. `0` disables body preview. |
 | `CODEXMANAGER_FRONT_PROXY_MAX_BODY_BYTES` | `16777216` | Max accepted request body size for front proxy (16 MiB default). |
 | `CODEXMANAGER_HTTP_WORKER_FACTOR` | `4` | Backend worker factor; workers = `max(cpu * factor, worker_min)` (service restart required after runtime change). |
@@ -335,6 +341,7 @@ Troubleshooting guide:
 | `CODEXMANAGER_ROUTE_HEALTH_P2C_BALANCED_WINDOW` | `6` | P2C window size in `balanced` mode. |
 | `CODEXMANAGER_ROUTE_STATE_TTL_SECS` | `21600` | Route-state TTL in seconds to cap key/model state growth. |
 | `CODEXMANAGER_ROUTE_STATE_CAPACITY` | `4096` | Route-state capacity cap. |
+| `CODEXMANAGER_UPDATE_PRERELEASE` | Unset (`auto`) | Whether the desktop updater includes pre-releases. When unset, stable builds follow stable releases only, while a currently-running pre-release keeps following the pre-release channel. You can force it with `1/true/on/yes` or `0/false/off/no`. |
 | `CODEXMANAGER_UPDATE_REPO` | `qxcnm/Codex-Manager` | GitHub repo (`owner/name`) used by the in-app updater. |
 | `CODEXMANAGER_GITHUB_TOKEN` | Unset | GitHub token for in-app one-click update (falls back to `GITHUB_TOKEN`/`GH_TOKEN`). Leaving it unset may hit API rate limits and degrade asset metadata lookup. |
 
@@ -362,8 +369,9 @@ CODEXMANAGER_GATEWAY_KEEPALIVE_INTERVAL_SECS=180
 
 Notes:
 - Env files are loaded **once when the desktop/service/web process starts**. After editing the file, restart the corresponding process for changes to take effect.
+- Saving values in Settings -> Environment Variables writes them into the `app_settings` table; they are restored on next launch. Service-scoped runtime knobs that support reload take effect immediately, while desktop/web/restart-scoped knobs still require a restart.
 - The desktop app persists the service port in local storage; env vars mainly affect the initial default value (to force-reset, change it in UI or clear local storage and relaunch).
-- Env-file values only apply to variables that are not already defined in the current process. If you set the same `CODEXMANAGER_*` in system/user env vars, those take precedence.
+- Env-file values only apply to variables that are not already defined in the current process. If the same `CODEXMANAGER_*` already exists in system/user env, it wins over the env-file fallback value, but supported keys can still be overridden later by dedicated Settings cards or persisted `envOverrides`.
 
 ## Troubleshooting
 - OAuth callback failures: check `CODEXMANAGER_LOGIN_ADDR` conflicts, or use manual callback parsing in UI.
