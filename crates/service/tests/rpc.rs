@@ -1076,6 +1076,80 @@ fn rpc_requestlog_list_and_summary_support_pagination() {
 }
 
 #[test]
+fn rpc_apikey_update_model_updates_name_with_chinese() {
+    let ctx = RpcTestContext::new("rpc-apikey-update-name");
+    let storage = Storage::open(ctx.db_path()).expect("open db");
+    storage.init().expect("init schema");
+    storage
+        .insert_api_key(&codexmanager_core::storage::ApiKey {
+            id: "gk-update-name".to_string(),
+            name: Some("old-name".to_string()),
+            model_slug: Some("gpt-5.4".to_string()),
+            reasoning_effort: Some("medium".to_string()),
+            service_tier: None,
+            client_type: "codex".to_string(),
+            protocol_type: "openai_compat".to_string(),
+            auth_scheme: "authorization_bearer".to_string(),
+            upstream_base_url: None,
+            static_headers_json: None,
+            key_hash: "hash-update-name".to_string(),
+            status: "active".to_string(),
+            created_at: now_ts(),
+            last_used_at: None,
+        })
+        .expect("insert api key");
+
+    let server = codexmanager_service::start_one_shot_server().expect("start server");
+    let update_req = JsonRpcRequest {
+        id: 74,
+        method: "apikey/updateModel".to_string(),
+        params: Some(serde_json::json!({
+            "id": "gk-update-name",
+            "name": "中文名称",
+            "modelSlug": "gpt-5.4",
+            "reasoningEffort": "medium"
+        })),
+    };
+    let update_json = serde_json::to_string(&update_req).expect("serialize apikey update");
+    let update_resp = post_rpc(&server.addr, &update_json);
+    assert_eq!(
+        update_resp
+            .get("result")
+            .and_then(|value| value.get("ok"))
+            .and_then(|value| value.as_bool()),
+        Some(true)
+    );
+
+    let list_server = codexmanager_service::start_one_shot_server().expect("start server");
+    let list_req = JsonRpcRequest {
+        id: 75,
+        method: "apikey/list".to_string(),
+        params: None,
+    };
+    let list_json = serde_json::to_string(&list_req).expect("serialize apikey list");
+    let list_resp = post_rpc(&list_server.addr, &list_json);
+    let items = list_resp
+        .get("result")
+        .and_then(|value| value.get("items"))
+        .and_then(|value| value.as_array())
+        .expect("apikey items");
+    let updated = items
+        .iter()
+        .find(|value| {
+            value
+                .get("id")
+                .and_then(|item| item.as_str())
+                .map(|id| id == "gk-update-name")
+                .unwrap_or(false)
+        })
+        .expect("updated api key");
+    assert_eq!(
+        updated.get("name").and_then(|value| value.as_str()),
+        Some("中文名称")
+    );
+}
+
+#[test]
 fn rpc_rejects_missing_token() {
     let _ctx = RpcTestContext::new("rpc-missing-token");
     let server = codexmanager_service::start_one_shot_server().expect("start server");

@@ -206,12 +206,15 @@ export default function ApiKeysPage() {
                     <TableRow key={key.id} className="group">
                       <TableCell>
                         <div className="flex items-center gap-2">
-                          <code className="rounded border border-primary/5 bg-muted/50 px-2 py-1 font-mono text-[10px] text-primary">
+                          <code
+                            className="max-w-[240px] break-all whitespace-normal rounded border border-primary/5 bg-muted/50 px-2 py-1 font-mono text-[10px] leading-4 text-primary"
+                            title={revealed || key.id}
+                          >
                             {revealed
                               ? revealed
                               : loadingSecretId === key.id
                                 ? "读取中..."
-                                : `${key.id.slice(0, 8)}...`}
+                                : key.id}
                           </code>
                           <Button
                             variant="ghost"

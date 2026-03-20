@@ -150,6 +150,15 @@
   </a>
 </p>
 
+## 赞助支持
+
+如果这个项目对你有帮助，欢迎请作者喝杯咖啡，支持后续维护与更新。
+
+<p align="left">
+  <img src="assets/images/wechatPay.jpg" alt="微信赞助码" width="180" />
+  <img src="assets/images/AliPay.jpg" alt="支付宝赞助码" width="180" />
+</p>
+
 ## 联系方式
 - 公众号：七线牛马
 - 微信： ProsperGao

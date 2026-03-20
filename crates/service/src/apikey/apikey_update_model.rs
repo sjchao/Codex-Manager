@@ -8,6 +8,8 @@ use crate::storage_helpers::open_storage;
 
 pub(crate) fn update_api_key_model(
     key_id: &str,
+    name: Option<String>,
+    has_name: bool,
     model_slug: Option<String>,
     reasoning_effort: Option<String>,
     service_tier: Option<String>,
@@ -19,6 +21,15 @@ pub(crate) fn update_api_key_model(
         return Err("key id required".to_string());
     }
     let storage = open_storage().ok_or_else(|| "storage unavailable".to_string())?;
+    if has_name {
+        let normalized_name = name
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        storage
+            .update_api_key_name(key_id, normalized_name)
+            .map_err(|e| e.to_string())?;
+    }
     let normalized = model_slug
         .as_deref()
         .map(str::trim)

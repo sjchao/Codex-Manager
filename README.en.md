@@ -141,6 +141,15 @@ A local desktop + service toolkit for managing Codex-compatible accounts, usage,
   </a>
 </p>
 
+## Sponsor
+
+If this project helps you, you are welcome to support its ongoing maintenance and updates.
+
+<p align="left">
+  <img src="assets/images/wechatPay.jpg" alt="WeChat sponsor QR code" width="180" />
+  <img src="assets/images/AliPay.jpg" alt="Alipay sponsor QR code" width="180" />
+</p>
+
 ## Contact Information
 - Official Account: 七线牛马
 - WeChat: ProsperGao

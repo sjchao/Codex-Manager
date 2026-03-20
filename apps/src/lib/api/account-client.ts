@@ -276,6 +276,7 @@ export const accountClient = {
       "service_apikey_update_model",
       withAddr({
         keyId,
+        name: params.name || null,
         modelSlug: params.modelSlug || null,
         reasoningEffort: params.reasoningEffort || null,
         serviceTier: params.serviceTier || null,
