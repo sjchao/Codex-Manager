@@ -49,11 +49,6 @@ jobs:
         with:
           ref: ${{ github.event.inputs.ref || 'main' }}
 
-      - name: Validate tag/version consistency
-        uses: ./.github/actions/validate-release-version
-        with:
-          tag: ${{ github.event.inputs.tag }}
-
       - name: Setup release environment
         uses: ./.github/actions/setup-release-env
 
@@ -102,11 +97,6 @@ jobs:
         uses: actions/checkout@v5
         with:
           ref: ${{ github.event.inputs.ref || 'main' }}
-
-      - name: Validate tag/version consistency
-        uses: ./.github/actions/validate-release-version
-        with:
-          tag: ${{ github.event.inputs.tag }}
 
       - name: Setup release environment
         uses: ./.github/actions/setup-release-env
@@ -216,11 +206,6 @@ jobs:
         uses: actions/checkout@v5
         with:
           ref: ${{ github.event.inputs.ref || 'main' }}
-
-      - name: Validate tag/version consistency
-        uses: ./.github/actions/validate-release-version
-        with:
-          tag: ${{ github.event.inputs.tag }}
 
       - name: Setup release environment
         uses: ./.github/actions/setup-release-env
