@@ -75,4 +75,3 @@ runs:
         shared-key: ${{ inputs.rust-cache-shared-key }}
         workspaces: |
           . -> target-shared
-          apps/src-tauri -> target-shared
