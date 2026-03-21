@@ -5,8 +5,9 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
 import { appClient } from "@/lib/api/app-client";
-import { getAppErrorMessage, isTauriRuntime } from "@/lib/api/transport";
+import { getAppErrorMessage } from "@/lib/api/transport";
 import { useAppStore } from "@/lib/store/useAppStore";
+import { useRuntimeCapabilities } from "@/hooks/useRuntimeCapabilities";
 import {
   APPEARANCE_PRESETS,
   applyAppearancePreset,
@@ -268,15 +269,11 @@ function buildReleaseUrl(summary: UpdateCheckSummary | null): string {
 }
 
 export default function SettingsPage() {
-  const { setAppSettings: setStoreSettings, runtimeCapabilities } = useAppStore();
+  const { setAppSettings: setStoreSettings } = useAppStore();
   const { theme, setTheme } = useTheme();
   const queryClient = useQueryClient();
-  const isDesktopRuntime =
-    runtimeCapabilities?.mode === "desktop-tauri" ||
-    (!runtimeCapabilities && isTauriRuntime());
-  const canSelfUpdate = runtimeCapabilities?.canSelfUpdate ?? isDesktopRuntime;
-  const canOpenLocalDir = runtimeCapabilities?.canOpenLocalDir ?? isDesktopRuntime;
-  const canCloseToTray = runtimeCapabilities?.canCloseToTray ?? false;
+  const { isDesktopRuntime, canSelfUpdate, canOpenLocalDir, canCloseToTray } =
+    useRuntimeCapabilities();
   const lastSyncedSnapshotThemeRef = useRef<string | null>(null);
   const lastSyncedAppearancePresetRef = useRef<string | null>(null);
   const autoUpdateCheckedRef = useRef(false);

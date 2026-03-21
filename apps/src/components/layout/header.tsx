@@ -13,7 +13,7 @@ import { DisclaimerTicker } from "@/components/layout/disclaimer-ticker";
 import { WebPasswordModal } from "../modals/web-password-modal";
 import { serviceClient } from "@/lib/api/service-client";
 import { appClient } from "@/lib/api/app-client";
-import { isTauriRuntime } from "@/lib/api/transport";
+import { useRuntimeCapabilities } from "@/hooks/useRuntimeCapabilities";
 import {
   formatServiceError,
   isExpectedInitializeResult,
@@ -23,13 +23,12 @@ import {
 const DEFAULT_SERVICE_ADDR = "localhost:48760";
 
 export function Header() {
-  const { serviceStatus, setServiceStatus, setAppSettings, runtimeCapabilities } = useAppStore();
+  const { serviceStatus, setServiceStatus, setAppSettings } = useAppStore();
   const pathname = usePathname();
   const [webPasswordModalOpen, setWebPasswordModalOpen] = useState(false);
   const [isToggling, setIsToggling] = useState(false);
   const [portInput, setPortInput] = useState("48760");
-  const canManageService =
-    runtimeCapabilities?.canManageService ?? isTauriRuntime();
+  const { canManageService } = useRuntimeCapabilities();
 
   useEffect(() => {
     const current = String(serviceStatus.addr || DEFAULT_SERVICE_ADDR);

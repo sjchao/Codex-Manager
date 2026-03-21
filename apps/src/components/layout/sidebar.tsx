@@ -13,7 +13,7 @@ import {
 import { cn } from "@/lib/utils";
 import { normalizeRoutePath } from "@/lib/utils/static-routes";
 import { Button } from "@/components/ui/button";
-import { isTauriRuntime } from "@/lib/api/transport";
+import { useRuntimeCapabilities } from "@/hooks/useRuntimeCapabilities";
 import { useAppStore } from "@/lib/store/useAppStore";
 import {
   memo,
@@ -64,8 +64,8 @@ export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { isSidebarOpen, toggleSidebar } = useAppStore();
+  const { isDesktopRuntime } = useRuntimeCapabilities();
   const normalizedPathname = normalizeRoutePath(pathname);
-  const isDesktopStaticRuntime = isTauriRuntime();
   const desktopNavigationFallbackTimerRef = useRef<number | null>(null);
 
   const handleNavigate = useCallback(
@@ -77,7 +77,7 @@ export function Sidebar() {
       }
 
       event.preventDefault();
-      if (isDesktopStaticRuntime) {
+      if (isDesktopRuntime) {
         const currentPath = normalizeRoutePath(window.location.pathname);
         if (desktopNavigationFallbackTimerRef.current !== null) {
           window.clearTimeout(desktopNavigationFallbackTimerRef.current);
@@ -98,7 +98,7 @@ export function Sidebar() {
 
       router.push(href);
     },
-    [isDesktopStaticRuntime, normalizedPathname, router],
+    [isDesktopRuntime, normalizedPathname, router],
   );
 
   useEffect(() => {
@@ -117,7 +117,7 @@ export function Sidebar() {
   }, []);
 
   useEffect(() => {
-    if (isDesktopStaticRuntime) {
+    if (isDesktopRuntime) {
       return;
     }
 
@@ -146,7 +146,7 @@ export function Sidebar() {
 
     const timer = globalThis.setTimeout(prefetchRoutes, 120);
     return () => globalThis.clearTimeout(timer);
-  }, [isDesktopStaticRuntime, normalizedPathname, router]);
+  }, [isDesktopRuntime, normalizedPathname, router]);
 
   const renderedItems = useMemo(() => 
     NAV_ITEMS.map((item) => (

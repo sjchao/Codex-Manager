@@ -15,9 +15,10 @@ import {
   STARTUP_SNAPSHOT_STALE_TIME,
 } from "@/lib/api/startup-snapshot";
 import { appClient } from "@/lib/api/app-client";
-import { isTauriRuntime, loadRuntimeCapabilities } from "@/lib/api/transport";
+import { loadRuntimeCapabilities } from "@/lib/api/transport";
 import { Button } from "@/components/ui/button";
 import { applyAppearancePreset } from "@/lib/appearance";
+import { useRuntimeCapabilities } from "@/hooks/useRuntimeCapabilities";
 import {
   formatServiceError,
   isExpectedInitializeResult,
@@ -46,6 +47,8 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
   const pathname = usePathname();
   const router = useRouter();
+  const { canManageService, isDesktopRuntime, isUnsupportedWebRuntime } =
+    useRuntimeCapabilities();
   const [isInitializing, setIsInitializing] = useState(true);
   const hasInitializedOnce = useRef(false);
   const hasWarmedDevRoutes = useRef(false);
@@ -54,8 +57,7 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
   const serviceStatusRef = useRef(serviceStatus);
   const runtimeCapabilitiesRef = useRef(runtimeCapabilities);
   const [error, setError] = useState<string | null>(null);
-  const supportsLocalServiceStart =
-    runtimeCapabilities?.canManageService ?? isTauriRuntime();
+  const supportsLocalServiceStart = canManageService;
 
   useEffect(() => {
     serviceStatusRef.current = serviceStatus;
@@ -492,7 +494,7 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
   useEffect(() => warmupDevRouteTransitions(), [warmupDevRouteTransitions]);
 
   useEffect(() => {
-    if (isTauriRuntime() || typeof window === "undefined") {
+    if (isDesktopRuntime || typeof window === "undefined") {
       return;
     }
 
@@ -506,8 +508,6 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
 
   const showLoading = isInitializing && !hasInitializedOnce.current;
   const showError = !!error && !hasInitializedOnce.current;
-  const isUnsupportedWebRuntime = runtimeCapabilities?.mode === "unsupported-web";
-
   return (
     <>
       {/* Always keep children mounted to prevent Header/Sidebar remounting 'reload' feel */}

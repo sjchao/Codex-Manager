@@ -249,8 +249,11 @@ export function useAccounts() {
       }
       const exported = Number(result?.exported || 0);
       const outputDir = String(result?.outputDir || "").trim();
+      const isBrowserDownload = outputDir === "browser-download";
       toast.success(
-        outputDir
+        isBrowserDownload
+          ? `已导出 ${exported} 个账号，浏览器将开始下载`
+          : outputDir
           ? `已导出 ${exported} 个账号到 ${outputDir}`
           : `已导出 ${exported} 个账号`
       );

@@ -65,6 +65,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useAccounts } from "@/hooks/useAccounts";
+import { useRuntimeCapabilities } from "@/hooks/useRuntimeCapabilities";
 import { cn } from "@/lib/utils";
 import { buildStaticRouteUrl } from "@/lib/utils/static-routes";
 import {
@@ -166,6 +167,7 @@ function getAccountStatusAction(account: Account): {
 
 export default function AccountsPage() {
   const router = useRouter();
+  const { isDesktopRuntime, canUseBrowserDownloadExport } = useRuntimeCapabilities();
   const {
     accounts,
     groups,
@@ -212,6 +214,17 @@ export default function AccountsPage() {
     | { kind: "selected"; ids: string[]; count: number }
     | null
   >(null);
+  const importFileActionLabel = isDesktopRuntime ? "按文件导入" : "选择文件导入";
+  const importDirectoryActionLabel = isDesktopRuntime
+    ? "按文件夹导入"
+    : "选择目录导入";
+  const exportActionLabel =
+    !isDesktopRuntime && canUseBrowserDownloadExport ? "导出到浏览器" : "导出账号";
+  const exportActionShortcut = isExporting
+    ? "..."
+    : !isDesktopRuntime && canUseBrowserDownloadExport
+      ? "DL"
+      : "ZIP";
 
   const filteredAccounts = useMemo(() => {
     return accounts.filter((account) => {
@@ -492,14 +505,14 @@ export default function AccountsPage() {
                     className="h-9 rounded-lg px-2"
                     onClick={() => importByFile()}
                   >
-                    <FileUp className="mr-2 h-4 w-4" /> 按文件导入
+                    <FileUp className="mr-2 h-4 w-4" /> {importFileActionLabel}
                     <DropdownMenuShortcut>FILE</DropdownMenuShortcut>
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     className="h-9 rounded-lg px-2"
                     onClick={() => importByDirectory()}
                   >
-                    <FolderOpen className="mr-2 h-4 w-4" /> 按文件夹导入
+                    <FolderOpen className="mr-2 h-4 w-4" /> {importDirectoryActionLabel}
                     <DropdownMenuShortcut>DIR</DropdownMenuShortcut>
                   </DropdownMenuItem>
                   <DropdownMenuItem
@@ -508,9 +521,9 @@ export default function AccountsPage() {
                     onClick={() => exportAccounts()}
                   >
                     <Download className="mr-2 h-4 w-4" />
-                    导出账号
+                    {exportActionLabel}
                     <DropdownMenuShortcut>
-                      {isExporting ? "..." : "ZIP"}
+                      {exportActionShortcut}
                     </DropdownMenuShortcut>
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
