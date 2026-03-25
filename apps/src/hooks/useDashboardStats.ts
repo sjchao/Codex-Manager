@@ -70,6 +70,7 @@ export function useDashboardStats() {
     accounts.length > 0 &&
     !hasStartupSignal &&
     snapshotQuery.isFetching;
+  const hasSnapshotData = Boolean(data);
   const totalAccounts = accounts.length;
   const availableAccounts = accounts.filter((item) => item.isAvailable).length;
   const unavailableAccounts = totalAccounts - availableAccounts;
@@ -102,7 +103,7 @@ export function useDashboardStats() {
     recommendations,
     requestLogs: data?.requestLogs || [],
     isLoading:
-      !isServiceReady ||
+      (!isServiceReady && !hasSnapshotData) ||
       (!isSnapshotQueryEnabled && !data) ||
       snapshotQuery.isPending ||
       shouldWarmupPoll,

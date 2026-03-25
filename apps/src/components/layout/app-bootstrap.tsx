@@ -60,6 +60,7 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
     useRuntimeCapabilities();
   const [isInitializing, setIsInitializing] = useState(true);
   const hasInitializedOnce = useRef(false);
+  const hasBootstrappedOnce = useRef(false);
   const hasWarmedDevRoutes = useRef(false);
   const serviceStatusRef = useRef(serviceStatus);
   const runtimeCapabilitiesRef = useRef(runtimeCapabilities);
@@ -488,6 +489,10 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
+    if (hasBootstrappedOnce.current) {
+      return;
+    }
+    hasBootstrappedOnce.current = true;
     void init();
   }, [init]);
 
