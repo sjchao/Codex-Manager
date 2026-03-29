@@ -157,7 +157,6 @@ pub(in super::super) fn send_upstream_request(
     strip_session_affinity: bool,
 ) -> Result<reqwest::blocking::Response, reqwest::Error> {
     let attempt_started_at = Instant::now();
-    let is_openai_api_target = super::super::super::is_openai_api_base(target_url);
     let prompt_cache_key = extract_prompt_cache_key(body.as_ref());
     let is_compact_request = is_compact_request_path(request_ctx.request_path);
     let request_affinity = super::super::super::session_affinity::derive_outgoing_session_affinity(
@@ -177,12 +176,9 @@ pub(in super::super) fn send_upstream_request(
         incoming_headers.conversation_id(),
         prompt_cache_key.as_deref(),
     );
-    let include_account_id = !is_openai_api_target;
     let mut upstream_headers = if is_compact_request {
         let header_input = super::super::header_profile::CodexCompactUpstreamHeaderInput {
             auth_token,
-            account_id,
-            include_account_id,
             incoming_session_id: request_affinity.incoming_session_id,
             incoming_subagent: incoming_headers.subagent(),
             fallback_session_id: request_affinity.fallback_session_id,
@@ -195,8 +191,6 @@ pub(in super::super) fn send_upstream_request(
     } else {
         let header_input = super::super::header_profile::CodexUpstreamHeaderInput {
             auth_token,
-            account_id,
-            include_account_id,
             incoming_session_id: request_affinity.incoming_session_id,
             incoming_client_request_id: request_affinity.incoming_client_request_id,
             incoming_subagent: incoming_headers.subagent(),

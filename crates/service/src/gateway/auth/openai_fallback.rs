@@ -137,12 +137,9 @@ pub(super) fn try_openai_fallback(
         incoming_headers.conversation_id(),
         prompt_cache_key.as_deref(),
     );
-    let include_account_id = !is_openai_api_target;
     let mut upstream_headers = if is_compact_request_path(request_path) {
         let header_input = super::upstream::header_profile::CodexCompactUpstreamHeaderInput {
             auth_token: bearer.as_str(),
-            account_id,
-            include_account_id,
             incoming_session_id: request_affinity.incoming_session_id,
             incoming_subagent: incoming_headers.subagent(),
             fallback_session_id: request_affinity.fallback_session_id,
@@ -155,8 +152,6 @@ pub(super) fn try_openai_fallback(
     } else {
         let header_input = super::upstream::header_profile::CodexUpstreamHeaderInput {
             auth_token: bearer.as_str(),
-            account_id,
-            include_account_id,
             incoming_session_id: request_affinity.incoming_session_id,
             incoming_client_request_id: request_affinity.incoming_client_request_id,
             incoming_subagent: incoming_headers.subagent(),

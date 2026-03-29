@@ -149,13 +149,6 @@ fn gateway_claude_protocol_end_to_end_uses_codex_headers() {
         captured.headers.get("originator").map(String::as_str),
         Some("codex_cli_rs")
     );
-    assert_eq!(
-        captured
-            .headers
-            .get("chatgpt-account-id")
-            .map(String::as_str),
-        Some("chatgpt_acc_test")
-    );
     assert!(!captured.headers.contains_key("anthropic-version"));
     assert!(!captured.headers.contains_key("x-stainless-lang"));
 
@@ -349,13 +342,21 @@ fn gateway_claude_failover_cross_workspace_strips_session_affinity_headers() {
     let ws_a_stateful = captured
         .iter()
         .find(|req| {
-            req.headers.get("chatgpt-account-id").map(String::as_str) == Some("wsA")
+            req.headers
+                .get("authorization")
+                .map(|v| v.contains("access_token_ws_a"))
+                .unwrap_or(false)
                 && req.headers.contains_key("x-codex-turn-state")
         })
         .expect("expected wsA stateful upstream request");
     let ws_b = captured
         .iter()
-        .find(|req| req.headers.get("chatgpt-account-id").map(String::as_str) == Some("wsB"))
+        .find(|req| {
+            req.headers
+                .get("authorization")
+                .map(|v| v.contains("access_token_ws_b"))
+                .unwrap_or(false)
+        })
         .expect("expected wsB upstream request");
 
     assert_eq!(
@@ -532,13 +533,6 @@ fn gateway_claude_failover_same_workspace_preserves_session_affinity_headers() {
         })
         .expect("expected upstream request for account 2");
 
-    assert_eq!(
-        account_2
-            .headers
-            .get("chatgpt-account-id")
-            .map(String::as_str),
-        Some("wsSame")
-    );
     assert_eq!(
         account_2
             .headers

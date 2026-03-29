@@ -214,14 +214,7 @@ pub(super) fn ensure_include_list(path: &str, obj: &mut serde_json::Map<String, 
     if !is_standard_responses_path(path) {
         return false;
     }
-    match obj.get("include") {
-        Some(Value::Array(_)) => return false,
-        Some(_) => {}
-        None => {}
-    }
-
-    obj.insert("include".to_string(), Value::Array(Vec::new()));
-    true
+    obj.contains_key("include")
 }
 
 pub(super) fn ensure_reasoning_include(

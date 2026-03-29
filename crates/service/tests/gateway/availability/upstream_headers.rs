@@ -43,8 +43,6 @@ fn codex_header_profile_sets_required_headers_for_stream() {
     let (_guard, _restore) = header_runtime_scope();
     let headers = build_codex_upstream_headers(CodexUpstreamHeaderInput {
         auth_token: "token-123",
-        account_id: Some("acc-1"),
-        include_account_id: true,
         incoming_session_id: None,
         incoming_client_request_id: Some("client-req-1"),
         incoming_subagent: Some("review"),
@@ -102,10 +100,6 @@ fn codex_header_profile_sets_required_headers_for_stream() {
         Some("{\"workspace\":\"repo\"}")
     );
     assert_eq!(
-        find_header(&headers, "ChatGPT-Account-ID").as_deref(),
-        Some("acc-1")
-    );
-    assert_eq!(
         find_header(&headers, "x-codex-turn-state").as_deref(),
         Some("turn-state")
     );
@@ -118,8 +112,6 @@ fn codex_header_profile_uses_json_accept_for_non_stream() {
     let (_guard, _restore) = header_runtime_scope();
     let headers = build_codex_upstream_headers(CodexUpstreamHeaderInput {
         auth_token: "token-456",
-        account_id: None,
-        include_account_id: true,
         incoming_session_id: None,
         incoming_client_request_id: None,
         incoming_subagent: None,
@@ -148,8 +140,6 @@ fn codex_compact_header_profile_matches_remote_compact_shape() {
     let (_guard, _restore) = header_runtime_scope();
     let headers = build_codex_compact_upstream_headers(CodexCompactUpstreamHeaderInput {
         auth_token: "token-compact",
-        account_id: Some("acc-compact"),
-        include_account_id: true,
         incoming_session_id: Some("session-compact"),
         incoming_subagent: Some("compact"),
         fallback_session_id: Some("fallback-session"),
@@ -176,10 +166,6 @@ fn codex_compact_header_profile_matches_remote_compact_shape() {
         find_header(&headers, "session_id").as_deref(),
         Some("session-compact")
     );
-    assert_eq!(
-        find_header(&headers, "ChatGPT-Account-ID").as_deref(),
-        Some("acc-compact")
-    );
     assert!(find_header(&headers, "Cookie").is_none());
     assert!(find_header(&headers, "Openai-Beta").is_none());
     assert_eq!(
@@ -200,8 +186,6 @@ fn codex_compact_header_profile_omits_subagent_without_explicit_source() {
     let (_guard, _restore) = header_runtime_scope();
     let headers = build_codex_compact_upstream_headers(CodexCompactUpstreamHeaderInput {
         auth_token: "token-compact-default",
-        account_id: None,
-        include_account_id: false,
         incoming_session_id: Some("session-compact-default"),
         incoming_subagent: None,
         fallback_session_id: Some("fallback-session"),
@@ -219,8 +203,6 @@ fn codex_compact_header_profile_omits_session_without_thread_anchor() {
     let (_guard, _restore) = header_runtime_scope();
     let headers = build_codex_compact_upstream_headers(CodexCompactUpstreamHeaderInput {
         auth_token: "token-compact-no-session",
-        account_id: None,
-        include_account_id: false,
         incoming_session_id: None,
         incoming_subagent: None,
         fallback_session_id: None,
@@ -242,8 +224,6 @@ fn codex_header_profile_uses_dynamic_originator_and_residency_requirement() {
 
     let headers = build_codex_upstream_headers(CodexUpstreamHeaderInput {
         auth_token: "token-dynamic",
-        account_id: None,
-        include_account_id: true,
         incoming_session_id: None,
         incoming_client_request_id: None,
         incoming_subagent: None,
@@ -276,8 +256,6 @@ fn codex_header_profile_regenerates_session_on_failover() {
     let (_guard, _restore) = header_runtime_scope();
     let headers = build_codex_upstream_headers(CodexUpstreamHeaderInput {
         auth_token: "token-789",
-        account_id: None,
-        include_account_id: true,
         incoming_session_id: Some("sticky-session"),
         incoming_client_request_id: None,
         incoming_subagent: None,
@@ -309,8 +287,6 @@ fn codex_header_profile_uses_fallback_session_when_incoming_missing() {
     let (_guard, _restore) = header_runtime_scope();
     let headers = build_codex_upstream_headers(CodexUpstreamHeaderInput {
         auth_token: "token-fallback",
-        account_id: None,
-        include_account_id: true,
         incoming_session_id: None,
         incoming_client_request_id: None,
         incoming_subagent: None,
@@ -337,8 +313,6 @@ fn codex_header_profile_does_not_forward_conversation_header_even_with_fallback(
     let (_guard, _restore) = header_runtime_scope();
     let headers = build_codex_upstream_headers(CodexUpstreamHeaderInput {
         auth_token: "token-fallback-conv",
-        account_id: None,
-        include_account_id: true,
         incoming_session_id: None,
         incoming_client_request_id: None,
         incoming_subagent: None,
@@ -361,8 +335,6 @@ fn codex_header_profile_skips_account_header_when_disabled() {
     let (_guard, _restore) = header_runtime_scope();
     let headers = build_codex_upstream_headers(CodexUpstreamHeaderInput {
         auth_token: "token-no-acc",
-        account_id: Some("acc-should-not-send"),
-        include_account_id: false,
         incoming_session_id: None,
         incoming_client_request_id: None,
         incoming_subagent: None,
@@ -385,8 +357,6 @@ fn codex_header_profile_can_disable_affinity_headers() {
     let (_guard, _restore) = header_runtime_scope();
     let headers = build_codex_upstream_headers(CodexUpstreamHeaderInput {
         auth_token: "token-no-affinity",
-        account_id: None,
-        include_account_id: true,
         incoming_session_id: Some("sticky-session"),
         incoming_client_request_id: None,
         incoming_subagent: None,
@@ -416,8 +386,6 @@ fn codex_header_profile_does_not_invent_client_request_id_on_failover() {
     let (_guard, _restore) = header_runtime_scope();
     let headers = build_codex_upstream_headers(CodexUpstreamHeaderInput {
         auth_token: "token-failover-stable",
-        account_id: None,
-        include_account_id: true,
         incoming_session_id: Some("sticky-session"),
         incoming_client_request_id: None,
         incoming_subagent: None,

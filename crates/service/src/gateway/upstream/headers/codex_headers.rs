@@ -7,8 +7,6 @@ pub(crate) const CODEX_CLIENT_VERSION: &str = "0.101.0";
 
 pub(crate) struct CodexUpstreamHeaderInput<'a> {
     pub(crate) auth_token: &'a str,
-    pub(crate) account_id: Option<&'a str>,
-    pub(crate) include_account_id: bool,
     pub(crate) incoming_session_id: Option<&'a str>,
     pub(crate) incoming_client_request_id: Option<&'a str>,
     pub(crate) incoming_subagent: Option<&'a str>,
@@ -25,8 +23,6 @@ pub(crate) struct CodexUpstreamHeaderInput<'a> {
 
 pub(crate) struct CodexCompactUpstreamHeaderInput<'a> {
     pub(crate) auth_token: &'a str,
-    pub(crate) account_id: Option<&'a str>,
-    pub(crate) include_account_id: bool,
     pub(crate) incoming_session_id: Option<&'a str>,
     pub(crate) incoming_subagent: Option<&'a str>,
     pub(crate) fallback_session_id: Option<&'a str>,
@@ -129,11 +125,6 @@ pub(crate) fn build_codex_upstream_headers(
         }
     }
 
-    if input.include_account_id {
-        if let Some(account_id) = input.account_id {
-            headers.push(("ChatGPT-Account-ID".to_string(), account_id.to_string()));
-        }
-    }
     headers
 }
 
@@ -188,11 +179,6 @@ pub(crate) fn build_codex_compact_upstream_headers(
             X_RESPONSESAPI_INCLUDE_TIMING_METRICS_HEADER.to_string(),
             "true".to_string(),
         ));
-    }
-    if input.include_account_id {
-        if let Some(account_id) = input.account_id {
-            headers.push(("ChatGPT-Account-ID".to_string(), account_id.to_string()));
-        }
     }
     headers
 }
@@ -253,8 +239,6 @@ mod tests {
 
         let headers = build_codex_upstream_headers(CodexUpstreamHeaderInput {
             auth_token: "token-123",
-            account_id: Some("account-xyz"),
-            include_account_id: true,
             incoming_session_id: Some("conversation-anchor"),
             incoming_client_request_id: Some("conversation-anchor"),
             incoming_subagent: Some("subagent-a"),
@@ -305,10 +289,6 @@ mod tests {
             header_value(&headers, "x-codex-turn-state"),
             Some("turn-state-a")
         );
-        assert_eq!(
-            header_value(&headers, "ChatGPT-Account-ID"),
-            Some("account-xyz")
-        );
     }
 
     #[test]
@@ -319,8 +299,6 @@ mod tests {
 
         let headers = build_codex_upstream_headers(CodexUpstreamHeaderInput {
             auth_token: "token-456",
-            account_id: Some("account-xyz"),
-            include_account_id: true,
             incoming_session_id: Some("conversation-anchor"),
             incoming_client_request_id: Some("conversation-anchor"),
             incoming_subagent: None,
@@ -352,8 +330,6 @@ mod tests {
 
         let headers = build_codex_compact_upstream_headers(CodexCompactUpstreamHeaderInput {
             auth_token: "token-789",
-            account_id: Some("account-xyz"),
-            include_account_id: true,
             incoming_session_id: None,
             incoming_subagent: Some("subagent-b"),
             fallback_session_id: Some("conversation-anchor"),
@@ -368,10 +344,6 @@ mod tests {
         assert_eq!(header_value(&headers, "session_id"), Some("conversation-anchor"));
         assert_eq!(header_value(&headers, "x-codex-turn-state"), None);
         assert_eq!(header_value(&headers, "OpenAI-Beta"), Some("responses_websockets=2026-02-06"));
-        assert_eq!(
-            header_value(&headers, "ChatGPT-Account-ID"),
-            Some("account-xyz")
-        );
         assert_eq!(header_value(&headers, "x-openai-subagent"), Some("subagent-b"));
     }
 }

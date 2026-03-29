@@ -517,10 +517,7 @@ fn responses_defaults_empty_include_without_reasoning_for_codex_backend() {
         .get("tools")
         .and_then(serde_json::Value::as_array)
         .is_some());
-    assert!(value
-        .get("include")
-        .and_then(serde_json::Value::as_array)
-        .is_some());
+    assert!(value.get("include").is_none());
 }
 
 #[test]
@@ -665,10 +662,28 @@ fn responses_compact_defaults_parallel_tool_calls_to_false_for_codex_backend() {
             .and_then(serde_json::Value::as_bool),
         Some(false)
     );
+    assert!(value.get("include").is_none());
     assert!(value
         .get("tools")
         .and_then(serde_json::Value::as_array)
         .is_some());
+}
+
+#[test]
+fn responses_omits_include_when_reasoning_missing_for_codex_backend() {
+    let body = json!({
+        "model": "gpt-5.3-codex",
+        "input": "hello"
+    });
+    let out = apply_request_overrides(
+        "/v1/responses",
+        serde_json::to_vec(&body).expect("serialize request body"),
+        None,
+        None,
+        Some("https://chatgpt.com/backend-api/codex"),
+    );
+    let value: serde_json::Value = serde_json::from_slice(&out).expect("parse output body");
+    assert!(value.get("include").is_none());
 }
 
 #[test]
