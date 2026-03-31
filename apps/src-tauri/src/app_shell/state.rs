@@ -78,6 +78,14 @@ pub(crate) fn clear_skip_next_unsaved_settings_confirms() {
     SKIP_NEXT_UNSAVED_SETTINGS_EXIT_CONFIRM.store(false, Ordering::Relaxed);
 }
 
+pub(crate) fn prepare_for_forced_app_exit() {
+    APP_EXIT_REQUESTED.store(true, Ordering::Relaxed);
+    CLOSE_TO_TRAY_ON_CLOSE.store(false, Ordering::Relaxed);
+    KEEP_ALIVE_FOR_LIGHTWEIGHT_CLOSE.store(false, Ordering::Relaxed);
+    mark_skip_next_unsaved_settings_window_close_confirm();
+    mark_skip_next_unsaved_settings_exit_confirm();
+}
+
 #[cfg(test)]
 mod tests {
     use super::{

@@ -9,6 +9,8 @@ use std::os::unix::fs::PermissionsExt;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 
+use crate::app_shell::prepare_for_forced_app_exit;
+
 use super::model::UpdateActionResponse;
 use super::runtime::current_exe_path;
 #[cfg(target_os = "windows")]
@@ -39,6 +41,15 @@ fn append_apply_log(log_path: &Path, message: &str) {
 
 fn log_path_for_script_dir(script_dir: &Path, file_name: &str) -> PathBuf {
     script_dir.join("logs").join(file_name)
+}
+
+#[cfg(target_os = "windows")]
+fn write_windows_powershell_script(script_path: &Path, script: &str) -> Result<(), String> {
+    // Windows PowerShell 5.1 对无 BOM 的 UTF-8 脚本兼容较差，写入 BOM 避免脚本内容被误解析。
+    let mut bytes = Vec::with_capacity(script.len() + 3);
+    bytes.extend_from_slice(&[0xEF, 0xBB, 0xBF]);
+    bytes.extend_from_slice(script.as_bytes());
+    fs::write(script_path, bytes).map_err(|err| format!("写入更新应用脚本失败：{err}"))
 }
 
 fn portable_executable_candidates() -> &'static [&'static str] {
@@ -109,24 +120,26 @@ $ErrorActionPreference = "Stop"
 function Write-Log([string]$Message) {
   Add-Content -LiteralPath $LogFile -Value ("[{0}] {1}" -f (Get-Date -Format o), $Message)
 }
-Write-Log "便携更新脚本已启动"
+Write-Log "portable update worker started"
 for ($i = 0; $i -lt 240; $i++) {
   if (-not (Get-Process -Id $PidToWait -ErrorAction SilentlyContinue)) { break }
   Start-Sleep -Milliseconds 500
 }
-Write-Log "开始复制暂存文件"
+Write-Log "copying staged files"
 Get-ChildItem -LiteralPath $StagingDir -Force | ForEach-Object {
   Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $TargetDir $_.Name) -Recurse -Force
 }
-Write-Log "暂存文件复制完成"
+Write-Log "staged files copied"
 if (Test-Path -LiteralPath $PendingFile) {
   Remove-Item -LiteralPath $PendingFile -Force -ErrorAction SilentlyContinue
 }
-Write-Log "pending-update.json 已清理"
-Start-Process -FilePath (Join-Path $TargetDir $ExeName) | Out-Null
-Write-Log "应用已重新拉起"
+Write-Log "pending update marker cleared"
+$RestartPath = Join-Path -Path $TargetDir -ChildPath $ExeName
+Write-Log ("relaunching: {0}" -f $RestartPath)
+Start-Process -FilePath $RestartPath -WorkingDirectory $TargetDir | Out-Null
+Write-Log "app relaunched"
 "#;
-        fs::write(&script_path, script).map_err(|err| format!("写入更新应用脚本失败：{err}"))?;
+        write_windows_powershell_script(&script_path, script)?;
 
         let args = vec![
             "-TargetDir".to_string(),
@@ -157,10 +170,10 @@ Write-Log "应用已重新拉起"
                 .map_err(|err| format!("启动 {shell} 失败：{err}"))
         };
 
-        if try_spawn("powershell.exe").is_ok() {
+        if try_spawn("pwsh.exe").is_ok() {
             return Ok(());
         }
-        return try_spawn("pwsh.exe");
+        return try_spawn("powershell.exe");
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -506,6 +519,7 @@ pub(super) fn apply_portable_impl(app: tauri::AppHandle) -> Result<UpdateActionR
         pid,
     )?;
 
+    prepare_for_forced_app_exit();
     schedule_app_exit(app);
     Ok(UpdateActionResponse {
         ok: true,
