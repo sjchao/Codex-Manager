@@ -1,6 +1,77 @@
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
+fn extract_json_string_value_after(payload: &str, key: &str) -> Option<String> {
+    let start = payload.find(key)? + key.len();
+    let bytes = payload.as_bytes();
+    let mut i = start;
+    let mut escaped = false;
+    while i < bytes.len() {
+        let ch = bytes[i] as char;
+        if escaped {
+            escaped = false;
+        } else if ch == '\\' {
+            escaped = true;
+        } else if ch == '"' {
+            let raw = &payload[start..i];
+            return serde_json::from_str::<String>(&format!("\"{}\"", raw)).ok();
+        }
+        i += 1;
+    }
+    None
+}
+
+fn extract_json_int_value_after(payload: &str, key: &str) -> Option<usize> {
+    let start = payload.find(key)? + key.len();
+    let rest = &payload[start..];
+    let digits: String = rest
+        .chars()
+        .skip_while(|c| c.is_ascii_whitespace())
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+    digits.parse().ok()
+}
+
+fn salvage_chat_completion_chunk_payload(
+    payload: &str,
+    response_id: &mut Option<String>,
+    model: &mut Option<String>,
+    finish_reason: &mut Option<String>,
+    content_text: &mut String,
+    tool_calls: &mut BTreeMap<usize, StreamingToolCall>,
+) -> bool {
+    if !payload.contains("\"choices\"") {
+        return false;
+    }
+    if response_id.is_none() {
+        *response_id = extract_json_string_value_after(payload, "\"id\":\"");
+    }
+    if model.is_none() {
+        *model = extract_json_string_value_after(payload, "\"model\":\"");
+    }
+    if finish_reason.is_none() {
+        *finish_reason = extract_json_string_value_after(payload, "\"finish_reason\":\"");
+    }
+    if let Some(fragment) = extract_json_string_value_after(payload, "\"content\":\"") {
+        content_text.push_str(fragment.as_str());
+    }
+    if payload.contains("\"tool_calls\"") {
+        let index = extract_json_int_value_after(payload, "\"index\":").unwrap_or(0);
+        let entry = tool_calls.entry(index).or_default();
+        if entry.id.is_none() {
+            entry.id = extract_json_string_value_after(payload, "\"id\":\"");
+        }
+        if entry.name.is_none() {
+            entry.name = extract_json_string_value_after(payload, "\"name\":\"");
+        }
+        if let Some(arguments) = extract_json_string_value_after(payload, "\"arguments\":\"") {
+            entry.arguments.push_str(arguments.as_str());
+        }
+        return true;
+    }
+    payload.contains("\"finish_reason\"") || payload.contains("\"content\":\"")
+}
+
 use super::super::json_conversion::{
     convert_openai_json_to_anthropic, extract_function_call_arguments_raw,
     extract_responses_reasoning_text, map_finish_reason, parse_tool_arguments_as_object,
@@ -49,8 +120,81 @@ pub(super) fn convert_openai_sse_to_anthropic(
             break;
         }
         let Ok(value) = serde_json::from_str::<Value>(payload) else {
+            if salvage_chat_completion_chunk_payload(
+                payload,
+                &mut response_id,
+                &mut model,
+                &mut finish_reason,
+                &mut content_text,
+                &mut tool_calls,
+            ) {
+                continue;
+            }
             continue;
         };
+
+        if value
+            .get("object")
+            .and_then(Value::as_str)
+            .is_some_and(|kind| kind == "chat.completion.chunk")
+        {
+            if response_id.is_none() {
+                response_id = value
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+            }
+            if model.is_none() {
+                model = value
+                    .get("model")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+            }
+            if let Some(choices) = value.get("choices").and_then(Value::as_array) {
+                for choice in choices {
+                    if let Some(reason) = choice.get("finish_reason").and_then(Value::as_str) {
+                        finish_reason = Some(reason.to_string());
+                    }
+                    if let Some(delta) = choice.get("delta") {
+                        if let Some(fragment) = delta.get("content").and_then(Value::as_str) {
+                            content_text.push_str(fragment);
+                        } else if let Some(arr) = delta.get("content").and_then(Value::as_array) {
+                            for item in arr {
+                                if let Some(fragment) = item.get("text").and_then(Value::as_str) {
+                                    content_text.push_str(fragment);
+                                }
+                            }
+                        }
+                        if let Some(delta_tool_calls) = delta.get("tool_calls").and_then(Value::as_array) {
+                            for item in delta_tool_calls {
+                                let Some(tool_obj) = item.as_object() else {
+                                    continue;
+                                };
+                                let index = tool_obj
+                                    .get("index")
+                                    .and_then(Value::as_u64)
+                                    .map(|value| value as usize)
+                                    .unwrap_or(0);
+                                let entry = tool_calls.entry(index).or_default();
+                                if let Some(id) = tool_obj.get("id").and_then(Value::as_str) {
+                                    entry.id = Some(id.to_string());
+                                }
+                                if let Some(function) = tool_obj.get("function").and_then(Value::as_object) {
+                                    if let Some(name) = function.get("name").and_then(Value::as_str) {
+                                        entry.name = Some(name.to_string());
+                                    }
+                                    if let Some(arguments) = function.get("arguments").and_then(Value::as_str) {
+                                        entry.arguments.push_str(arguments);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            continue;
+        }
+
         if let Some(event_type) = value.get("type").and_then(Value::as_str) {
             match event_type {
                 "response.output_text.delta" => {
@@ -92,6 +236,40 @@ pub(super) fn convert_openai_sse_to_anthropic(
                     let entry = reasoning_blocks.entry(index).or_default();
                     if !entry.summary.is_empty() && !entry.summary.ends_with("\n\n") {
                         entry.summary.push_str("\n\n");
+                    }
+                    continue;
+                }
+                "response.function_call_arguments.delta"
+                | "response.custom_tool_call_input.delta" => {
+                    let index = value
+                        .get("output_index")
+                        .and_then(Value::as_u64)
+                        .map(|v| v as usize)
+                        .unwrap_or(0);
+                    let entry = tool_calls.entry(index).or_default();
+                    if let Some(fragment) = value.get("delta").and_then(Value::as_str) {
+                        entry.arguments.push_str(fragment);
+                    }
+                    continue;
+                }
+                "response.function_call_arguments.done"
+                | "response.custom_tool_call_input.done" => {
+                    let index = value
+                        .get("output_index")
+                        .and_then(Value::as_u64)
+                        .map(|v| v as usize)
+                        .unwrap_or(0);
+                    let entry = tool_calls.entry(index).or_default();
+                    if entry.arguments.is_empty() {
+                        if let Some(arguments) = value
+                            .get("arguments")
+                            .or_else(|| value.get("input"))
+                            .and_then(Value::as_str)
+                        {
+                            entry.arguments.push_str(arguments);
+                        } else if let Some(delta) = value.get("delta").and_then(Value::as_str) {
+                            entry.arguments.push_str(delta);
+                        }
                     }
                     continue;
                 }
@@ -166,6 +344,29 @@ pub(super) fn convert_openai_sse_to_anthropic(
                             .unwrap_or(reasoning_blocks.len());
                         let entry = reasoning_blocks.entry(index).or_default();
                         merge_reasoning_item(item_obj, entry);
+                        continue;
+                    }
+                    if is_openai_chat_tool_item_type(item_type) {
+                        let index = value
+                            .get("output_index")
+                            .or_else(|| item_obj.get("index"))
+                            .and_then(Value::as_u64)
+                            .map(|v| v as usize)
+                            .unwrap_or(tool_calls.len());
+                        let entry = tool_calls.entry(index).or_default();
+                        if let Some(id) = item_obj
+                            .get("call_id")
+                            .or_else(|| item_obj.get("id"))
+                            .and_then(Value::as_str)
+                        {
+                            entry.id = Some(id.to_string());
+                        }
+                        if let Some(name) = item_obj.get("name").and_then(Value::as_str) {
+                            entry.name = Some(name.to_string());
+                        }
+                        if let Some(arguments_raw) = extract_function_call_arguments_raw(item_obj) {
+                            entry.arguments = arguments_raw;
+                        }
                     }
                     continue;
                 }

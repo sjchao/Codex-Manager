@@ -747,3 +747,52 @@ fn anthropic_sse_response_uses_output_item_done_when_completed_output_empty() {
     assert!(text.contains("new.txt"));
     assert!(text.contains("event: message_stop"));
 }
+
+#[test]
+fn anthropic_sse_response_preserves_split_edit_arguments() {
+    let upstream = concat!(
+        "data: {\"type\":\"response.output_item.added\",\"response_id\":\"resp_edit_1\",\"created\":1700000006,\"model\":\"gpt-5.3-codex\",\"output_index\":0,\"item\":{\"type\":\"function_call\",\"call_id\":\"call_edit_1\",\"name\":\"edit\"}}\n\n",
+        "data: {\"type\":\"response.function_call_arguments.delta\",\"response_id\":\"resp_edit_1\",\"created\":1700000006,\"model\":\"gpt-5.3-codex\",\"output_index\":0,\"delta\":\"{\\\"path\\\":\\\"/tmp/a.txt\\\",\\\"edits\\\":[{\\\"oldText\\\":\\\"two\\\\n\\\"\"}\"}\n\n",
+        "data: {\"type\":\"response.function_call_arguments.delta\",\"response_id\":\"resp_edit_1\",\"created\":1700000006,\"model\":\"gpt-5.3-codex\",\"output_index\":0,\"delta\":\",\\\"newText\\\":\\\"TWO\\\\n\\\"}] }\"}\n\n",
+        "data: {\"type\":\"response.function_call_arguments.done\",\"response_id\":\"resp_edit_1\",\"created\":1700000006,\"model\":\"gpt-5.3-codex\",\"output_index\":0,\"delta\":\"}\"}\n\n",
+        "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_edit_1\",\"created\":1700000006,\"model\":\"gpt-5.3-codex\",\"output\":[{\"type\":\"function_call\",\"call_id\":\"call_edit_1\",\"name\":\"edit\",\"arguments\":\"{\\\"path\\\":\\\"/tmp/a.txt\\\",\\\"edits\\\":[{\\\"oldText\\\":\\\"two\\\\n\\\",\\\"newText\\\":\\\"TWO\\\\n\\\"}]}\"}],\"usage\":{\"input_tokens\":7,\"output_tokens\":3,\"total_tokens\":10}}}\n\n",
+        "data: [DONE]\n\n",
+    );
+    let (body, content_type) = adapt_upstream_response(
+        ResponseAdapter::AnthropicSse,
+        Some("text/event-stream"),
+        upstream.as_bytes(),
+    )
+    .expect("adapt stream");
+    assert_eq!(content_type, "text/event-stream");
+    let text = String::from_utf8(body).expect("utf8");
+    assert!(text.contains("\"name\":\"edit\""));
+    assert!(text.contains("/tmp/a.txt"));
+    assert!(text.contains("oldText"));
+    assert!(text.contains("newText"));
+    assert!(text.contains("TWO"));
+}
+
+#[test]
+fn anthropic_sse_response_preserves_split_edit_arguments_without_completed_output() {
+    let upstream = concat!(
+        "data: {\"type\":\"response.output_item.added\",\"response_id\":\"resp_edit_delta_only\",\"created\":1700000007,\"model\":\"gpt-5.3-codex\",\"output_index\":0,\"item\":{\"type\":\"function_call\",\"call_id\":\"call_edit_delta_only\",\"name\":\"edit\"}}\n\n",
+        "data: {\"type\":\"response.function_call_arguments.delta\",\"response_id\":\"resp_edit_delta_only\",\"created\":1700000007,\"model\":\"gpt-5.3-codex\",\"output_index\":0,\"delta\":\"{\\\"path\\\":\\\"/tmp/b.txt\\\",\\\"edits\\\":[{\\\"oldText\\\":\\\"three\\\\n\\\"\"}\n\n",
+        "data: {\"type\":\"response.function_call_arguments.delta\",\"response_id\":\"resp_edit_delta_only\",\"created\":1700000007,\"model\":\"gpt-5.3-codex\",\"output_index\":0,\"delta\":\",\\\"newText\\\":\\\"THREE\\\\n\\\"}]}\"}\n\n",
+        "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_edit_delta_only\",\"created\":1700000007,\"model\":\"gpt-5.3-codex\",\"output\":[],\"usage\":{\"input_tokens\":9,\"output_tokens\":4,\"total_tokens\":13}}}\n\n",
+        "data: [DONE]\n\n",
+    );
+    let (body, content_type) = adapt_upstream_response(
+        ResponseAdapter::AnthropicSse,
+        Some("text/event-stream"),
+        upstream.as_bytes(),
+    )
+    .expect("adapt stream");
+    assert_eq!(content_type, "text/event-stream");
+    let text = String::from_utf8(body).expect("utf8");
+    assert!(text.contains("\"name\":\"edit\""));
+    assert!(text.contains("/tmp/b.txt"));
+    assert!(text.contains("oldText"));
+    assert!(text.contains("newText"));
+    assert!(text.contains("THREE"));
+}
