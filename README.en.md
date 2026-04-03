@@ -46,9 +46,7 @@
 ## Sponsors
 
 Thanks to the following friends and partners for supporting CodexManager.
-<p>
-Mo Duan Xia: thank you for providing token support. The GPT card service supports self-service purchase and activation, offers stable availability, includes a guarantee, and supports Codex 5.4. Website: [https://www.aixiamo.com/](https://www.aixiamo.com/)
-</p>
+Mo Duan Xia: thank you for providing token support. The GPT card service supports self-service purchase and activation, offers stable availability, includes a guarantee, and supports Codex 5.4. Website: [小末AI](https://www.aixiamo.com)
 
 [Wonderdch](https://github.com/Wonderdch), Catch_Bat, [suxinwl](https://github.com/suxinwl), [Hermit](https://github.com/HermitChen), [Suifeng023](https://github.com/Suifeng023), [HK-hub](https://github.com/HK-hub)
 

@@ -47,9 +47,7 @@
 ## 赞助商
 
 感谢以下朋友与伙伴对 CodexManager 的支持。
-<p>
-    末端夏：感谢提供 token 支持。他的 GPT 卡网支持自助购买、自助兑换激活，稳定不到车，带质保，支持 Codex 5.4。官网：[https://www.aixiamo.com/](https://www.aixiamo.com/)
-</p>
+    末端夏：感谢提供 token 支持。他的 GPT 卡网支持自助购买、自助兑换激活，稳定不到车，带质保，支持 Codex 5.4。官网：[小末AI](https://www.aixiamo.com)
 
  [Wonderdch](https://github.com/Wonderdch)、 Catch_Bat、 [suxinwl](https://github.com/suxinwl)、 [Hermit](https://github.com/HermitChen)、 [Suifeng023](https://github.com/Suifeng023)、 [HK-hub](https://github.com/HK-hub)
 
