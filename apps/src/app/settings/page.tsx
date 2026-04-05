@@ -38,6 +38,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -608,6 +609,8 @@ export default function SettingsPage() {
   >(null);
   const [gatewayUserAgentVersionDraft, setGatewayUserAgentVersionDraft] =
     useState<string | null>(null);
+  const [modelForwardRulesDraft, setModelForwardRulesDraft] =
+    useState<string | null>(null);
   const [lastUpdateCheck, setLastUpdateCheck] =
     useState<UpdateCheckSummary | null>(null);
   const [updateDialogCheck, setUpdateDialogCheck] =
@@ -672,6 +675,8 @@ export default function SettingsPage() {
     enabled: isSnapshotQueryEnabled && isPageActive,
   });
   const snapshot = fetchedSnapshot ?? storedSettings;
+  const modelForwardRulesInput =
+    modelForwardRulesDraft ?? (snapshot?.modelForwardRules || "");
   usePageTransitionReady(
     "/settings/",
     !canAccessManagementRpc || Boolean(snapshot) || isSnapshotError,
@@ -1850,6 +1855,38 @@ export default function SettingsPage() {
                 <p className="text-[10px] text-muted-foreground">
                   设为“跟随请求”时，不会额外改写 free / 7天单窗口账号的模型；
                   只有你选了具体模型后，命中这些账号时才会统一改写为该模型。
+                </p>
+              </div>
+
+              <div className="grid gap-2">
+                <Label>模型转发规则</Label>
+                <Textarea
+                  className="min-h-[132px] max-w-2xl font-mono text-xs"
+                  placeholder={"spark*=gpt-5.4-mini\nclaude-sonnet-4*=gpt-5.4"}
+                  value={modelForwardRulesInput}
+                  onChange={(event) =>
+                    setModelForwardRulesDraft(event.target.value)
+                  }
+                  onBlur={() => {
+                    if (modelForwardRulesDraft == null) return;
+                    if (
+                      modelForwardRulesInput.trim() ===
+                      (snapshot.modelForwardRules || "").trim()
+                    ) {
+                      setModelForwardRulesDraft(null);
+                      return;
+                    }
+                    void updateSettings
+                      .mutateAsync({
+                        modelForwardRules: modelForwardRulesInput,
+                      })
+                      .then(() => setModelForwardRulesDraft(null))
+                      .catch(() => undefined);
+                  }}
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  一行一条，格式为 <code>源模型=目标模型</code>，支持
+                  <code>*</code> 通配。平台 Key 没有强绑模型时，会先按这里把请求模型改写，再进入账号路由。
                 </p>
               </div>
 

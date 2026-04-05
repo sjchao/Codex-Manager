@@ -329,6 +329,44 @@ fn normalize_model_slug_accepts_auto() {
     assert_eq!(actual, "auto");
 }
 
+#[test]
+fn set_model_forward_rules_updates_env_cache_and_matching() {
+    let _guard = crate::test_env_guard();
+    let _rules_guard = EnvGuard::clear(ENV_MODEL_FORWARD_RULES);
+
+    let applied = set_model_forward_rules("spark*=gpt-5.4-mini\nclaude-sonnet-4*=gpt-5.4")
+        .expect("set model forward rules");
+
+    assert_eq!(
+        applied,
+        "spark*=gpt-5.4-mini\nclaude-sonnet-4*=gpt-5.4"
+    );
+    assert_eq!(current_model_forward_rules(), applied);
+    assert_eq!(
+        std::env::var(ENV_MODEL_FORWARD_RULES).ok().as_deref(),
+        Some(applied.as_str())
+    );
+    assert_eq!(
+        resolve_forwarded_model("spark"),
+        Some("gpt-5.4-mini".to_string())
+    );
+    assert_eq!(
+        resolve_forwarded_model("claude-sonnet-4-20250514"),
+        Some("gpt-5.4".to_string())
+    );
+    assert_eq!(resolve_forwarded_model("gpt-5.4"), None);
+}
+
+#[test]
+fn set_model_forward_rules_rejects_invalid_target_auto() {
+    let _guard = crate::test_env_guard();
+
+    let err =
+        set_model_forward_rules("spark*=auto").expect_err("auto target should be rejected");
+
+    assert!(err.contains("target model cannot be auto"));
+}
+
 /// 函数 `set_originator_updates_env_and_dynamic_user_agent`
 ///
 /// 作者: gaohongshun

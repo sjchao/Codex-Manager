@@ -779,6 +779,10 @@ fn begin_ws_request_log(
     prepared: &PreparedClientFrame,
 ) -> PendingWsRequestLog {
     let trace_id = crate::gateway::next_trace_id();
+    let effective_protocol_type = crate::apikey_profile::resolve_gateway_protocol_type(
+        context.api_key.protocol_type.as_str(),
+        RESPONSES_PATH,
+    );
     crate::gateway::log_request_start(
         trace_id.as_str(),
         context.api_key.id.as_str(),
@@ -789,7 +793,7 @@ fn begin_ws_request_log(
         prepared.service_tier.as_deref(),
         true,
         "ws",
-        context.api_key.protocol_type.as_str(),
+        effective_protocol_type,
     );
     crate::gateway::log_client_service_tier(
         trace_id.as_str(),

@@ -1356,6 +1356,7 @@ export function normalizeAppSettings(payload: unknown): AppSettings {
     freeAccountMaxModelOptions: asArray(source.freeAccountMaxModelOptions).map((item) =>
       asString(item)
     ),
+    modelForwardRules: asString(source.modelForwardRules ?? source.model_forward_rules),
     accountMaxInflight: asInteger(source.accountMaxInflight, 1, 0),
     gatewayOriginator: asString(source.gatewayOriginator) || "codex_cli_rs",
     gatewayUserAgentVersion: asString(source.gatewayUserAgentVersion) || "0.101.0",

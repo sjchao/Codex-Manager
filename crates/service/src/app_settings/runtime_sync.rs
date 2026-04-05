@@ -6,10 +6,11 @@ use super::{
     persisted_env_overrides_missing_process_env, reload_runtime_after_env_override_apply,
     set_service_bind_mode, BackgroundTasksInput, APP_SETTING_GATEWAY_ACCOUNT_MAX_INFLIGHT_KEY,
     APP_SETTING_GATEWAY_BACKGROUND_TASKS_KEY, APP_SETTING_GATEWAY_FREE_ACCOUNT_MAX_MODEL_KEY,
-    APP_SETTING_GATEWAY_ORIGINATOR_KEY, APP_SETTING_GATEWAY_RESIDENCY_REQUIREMENT_KEY,
-    APP_SETTING_GATEWAY_ROUTE_STRATEGY_KEY, APP_SETTING_GATEWAY_SSE_KEEPALIVE_INTERVAL_MS_KEY,
-    APP_SETTING_GATEWAY_UPSTREAM_PROXY_URL_KEY, APP_SETTING_GATEWAY_UPSTREAM_STREAM_TIMEOUT_MS_KEY,
-    APP_SETTING_GATEWAY_USER_AGENT_VERSION_KEY, SERVICE_BIND_MODE_SETTING_KEY,
+    APP_SETTING_GATEWAY_MODEL_FORWARD_RULES_KEY, APP_SETTING_GATEWAY_ORIGINATOR_KEY,
+    APP_SETTING_GATEWAY_RESIDENCY_REQUIREMENT_KEY, APP_SETTING_GATEWAY_ROUTE_STRATEGY_KEY,
+    APP_SETTING_GATEWAY_SSE_KEEPALIVE_INTERVAL_MS_KEY, APP_SETTING_GATEWAY_UPSTREAM_PROXY_URL_KEY,
+    APP_SETTING_GATEWAY_UPSTREAM_STREAM_TIMEOUT_MS_KEY, APP_SETTING_GATEWAY_USER_AGENT_VERSION_KEY,
+    SERVICE_BIND_MODE_SETTING_KEY,
 };
 
 /// 函数 `process_env_has_value`
@@ -84,6 +85,13 @@ pub fn sync_runtime_settings_from_storage() {
                 if let Err(err) = gateway::set_free_account_max_model(&model) {
                     log::warn!("sync persisted free account max model failed: {err}");
                 }
+            }
+        }
+    }
+    if !process_env_has_value("CODEXMANAGER_MODEL_FORWARD_RULES") {
+        if let Some(raw) = settings.get(APP_SETTING_GATEWAY_MODEL_FORWARD_RULES_KEY) {
+            if let Err(err) = gateway::set_model_forward_rules(raw) {
+                log::warn!("sync persisted model forward rules failed: {err}");
             }
         }
     }

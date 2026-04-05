@@ -390,6 +390,7 @@ export interface AppSettings {
   routeStrategyOptions: string[];
   freeAccountMaxModel: string;
   freeAccountMaxModelOptions: string[];
+  modelForwardRules: string;
   accountMaxInflight: number;
   gatewayOriginator: string;
   gatewayUserAgentVersion: string;

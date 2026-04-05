@@ -25,6 +25,7 @@ static STRICT_REQUEST_PARAM_ALLOWLIST: AtomicBool =
 static ENABLE_REQUEST_COMPRESSION: AtomicBool = AtomicBool::new(DEFAULT_ENABLE_REQUEST_COMPRESSION);
 static UPSTREAM_PROXY_URL: OnceLock<RwLock<Option<String>>> = OnceLock::new();
 static FREE_ACCOUNT_MAX_MODEL: OnceLock<RwLock<String>> = OnceLock::new();
+static MODEL_FORWARD_RULES: OnceLock<RwLock<Vec<ModelForwardRule>>> = OnceLock::new();
 static ORIGINATOR: OnceLock<RwLock<String>> = OnceLock::new();
 static CODEX_USER_AGENT_VERSION: OnceLock<RwLock<String>> = OnceLock::new();
 static RESIDENCY_REQUIREMENT: OnceLock<RwLock<Option<String>>> = OnceLock::new();
@@ -43,6 +44,7 @@ const DEFAULT_REQUEST_GATE_WAIT_TIMEOUT_MS: u64 = 300;
 const DEFAULT_TRACE_BODY_PREVIEW_MAX_BYTES: usize = 0;
 const DEFAULT_FRONT_PROXY_MAX_BODY_BYTES: usize = 16 * 1024 * 1024;
 const DEFAULT_FREE_ACCOUNT_MAX_MODEL: &str = "auto";
+const DEFAULT_MODEL_FORWARD_RULES: &str = "";
 const DEFAULT_CODEX_USER_AGENT_VERSION: &str = "0.101.0";
 const MAX_UPSTREAM_PROXY_POOL_SIZE: usize = 5;
 
@@ -60,6 +62,7 @@ const ENV_TOKEN_EXCHANGE_ISSUER: &str = "CODEXMANAGER_ISSUER";
 const ENV_PROXY_LIST: &str = "CODEXMANAGER_PROXY_LIST";
 const ENV_UPSTREAM_PROXY_URL: &str = "CODEXMANAGER_UPSTREAM_PROXY_URL";
 const ENV_FREE_ACCOUNT_MAX_MODEL: &str = "CODEXMANAGER_FREE_ACCOUNT_MAX_MODEL";
+const ENV_MODEL_FORWARD_RULES: &str = "CODEXMANAGER_MODEL_FORWARD_RULES";
 const ENV_ORIGINATOR: &str = "CODEXMANAGER_ORIGINATOR";
 const ENV_RESIDENCY_REQUIREMENT: &str = "CODEXMANAGER_RESIDENCY_REQUIREMENT";
 pub(crate) const RESIDENCY_HEADER_NAME: &str = "x-openai-internal-codex-residency";
@@ -68,6 +71,12 @@ pub(crate) const RESIDENCY_HEADER_NAME: &str = "x-openai-internal-codex-residenc
 struct UpstreamClientPool {
     proxies: Vec<String>,
     clients: Vec<Client>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ModelForwardRule {
+    pub from_pattern: String,
+    pub to_model: String,
 }
 
 impl UpstreamClientPool {
@@ -453,6 +462,45 @@ pub(crate) fn current_free_account_max_model() -> String {
     crate::lock_utils::read_recover(free_account_max_model_cell(), "free_account_max_model").clone()
 }
 
+/// 函数 `current_model_forward_rules`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-05
+///
+/// # 参数
+/// 无
+///
+/// # 返回
+/// 返回函数执行结果
+pub(crate) fn current_model_forward_rules() -> String {
+    ensure_runtime_config_loaded();
+    serialize_model_forward_rules(
+        &crate::lock_utils::read_recover(model_forward_rules_cell(), "model_forward_rules"),
+    )
+}
+
+/// 函数 `resolve_forwarded_model`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-05
+///
+/// # 参数
+/// - model: 参数 model
+///
+/// # 返回
+/// 返回函数执行结果
+pub(crate) fn resolve_forwarded_model(model: &str) -> Option<String> {
+    ensure_runtime_config_loaded();
+    let normalized_model = normalize_forward_target_model(model).ok()?;
+    let rules = crate::lock_utils::read_recover(model_forward_rules_cell(), "model_forward_rules");
+    rules
+        .iter()
+        .find(|rule| wildcard_pattern_matches(rule.from_pattern.as_str(), normalized_model.as_str()))
+        .map(|rule| rule.to_model.clone())
+}
+
 /// 函数 `current_originator`
 ///
 /// 作者: gaohongshun
@@ -629,6 +677,32 @@ pub(crate) fn set_free_account_max_model(model: &str) -> Result<String, String> 
     let mut cached =
         crate::lock_utils::write_recover(free_account_max_model_cell(), "free_account_max_model");
     *cached = normalized.clone();
+    Ok(normalized)
+}
+
+/// 函数 `set_model_forward_rules`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-05
+///
+/// # 参数
+/// - raw: 参数 raw
+///
+/// # 返回
+/// 返回函数执行结果
+pub(crate) fn set_model_forward_rules(raw: &str) -> Result<String, String> {
+    ensure_runtime_config_loaded();
+    let normalized = normalize_model_forward_rules(raw)?;
+    let parsed = parse_model_forward_rules(normalized.as_str())?;
+    if normalized.is_empty() {
+        std::env::remove_var(ENV_MODEL_FORWARD_RULES);
+    } else {
+        std::env::set_var(ENV_MODEL_FORWARD_RULES, normalized.as_str());
+    }
+    let mut cached =
+        crate::lock_utils::write_recover(model_forward_rules_cell(), "model_forward_rules");
+    *cached = parsed;
     Ok(normalized)
 }
 
@@ -845,6 +919,23 @@ pub(super) fn reload_from_env() {
     *cached_free_account_max_model = free_account_max_model;
     drop(cached_free_account_max_model);
 
+    let model_forward_rules = env_non_empty(ENV_MODEL_FORWARD_RULES)
+        .map(|value| parse_model_forward_rules(value.as_str()))
+        .transpose()
+        .unwrap_or_else(|err| {
+            log::warn!(
+                "event=gateway_invalid_model_forward_rules source=env var={} err={}",
+                ENV_MODEL_FORWARD_RULES,
+                err
+            );
+            None
+        })
+        .unwrap_or_default();
+    let mut cached_model_forward_rules =
+        crate::lock_utils::write_recover(model_forward_rules_cell(), "model_forward_rules");
+    *cached_model_forward_rules = model_forward_rules;
+    drop(cached_model_forward_rules);
+
     let originator = env_non_empty(ENV_ORIGINATOR)
         .and_then(|value| normalize_originator(value.as_str()).ok())
         .unwrap_or_else(|| DEFAULT_ORIGINATOR.to_string());
@@ -1014,6 +1105,24 @@ fn free_account_max_model_cell() -> &'static RwLock<String> {
     FREE_ACCOUNT_MAX_MODEL.get_or_init(|| RwLock::new(DEFAULT_FREE_ACCOUNT_MAX_MODEL.to_string()))
 }
 
+/// 函数 `model_forward_rules_cell`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-05
+///
+/// # 参数
+/// 无
+///
+/// # 返回
+/// 返回函数执行结果
+fn model_forward_rules_cell() -> &'static RwLock<Vec<ModelForwardRule>> {
+    MODEL_FORWARD_RULES.get_or_init(|| {
+        let initial = parse_model_forward_rules(DEFAULT_MODEL_FORWARD_RULES).unwrap_or_default();
+        RwLock::new(initial)
+    })
+}
+
 /// 函数 `originator_cell`
 ///
 /// 作者: gaohongshun
@@ -1180,6 +1289,189 @@ fn env_bool_or(name: &str, default: bool) -> bool {
         "0" | "false" | "no" | "off" => false,
         _ => default,
     }
+}
+
+/// 函数 `normalize_model_forward_pattern`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-05
+///
+/// # 参数
+/// - raw: 参数 raw
+///
+/// # 返回
+/// 返回函数执行结果
+fn normalize_model_forward_pattern(raw: &str) -> Result<String, String> {
+    let normalized = raw.trim().to_ascii_lowercase();
+    if normalized.is_empty() {
+        return Err("modelForwardRules pattern is required".to_string());
+    }
+    if normalized.chars().all(|ch| ch == '*') {
+        return Err("modelForwardRules pattern cannot be wildcard-only".to_string());
+    }
+    if normalized.chars().any(|ch| {
+        !(ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | '/' | ':' | '*'))
+    }) {
+        return Err("modelForwardRules pattern contains unsupported characters".to_string());
+    }
+    Ok(normalized)
+}
+
+/// 函数 `normalize_forward_target_model`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-05
+///
+/// # 参数
+/// - raw: 参数 raw
+///
+/// # 返回
+/// 返回函数执行结果
+fn normalize_forward_target_model(raw: &str) -> Result<String, String> {
+    let normalized = normalize_model_slug(raw)?;
+    if normalized == "auto" {
+        return Err("modelForwardRules target model cannot be auto".to_string());
+    }
+    Ok(normalized)
+}
+
+/// 函数 `parse_model_forward_rule_line`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-05
+///
+/// # 参数
+/// - line: 参数 line
+///
+/// # 返回
+/// 返回函数执行结果
+fn parse_model_forward_rule_line(line: &str) -> Option<(&str, &str)> {
+    line.split_once("=>").or_else(|| line.split_once('='))
+}
+
+/// 函数 `normalize_model_forward_rules`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-05
+///
+/// # 参数
+/// - raw: 参数 raw
+///
+/// # 返回
+/// 返回函数执行结果
+fn normalize_model_forward_rules(raw: &str) -> Result<String, String> {
+    let mut lines = Vec::new();
+    for (idx, line) in raw.lines().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let Some((pattern, target)) = parse_model_forward_rule_line(trimmed) else {
+            return Err(format!(
+                "modelForwardRules line {} must use pattern=target",
+                idx + 1
+            ));
+        };
+        let normalized_pattern = normalize_model_forward_pattern(pattern)?;
+        let normalized_target = normalize_forward_target_model(target)?;
+        lines.push(format!("{normalized_pattern}={normalized_target}"));
+    }
+    Ok(lines.join("\n"))
+}
+
+/// 函数 `parse_model_forward_rules`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-05
+///
+/// # 参数
+/// - raw: 参数 raw
+///
+/// # 返回
+/// 返回函数执行结果
+fn parse_model_forward_rules(raw: &str) -> Result<Vec<ModelForwardRule>, String> {
+    let normalized = normalize_model_forward_rules(raw)?;
+    let mut rules = Vec::new();
+    for line in normalized.lines() {
+        let Some((from_pattern, to_model)) = line.split_once('=') else {
+            continue;
+        };
+        rules.push(ModelForwardRule {
+            from_pattern: from_pattern.to_string(),
+            to_model: to_model.to_string(),
+        });
+    }
+    Ok(rules)
+}
+
+/// 函数 `serialize_model_forward_rules`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-05
+///
+/// # 参数
+/// - rules: 参数 rules
+///
+/// # 返回
+/// 返回函数执行结果
+fn serialize_model_forward_rules(rules: &[ModelForwardRule]) -> String {
+    rules
+        .iter()
+        .map(|rule| format!("{}={}", rule.from_pattern, rule.to_model))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// 函数 `wildcard_pattern_matches`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-05
+///
+/// # 参数
+/// - pattern: 参数 pattern
+/// - value: 参数 value
+///
+/// # 返回
+/// 返回函数执行结果
+fn wildcard_pattern_matches(pattern: &str, value: &str) -> bool {
+    if !pattern.contains('*') {
+        return pattern.eq_ignore_ascii_case(value);
+    }
+    let normalized_pattern = pattern.to_ascii_lowercase();
+    let normalized_value = value.to_ascii_lowercase();
+    let starts_with_wildcard = normalized_pattern.starts_with('*');
+    let ends_with_wildcard = normalized_pattern.ends_with('*');
+    let segments = normalized_pattern
+        .split('*')
+        .filter(|segment| !segment.is_empty())
+        .collect::<Vec<_>>();
+    if segments.is_empty() {
+        return false;
+    }
+
+    let mut cursor = 0usize;
+    for (idx, segment) in segments.iter().enumerate() {
+        let Some(found) = normalized_value[cursor..].find(*segment) else {
+            return false;
+        };
+        let absolute = cursor + found;
+        if idx == 0 && !starts_with_wildcard && absolute != 0 {
+            return false;
+        }
+        cursor = absolute + segment.len();
+    }
+
+    if !ends_with_wildcard {
+        return cursor == normalized_value.len();
+    }
+    true
 }
 
 /// 函数 `normalize_model_slug`

@@ -355,6 +355,36 @@ fn filter_multipart_form_data_body(
     Some((rebuilt, dropped_keys))
 }
 
+/// 函数 `apply_model_forward_rule_if_needed`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-05
+///
+/// # 参数
+/// - obj: 参数 obj
+///
+/// # 返回
+/// 返回函数执行结果
+fn apply_model_forward_rule_if_needed(obj: &mut serde_json::Map<String, Value>) -> bool {
+    let Some(current_model) = obj
+        .get("model")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return false;
+    };
+    let Some(forwarded_model) = super::resolve_forwarded_model(current_model) else {
+        return false;
+    };
+    if forwarded_model.eq_ignore_ascii_case(current_model) {
+        return false;
+    }
+    obj.insert("model".to_string(), Value::String(forwarded_model));
+    true
+}
+
 /// 函数 `apply_request_overrides`
 ///
 /// 作者: gaohongshun
@@ -585,6 +615,8 @@ fn apply_request_overrides_with_prompt_cache_key_mode(
 
             if let Some(model) = normalized_model {
                 obj.insert("model".to_string(), Value::String(model.to_string()));
+                changed = true;
+            } else if apply_model_forward_rule_if_needed(obj) {
                 changed = true;
             }
 

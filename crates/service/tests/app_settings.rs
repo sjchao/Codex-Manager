@@ -11,6 +11,7 @@ const ISOLATED_RUNTIME_ENV_KEYS: &[&str] = &[
     "CODEXMANAGER_WEB_ADDR",
     "CODEXMANAGER_ROUTE_STRATEGY",
     "CODEXMANAGER_FREE_ACCOUNT_MAX_MODEL",
+    "CODEXMANAGER_MODEL_FORWARD_RULES",
     "CODEXMANAGER_ENABLE_REQUEST_COMPRESSION",
     "CODEXMANAGER_ORIGINATOR",
     "CODEXMANAGER_RESIDENCY_REQUIREMENT",
@@ -68,6 +69,7 @@ fn reset_runtime_defaults() {
     let _ = codexmanager_service::app_settings_set(Some(&json!({
         "routeStrategy": "balanced",
         "freeAccountMaxModel": "gpt-5.2",
+        "modelForwardRules": "",
         "gatewayOriginator": "codex_cli_rs",
         "gatewayUserAgentVersion": "0.101.0",
         "gatewayResidencyRequirement": "",
@@ -302,6 +304,7 @@ fn app_settings_set_persists_snapshot_and_password_hash() {
             "serviceListenMode": "all_interfaces",
             "routeStrategy": "rr",
             "freeAccountMaxModel": "gpt-5.3-codex",
+            "modelForwardRules": "spark*=gpt-5.4-mini",
             "gatewayOriginator": "codex_cli_rs_test",
             "gatewayUserAgentVersion": "0.101.2",
             "gatewayResidencyRequirement": "us",
@@ -385,6 +388,12 @@ fn app_settings_set_persists_snapshot_and_password_hash() {
         );
         assert_eq!(
             snapshot
+                .get("modelForwardRules")
+                .and_then(|value| value.as_str()),
+            Some("spark*=gpt-5.4-mini")
+        );
+        assert_eq!(
+            snapshot
                 .get("gatewayOriginator")
                 .and_then(|value| value.as_str()),
             Some("codex_cli_rs_test")
@@ -433,6 +442,14 @@ fn app_settings_set_persists_snapshot_and_password_hash() {
                 )
                 .expect("read free account max model"),
             Some("gpt-5.3-codex".to_string())
+        );
+        assert_eq!(
+            storage
+                .get_app_setting(
+                    codexmanager_service::APP_SETTING_GATEWAY_MODEL_FORWARD_RULES_KEY
+                )
+                .expect("read model forward rules"),
+            Some("spark*=gpt-5.4-mini".to_string())
         );
         assert_eq!(
             storage
@@ -549,6 +566,13 @@ fn sync_runtime_settings_from_storage_applies_saved_runtime_values() {
             .expect("save free account max model");
         storage
             .set_app_setting(
+                codexmanager_service::APP_SETTING_GATEWAY_MODEL_FORWARD_RULES_KEY,
+                "spark*=gpt-5.4-mini",
+                now_ts(),
+            )
+            .expect("save model forward rules");
+        storage
+            .set_app_setting(
                 codexmanager_service::APP_SETTING_GATEWAY_REQUEST_COMPRESSION_ENABLED_KEY,
                 "0",
                 now_ts(),
@@ -647,6 +671,12 @@ fn sync_runtime_settings_from_storage_applies_saved_runtime_values() {
         );
         assert_eq!(
             snapshot
+                .get("modelForwardRules")
+                .and_then(|value| value.as_str()),
+            Some("spark*=gpt-5.4-mini")
+        );
+        assert_eq!(
+            snapshot
                 .get("gatewayOriginator")
                 .and_then(|value| value.as_str()),
             Some("codex_cli_rs_synced")
@@ -731,6 +761,7 @@ fn app_settings_get_loads_env_backed_dedicated_settings_when_storage_missing() {
             codexmanager_service::SERVICE_BIND_MODE_SETTING_KEY,
             codexmanager_service::APP_SETTING_GATEWAY_ROUTE_STRATEGY_KEY,
             codexmanager_service::APP_SETTING_GATEWAY_FREE_ACCOUNT_MAX_MODEL_KEY,
+            codexmanager_service::APP_SETTING_GATEWAY_MODEL_FORWARD_RULES_KEY,
             codexmanager_service::APP_SETTING_GATEWAY_ORIGINATOR_KEY,
             codexmanager_service::APP_SETTING_GATEWAY_USER_AGENT_VERSION_KEY,
             codexmanager_service::APP_SETTING_GATEWAY_RESIDENCY_REQUIREMENT_KEY,
@@ -747,6 +778,7 @@ fn app_settings_get_loads_env_backed_dedicated_settings_when_storage_missing() {
             ("CODEXMANAGER_SERVICE_ADDR", Some("0.0.0.0:4999")),
             ("CODEXMANAGER_ROUTE_STRATEGY", Some("balanced")),
             ("CODEXMANAGER_FREE_ACCOUNT_MAX_MODEL", Some("gpt-5.2-codex")),
+            ("CODEXMANAGER_MODEL_FORWARD_RULES", Some("spark*=gpt-5.4-mini")),
             ("CODEXMANAGER_ENABLE_REQUEST_COMPRESSION", Some("0")),
             ("CODEXMANAGER_ORIGINATOR", Some("codex_cli_rs_env")),
             ("CODEXMANAGER_RESIDENCY_REQUIREMENT", Some("us")),
@@ -792,6 +824,12 @@ fn app_settings_get_loads_env_backed_dedicated_settings_when_storage_missing() {
                 .get("freeAccountMaxModel")
                 .and_then(|value| value.as_str()),
             Some("gpt-5.2-codex")
+        );
+        assert_eq!(
+            snapshot
+                .get("modelForwardRules")
+                .and_then(|value| value.as_str()),
+            Some("spark*=gpt-5.4-mini")
         );
         assert_eq!(
             snapshot
@@ -884,6 +922,14 @@ fn app_settings_get_loads_env_backed_dedicated_settings_when_storage_missing() {
                 )
                 .expect("read free account max model"),
             Some("gpt-5.2-codex".to_string())
+        );
+        assert_eq!(
+            storage
+                .get_app_setting(
+                    codexmanager_service::APP_SETTING_GATEWAY_MODEL_FORWARD_RULES_KEY
+                )
+                .expect("read model forward rules"),
+            Some("spark*=gpt-5.4-mini".to_string())
         );
         assert_eq!(
             storage

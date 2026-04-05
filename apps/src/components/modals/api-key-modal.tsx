@@ -30,9 +30,9 @@ import { Key, Clipboard, ShieldCheck } from "lucide-react";
 import { ApiKey } from "@/types";
 
 const PROTOCOL_LABELS: Record<string, string> = {
-  openai_compat: "OpenAI 兼容",
+  openai_compat: "通配兼容 (Codex / Claude Code)",
   azure_openai: "Azure OpenAI",
-  anthropic_native: "Claude Code 兼容",
+  anthropic_native: "通配兼容 (Codex / Claude Code)",
 };
 
 const REASONING_LABELS: Record<string, string> = {
@@ -126,10 +126,12 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
     }
 
     setName(apiKey.name || "");
-    setProtocolType(apiKey.protocol || "openai_compat");
+    setProtocolType(
+      apiKey.protocol === "azure_openai" ? "azure_openai" : "openai_compat",
+    );
     setModelSlug(apiKey.modelSlug || "");
     setReasoningEffort(apiKey.reasoningEffort || "");
-      setServiceTier(normalizeEditableServiceTier(apiKey.serviceTier));
+    setServiceTier(normalizeEditableServiceTier(apiKey.serviceTier));
     setRotationStrategy(apiKey.rotationStrategy || "account_rotation");
     setGeneratedKey("");
 
@@ -325,20 +327,20 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
                 <SelectTrigger className="w-full">
                   <SelectValue>
                     {(value) =>
-                      PROTOCOL_LABELS[String(value || "")] || "OpenAI 兼容"
+                      PROTOCOL_LABELS[String(value || "")] ||
+                      "通配兼容 (Codex / Claude Code)"
                     }
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent align="start">
-                  <SelectItem value="openai_compat">OpenAI 兼容</SelectItem>
-                  <SelectItem value="azure_openai">Azure OpenAI</SelectItem>
-                  <SelectItem value="anthropic_native">
-                    Claude Code 兼容
+                  <SelectItem value="openai_compat">
+                    通配兼容 (Codex / Claude Code)
                   </SelectItem>
+                  <SelectItem value="azure_openai">Azure OpenAI</SelectItem>
                 </SelectContent>
               </Select>
               <p className="min-h-[32px] text-[11px] text-muted-foreground">
-                决定认证头和请求协议改写方式。
+                默认按路径通配：<code>/v1/messages*</code> 走 Claude 语义，其它标准路径走 Codex / OpenAI 语义。
               </p>
             </div>
             <div className="grid gap-2 content-start">

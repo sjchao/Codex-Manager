@@ -14,11 +14,12 @@ pub(crate) use env_overrides::{
 };
 pub use gateway::{
     current_gateway_account_max_inflight, current_gateway_free_account_max_model,
-    current_gateway_originator, current_gateway_request_compression_enabled,
+    current_gateway_model_forward_rules, current_gateway_originator,
+    current_gateway_request_compression_enabled,
     current_gateway_residency_requirement, current_gateway_sse_keepalive_interval_ms,
     current_gateway_upstream_stream_timeout_ms, current_gateway_user_agent_version,
     residency_requirement_options, set_gateway_account_max_inflight, set_gateway_background_tasks,
-    set_gateway_free_account_max_model, set_gateway_originator,
+    set_gateway_free_account_max_model, set_gateway_model_forward_rules, set_gateway_originator,
     set_gateway_request_compression_enabled, set_gateway_residency_requirement,
     set_gateway_route_strategy, set_gateway_sse_keepalive_interval_ms,
     set_gateway_upstream_proxy_url, set_gateway_upstream_stream_timeout_ms,
@@ -36,7 +37,8 @@ pub(crate) use shared::{normalize_optional_text, parse_bool_with_default};
 pub use shared::{
     APP_SETTING_CLOSE_TO_TRAY_ON_CLOSE_KEY, APP_SETTING_ENV_OVERRIDES_KEY,
     APP_SETTING_GATEWAY_ACCOUNT_MAX_INFLIGHT_KEY, APP_SETTING_GATEWAY_BACKGROUND_TASKS_KEY,
-    APP_SETTING_GATEWAY_FREE_ACCOUNT_MAX_MODEL_KEY, APP_SETTING_GATEWAY_ORIGINATOR_KEY,
+    APP_SETTING_GATEWAY_FREE_ACCOUNT_MAX_MODEL_KEY,
+    APP_SETTING_GATEWAY_MODEL_FORWARD_RULES_KEY, APP_SETTING_GATEWAY_ORIGINATOR_KEY,
     APP_SETTING_GATEWAY_REQUEST_COMPRESSION_ENABLED_KEY,
     APP_SETTING_GATEWAY_RESIDENCY_REQUIREMENT_KEY, APP_SETTING_GATEWAY_ROUTE_STRATEGY_KEY,
     APP_SETTING_GATEWAY_SSE_KEEPALIVE_INTERVAL_MS_KEY, APP_SETTING_GATEWAY_UPSTREAM_PROXY_URL_KEY,

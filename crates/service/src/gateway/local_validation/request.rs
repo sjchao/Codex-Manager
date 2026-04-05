@@ -1,4 +1,6 @@
-use crate::apikey_profile::{PROTOCOL_ANTHROPIC_NATIVE, ROTATION_AGGREGATE_API};
+use crate::apikey_profile::{
+    resolve_gateway_protocol_type, PROTOCOL_ANTHROPIC_NATIVE, ROTATION_AGGREGATE_API,
+};
 use bytes::Bytes;
 use codexmanager_core::rpc::types::ModelOption;
 use codexmanager_core::storage::ApiKey;
@@ -241,6 +243,8 @@ pub(super) fn build_local_validation_result(
 ) -> Result<LocalValidationResult, LocalValidationError> {
     // 按当前策略取消每次请求都更新 api_keys.last_used_at，减少并发写入冲突。
     let normalized_path = super::super::normalize_models_path(request.url());
+    let effective_protocol_type =
+        resolve_gateway_protocol_type(api_key.protocol_type.as_str(), normalized_path.as_str());
     let request_method = request.method().as_str().to_string();
     let method = Method::from_bytes(request_method.as_bytes())
         .map_err(|_| LocalValidationError::new(405, "unsupported method"))?;
@@ -255,7 +259,7 @@ pub(super) fn build_local_validation_result(
     );
     let initial_request_meta = super::super::parse_request_metadata(&body);
     let initial_local_conversation_id = resolve_local_conversation_id(
-        api_key.protocol_type.as_str(),
+        effective_protocol_type,
         normalized_path.as_str(),
         &incoming_headers,
         initial_request_meta.has_prompt_cache_key,
@@ -288,7 +292,7 @@ pub(super) fn build_local_validation_result(
             is_stream: initial_request_meta.is_stream,
             has_prompt_cache_key,
             request_shape,
-            protocol_type: api_key.protocol_type,
+            protocol_type: effective_protocol_type.to_string(),
             rotation_strategy: api_key.rotation_strategy,
             aggregate_api_id: api_key.aggregate_api_id,
             upstream_base_url: api_key.upstream_base_url,
@@ -310,7 +314,7 @@ pub(super) fn build_local_validation_result(
 
     let original_body = body.clone();
     let adapted = super::super::adapt_request_for_protocol(
-        api_key.protocol_type.as_str(),
+        effective_protocol_type,
         &normalized_path,
         body,
     )
@@ -319,16 +323,16 @@ pub(super) fn build_local_validation_result(
     let mut response_adapter = adapted.response_adapter;
     let mut tool_name_restore_map = adapted.tool_name_restore_map;
     body = adapted.body;
-    if api_key.protocol_type != PROTOCOL_ANTHROPIC_NATIVE
+    if effective_protocol_type != PROTOCOL_ANTHROPIC_NATIVE
         && !normalized_path.starts_with("/v1/responses")
         && path.starts_with("/v1/responses")
-        && !allow_openai_responses_path_rewrite(&api_key.protocol_type, &normalized_path)
+        && !allow_openai_responses_path_rewrite(effective_protocol_type, &normalized_path)
     {
         // 中文注释：防回归保护：仅 anthropic_native 的 /v1/messages 允许改写到 /v1/responses；
         // 其余协议和路径一律保持原路径透传，避免客户端按 chat/completions 语义却拿到 responses 流格式。
         log::warn!(
             "event=gateway_protocol_adapt_guard protocol_type={} from_path={} to_path={} action=force_passthrough",
-            api_key.protocol_type,
+            effective_protocol_type,
             normalized_path,
             path
         );
@@ -392,7 +396,7 @@ pub(super) fn build_local_validation_result(
 
     ensure_anthropic_model_is_listed(
         &storage,
-        api_key.protocol_type.as_str(),
+        effective_protocol_type,
         model_for_log.as_deref(),
     )?;
 
@@ -406,7 +410,7 @@ pub(super) fn build_local_validation_result(
         is_stream,
         has_prompt_cache_key,
         request_shape,
-        protocol_type: api_key.protocol_type,
+        protocol_type: effective_protocol_type.to_string(),
         upstream_base_url: api_key.upstream_base_url,
         static_headers_json: api_key.static_headers_json,
         response_adapter,

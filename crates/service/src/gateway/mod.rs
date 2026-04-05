@@ -397,6 +397,21 @@ pub(crate) fn current_free_account_max_model() -> String {
     runtime_config::current_free_account_max_model()
 }
 
+/// 函数 `current_model_forward_rules`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-05
+///
+/// # 参数
+/// 无
+///
+/// # 返回
+/// 返回函数执行结果
+pub(crate) fn current_model_forward_rules() -> String {
+    runtime_config::current_model_forward_rules()
+}
+
 /// 函数 `request_compression_enabled`
 ///
 /// 作者: gaohongshun
@@ -545,6 +560,36 @@ pub(crate) fn current_codex_user_agent() -> String {
 /// 返回函数执行结果
 pub(crate) fn set_free_account_max_model(model: &str) -> Result<String, String> {
     runtime_config::set_free_account_max_model(model)
+}
+
+/// 函数 `set_model_forward_rules`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-05
+///
+/// # 参数
+/// - raw: 参数 raw
+///
+/// # 返回
+/// 返回函数执行结果
+pub(crate) fn set_model_forward_rules(raw: &str) -> Result<String, String> {
+    runtime_config::set_model_forward_rules(raw)
+}
+
+/// 函数 `resolve_forwarded_model`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-05
+///
+/// # 参数
+/// - model: 参数 model
+///
+/// # 返回
+/// 返回函数执行结果
+pub(crate) fn resolve_forwarded_model(model: &str) -> Option<String> {
+    runtime_config::resolve_forwarded_model(model)
 }
 
 /// 函数 `set_request_compression_enabled`
@@ -775,7 +820,11 @@ pub(crate) fn gateway_resolve_effective_upstream_base(
 pub(crate) fn gateway_supports_official_responses_websocket(
     api_key: &codexmanager_core::storage::ApiKey,
 ) -> bool {
-    if api_key.protocol_type != crate::apikey_profile::PROTOCOL_OPENAI_COMPAT {
+    if crate::apikey_profile::resolve_gateway_protocol_type(
+        api_key.protocol_type.as_str(),
+        "/v1/responses",
+    ) != crate::apikey_profile::PROTOCOL_OPENAI_COMPAT
+    {
         return false;
     }
     if api_key.rotation_strategy == crate::apikey_profile::ROTATION_AGGREGATE_API {

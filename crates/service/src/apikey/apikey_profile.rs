@@ -23,6 +23,43 @@ fn normalize_key(value: &str) -> String {
     value.trim().to_ascii_lowercase().replace('-', "_")
 }
 
+/// 函数 `is_anthropic_request_path`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-05
+///
+/// # 参数
+/// - path: 参数 path
+///
+/// # 返回
+/// 返回函数执行结果
+pub(crate) fn is_anthropic_request_path(path: &str) -> bool {
+    path == "/v1/messages" || path.starts_with("/v1/messages/") || path.starts_with("/v1/messages?")
+}
+
+/// 函数 `resolve_gateway_protocol_type`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-05
+///
+/// # 参数
+/// - protocol_type: 参数 protocol_type
+/// - path: 参数 path
+///
+/// # 返回
+/// 返回函数执行结果
+pub(crate) fn resolve_gateway_protocol_type(protocol_type: &str, path: &str) -> &'static str {
+    match normalize_key(protocol_type).as_str() {
+        "azure" | "azure_openai" => PROTOCOL_AZURE_OPENAI,
+        // 中文注释：平台 Key 对 Codex / Claude Code 默认按路径通配；
+        // `/v1/messages*` 走 Claude 语义，其余标准路径走 OpenAI/Codex 语义。
+        _ if is_anthropic_request_path(path) => PROTOCOL_ANTHROPIC_NATIVE,
+        _ => PROTOCOL_OPENAI_COMPAT,
+    }
+}
+
 /// 函数 `normalize_protocol_type`
 ///
 /// 作者: gaohongshun
@@ -164,4 +201,37 @@ pub(crate) fn normalize_static_headers_json(
         }
     }
     Ok(Some(trimmed.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        is_anthropic_request_path, resolve_gateway_protocol_type, PROTOCOL_ANTHROPIC_NATIVE,
+        PROTOCOL_AZURE_OPENAI, PROTOCOL_OPENAI_COMPAT,
+    };
+
+    #[test]
+    fn wildcard_protocol_routes_messages_path_to_anthropic() {
+        assert!(is_anthropic_request_path("/v1/messages"));
+        assert_eq!(
+            resolve_gateway_protocol_type(PROTOCOL_OPENAI_COMPAT, "/v1/messages"),
+            PROTOCOL_ANTHROPIC_NATIVE
+        );
+    }
+
+    #[test]
+    fn wildcard_protocol_routes_responses_path_to_openai() {
+        assert_eq!(
+            resolve_gateway_protocol_type(PROTOCOL_ANTHROPIC_NATIVE, "/v1/responses"),
+            PROTOCOL_OPENAI_COMPAT
+        );
+    }
+
+    #[test]
+    fn azure_protocol_keeps_azure_mapping() {
+        assert_eq!(
+            resolve_gateway_protocol_type(PROTOCOL_AZURE_OPENAI, "/v1/messages"),
+            PROTOCOL_AZURE_OPENAI
+        );
+    }
 }
