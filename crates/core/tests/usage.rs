@@ -27,6 +27,25 @@ fn usage_snapshot_parsed() {
                 "reset_at": 1730947260
             }
         },
+        "code_review_rate_limit": {
+            "allowed": true,
+            "limit_reached": false,
+            "primary_window": {
+                "used_percent": 10.0,
+                "limit_window_seconds": 604800,
+                "reset_at": 1731552000
+            }
+        },
+        "additional_rate_limits": {
+            "spark_rate_limit": {
+                "limit_name": "Spark",
+                "primary_window": {
+                    "used_percent": 40.0,
+                    "limit_window_seconds": 86400,
+                    "reset_at": 1731033600
+                }
+            }
+        },
         "credits": { "balance": 12.5 }
     });
 
@@ -37,7 +56,18 @@ fn usage_snapshot_parsed() {
     assert_eq!(snap.secondary_used_percent, Some(80.0));
     assert_eq!(snap.secondary_window_minutes, Some(2));
     assert_eq!(snap.secondary_resets_at, Some(1730947260));
-    assert!(snap.credits_json.as_ref().unwrap().contains("balance"));
+    let credits: serde_json::Value =
+        serde_json::from_str(snap.credits_json.as_deref().expect("credits json"))
+            .expect("parse credits json");
+    assert_eq!(credits["balance"], 12.5);
+    let extras = credits["_codexmanager_extra_rate_limits"]
+        .as_array()
+        .expect("extra rate limits array");
+    assert_eq!(extras.len(), 2);
+    assert_eq!(extras[0]["source_key"], "code_review_rate_limit");
+    assert_eq!(extras[1]["source_key"], "spark_rate_limit");
+    assert_eq!(extras[1]["limit_name"], "Spark");
+    assert_eq!(extras[1]["primary_window"]["used_percent"], 40.0);
 
     let url = usage_endpoint("https://chatgpt.com");
     assert_eq!(url, "https://chatgpt.com/backend-api/wham/usage");

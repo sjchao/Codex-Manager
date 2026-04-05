@@ -23,8 +23,16 @@ const COMPACT_NUMBER_UNITS = [
 const MINUTES_PER_HOUR = 60;
 const MINUTES_PER_DAY = 24 * MINUTES_PER_HOUR;
 const WINDOW_ROUNDING_BIAS_MINUTES = 3;
+const EXTRA_RATE_LIMITS_JSON_KEY = "_codexmanager_extra_rate_limits";
 
 type UsageWindowDisplayMode = "primary-only" | "secondary-only" | "dual" | "unknown";
+export interface ExtraUsageDisplayRow {
+  id: string;
+  label: string;
+  remainPercent: number | null;
+  resetsAt: number | null;
+  windowLabel: string;
+}
 
 /**
  * 函数 `toNullableNumber`
@@ -328,6 +336,87 @@ function parseCreditsJson(raw: string | null | undefined): unknown | null {
   }
 }
 
+function asObjectRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function humanizeExtraRateLimitLabel(raw: string): string {
+  const normalized = raw.trim().toLowerCase();
+  if (!normalized) return "额外额度";
+  if (normalized.includes("spark")) return "Spark 额度";
+  if (normalized.includes("code_review") || normalized.includes("code review")) {
+    return "Code Review 额度";
+  }
+
+  return raw
+    .replace(/_rate_limit$/i, "")
+    .replace(/[_-]+/g, " ")
+    .split(" ")
+    .map((part) => (part ? `${part[0].toUpperCase()}${part.slice(1)}` : ""))
+    .join(" ")
+    .trim() || "额外额度";
+}
+
+function formatWindowLabel(windowMinutes: number | null): string {
+  if (windowMinutes == null || windowMinutes <= 0) return "独立窗口";
+  if (windowMinutes % MINUTES_PER_DAY === 0) {
+    const days = windowMinutes / MINUTES_PER_DAY;
+    return days === 1 ? "1天窗口" : `${days}天窗口`;
+  }
+  if (windowMinutes % MINUTES_PER_HOUR === 0) {
+    const hours = windowMinutes / MINUTES_PER_HOUR;
+    return hours === 1 ? "1小时窗口" : `${hours}小时窗口`;
+  }
+  return `${windowMinutes}分钟窗口`;
+}
+
+function extractExtraRateLimitWindows(raw: string | null | undefined): ExtraUsageDisplayRow[] {
+  const credits = parseCreditsJson(raw);
+  const payload = asObjectRecord(credits);
+  const items = Array.isArray(payload?.[EXTRA_RATE_LIMITS_JSON_KEY])
+    ? (payload?.[EXTRA_RATE_LIMITS_JSON_KEY] as unknown[])
+    : [];
+
+  return items.flatMap((item, index) => {
+    const source = asObjectRecord(item);
+    if (!source) return [];
+
+    const labelSeed =
+      (typeof source.limit_name === "string" && source.limit_name.trim()) ||
+      (typeof source.limit_id === "string" && source.limit_id.trim()) ||
+      (typeof source.source_key === "string" && source.source_key.trim()) ||
+      `extra-${index + 1}`;
+    const baseLabel = humanizeExtraRateLimitLabel(labelSeed);
+    const windows = [
+      { key: "primary_window", suffix: "" },
+      { key: "secondary_window", suffix: " · 长周期" },
+    ];
+
+    return windows
+      .map(({ key, suffix }) => {
+        const window = asObjectRecord(source[key]);
+        if (!window) return null;
+        const remainPercent = remainingPercent(toNullableNumber(window.used_percent));
+        const resetsAt = toNullableNumber(window.reset_at);
+        const windowSeconds = toNullableNumber(window.limit_window_seconds);
+        const minutes = windowSeconds == null ? null : Math.max(1, Math.ceil(windowSeconds / 60));
+        if (remainPercent == null && resetsAt == null && minutes == null) {
+          return null;
+        }
+        return {
+          id: `${labelSeed}-${key}-${index}`,
+          label: `${baseLabel}${suffix}`,
+          remainPercent,
+          resetsAt,
+          windowLabel: formatWindowLabel(minutes),
+        } satisfies ExtraUsageDisplayRow;
+      })
+      .filter((entry): entry is ExtraUsageDisplayRow => Boolean(entry));
+  });
+}
+
 /**
  * 函数 `extractPlanTypeRecursive`
  *
@@ -470,6 +559,12 @@ export function getUsageDisplayBuckets(usage?: Partial<AccountUsage> | null): {
     secondaryRemainPercent: remainingPercent(usage?.secondaryUsedPercent),
     secondaryResetsAt: toNullableNumber(usage?.secondaryResetsAt),
   };
+}
+
+export function getExtraUsageDisplayRows(
+  usage?: Partial<AccountUsage> | null
+): ExtraUsageDisplayRow[] {
+  return extractExtraRateLimitWindows(usage?.creditsJson);
 }
 
 /**

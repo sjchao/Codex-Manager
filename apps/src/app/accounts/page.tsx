@@ -20,6 +20,7 @@ import {
   RefreshCw,
   Search,
   Trash2,
+  Zap,
   type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -82,6 +83,7 @@ import { cn } from "@/lib/utils";
 import { buildStaticRouteUrl } from "@/lib/utils/static-routes";
 import {
   formatTsFromSeconds,
+  getExtraUsageDisplayRows,
   getUsageDisplayBuckets,
   isBannedAccount,
   isPrimaryWindowOnlyUsage,
@@ -207,9 +209,14 @@ interface QuotaProgressProps {
   remainPercent: number | null;
   resetsAt: number | null;
   icon: LucideIcon;
-  tone: "green" | "blue";
+  tone: "green" | "blue" | "amber";
+  caption?: string;
   emptyText?: string;
   emptyResetText?: string;
+}
+
+interface QuotaSummaryItem extends QuotaProgressProps {
+  id: string;
 }
 
 /**
@@ -231,19 +238,39 @@ function QuotaProgress({
   resetsAt,
   icon: Icon,
   tone,
+  caption,
   emptyText = "--",
   emptyResetText = "未知",
 }: QuotaProgressProps) {
   const value = remainPercent ?? 0;
-  const trackClassName = tone === "blue" ? "bg-blue-500/20" : "bg-green-500/20";
-  const indicatorClassName = tone === "blue" ? "bg-blue-500" : "bg-green-500";
+  const toneClasses = {
+    blue: {
+      track: "bg-blue-500/20",
+      indicator: "bg-blue-500",
+      icon: "text-blue-500",
+    },
+    green: {
+      track: "bg-green-500/20",
+      indicator: "bg-green-500",
+      icon: "text-green-500",
+    },
+    amber: {
+      track: "bg-amber-500/20",
+      indicator: "bg-amber-500",
+      icon: "text-amber-500",
+    },
+  } as const;
+  const palette = toneClasses[tone];
 
   return (
-    <div className="flex min-w-[120px] flex-col gap-1">
+    <div className="flex min-w-[180px] flex-col gap-1.5">
       <div className="flex items-center justify-between text-[10px]">
-        <div className="flex items-center gap-1 text-muted-foreground">
-          <Icon className="h-3 w-3" />
-          <span>{label}</span>
+        <div className="min-w-0">
+          <div className="flex items-center gap-1 text-muted-foreground">
+            <Icon className={cn("h-3 w-3", palette.icon)} />
+            <span>{label}</span>
+          </div>
+          {caption ? <div className="truncate text-[9px] text-muted-foreground/80">{caption}</div> : null}
         </div>
         <span className="font-medium">
           {remainPercent == null ? emptyText : `${value}%`}
@@ -251,13 +278,88 @@ function QuotaProgress({
       </div>
       <Progress
         value={value}
-        trackClassName={trackClassName}
-        indicatorClassName={indicatorClassName}
+        trackClassName={palette.track}
+        indicatorClassName={palette.indicator}
       />
       <div className="text-[10px] text-muted-foreground">
         重置: {formatTsFromSeconds(resetsAt, emptyResetText)}
       </div>
     </div>
+  );
+}
+
+function QuotaOverviewCell({ items }: { items: QuotaSummaryItem[] }) {
+  const summaryItems = items.slice(0, 2);
+
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<div />} className="block cursor-help">
+        <div className="rounded-xl border border-primary/5 bg-accent/10 px-3 py-2">
+          <div className="flex items-center gap-3">
+            {summaryItems.map((item) => (
+              <div key={item.id} className="min-w-0 flex-1 space-y-1">
+                <div className="flex items-center justify-between text-[10px]">
+                  <span className="text-muted-foreground">{item.label}</span>
+                  <span className="font-medium text-foreground/80">
+                    {item.remainPercent == null ? item.emptyText ?? "--" : `${item.remainPercent}%`}
+                  </span>
+                </div>
+                <Progress
+                  value={item.remainPercent ?? 0}
+                  trackClassName={
+                    item.tone === "blue"
+                      ? "bg-blue-500/20"
+                      : item.tone === "amber"
+                        ? "bg-amber-500/20"
+                        : "bg-green-500/20"
+                  }
+                  indicatorClassName={
+                    item.tone === "blue"
+                      ? "bg-blue-500"
+                      : item.tone === "amber"
+                        ? "bg-amber-500"
+                        : "bg-green-500"
+                  }
+                />
+              </div>
+            ))}
+          </div>
+          <div className="mt-1 text-[10px] text-muted-foreground">
+            悬停查看全部额度
+          </div>
+        </div>
+      </TooltipTrigger>
+      <TooltipContent
+        side="right"
+        align="start"
+        sideOffset={10}
+        className="max-w-[340px] rounded-2xl bg-background p-3 text-foreground shadow-2xl"
+      >
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <p className="text-sm font-semibold">额度详情</p>
+            <p className="text-[10px] text-muted-foreground">
+              标准额度与专属额度统一在这里查看。
+            </p>
+          </div>
+          <div className="space-y-2">
+            {items.map((item) => (
+              <QuotaProgress
+                key={item.id}
+                label={item.label}
+                remainPercent={item.remainPercent}
+                resetsAt={item.resetsAt}
+                icon={item.icon}
+                tone={item.tone}
+                caption={item.caption}
+                emptyText={item.emptyText}
+                emptyResetText={item.emptyResetText}
+              />
+            ))}
+          </div>
+        </div>
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -1515,8 +1617,7 @@ export default function AccountsPage() {
                   />
                 </TableHead>
                 <TableHead className="max-w-[220px]">账号信息</TableHead>
-                <TableHead>5h 额度</TableHead>
-                <TableHead>7d 额度</TableHead>
+                <TableHead className="min-w-[250px] text-center">额度详情</TableHead>
                 <TableHead className="w-[156px]">顺序</TableHead>
                 <TableHead>状态</TableHead>
                 <TableHead className="text-center">操作</TableHead>
@@ -1533,10 +1634,11 @@ export default function AccountsPage() {
                       <Skeleton className="h-4 w-32" />
                     </TableCell>
                     <TableCell>
-                      <Skeleton className="h-4 w-24" />
-                    </TableCell>
-                    <TableCell>
-                      <Skeleton className="h-4 w-24" />
+                      <div className="space-y-2">
+                        <Skeleton className="h-4 w-40" />
+                        <Skeleton className="h-4 w-40" />
+                        <Skeleton className="h-4 w-40" />
+                      </div>
                     </TableCell>
                     <TableCell>
                       <Skeleton className="h-4 w-10" />
@@ -1551,7 +1653,7 @@ export default function AccountsPage() {
                 ))
               ) : visibleAccounts.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-48 text-center">
+                  <TableCell colSpan={6} className="h-48 text-center">
                     <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground">
                       <Search className="h-8 w-8 opacity-20" />
                       <p>未找到符合条件的账号</p>
@@ -1567,6 +1669,42 @@ export default function AccountsPage() {
                       account.usage,
                     );
                     const usageBuckets = getUsageDisplayBuckets(account.usage);
+                    const extraUsageRows = getExtraUsageDisplayRows(account.usage);
+                    const quotaItems: QuotaSummaryItem[] = [
+                      {
+                        id: `${account.id}-primary`,
+                        label: "5小时",
+                        remainPercent: account.primaryRemainPercent,
+                        resetsAt: usageBuckets.primaryResetsAt,
+                        icon: RefreshCw,
+                        tone: "green",
+                        caption: "标准模型窗口",
+                        emptyText: secondaryWindowOnly ? "未提供" : "--",
+                        emptyResetText: secondaryWindowOnly ? "未提供" : "未知",
+                      },
+                      {
+                        id: `${account.id}-secondary`,
+                        label: "7天",
+                        remainPercent: account.secondaryRemainPercent,
+                        resetsAt: usageBuckets.secondaryResetsAt,
+                        icon: RefreshCw,
+                        tone: "blue",
+                        caption: "长周期窗口",
+                        emptyText: primaryWindowOnly ? "未提供" : "--",
+                        emptyResetText: primaryWindowOnly ? "未提供" : "未知",
+                      },
+                      ...extraUsageRows.map((item) => ({
+                        id: item.id,
+                        label: item.label,
+                        remainPercent: item.remainPercent,
+                        resetsAt: item.resetsAt,
+                        icon: Zap,
+                        tone: "amber" as const,
+                        caption: item.windowLabel,
+                        emptyText: "--",
+                        emptyResetText: "未知",
+                      })),
+                    ];
                     const statusAction = getAccountStatusAction(account);
                     const StatusActionIcon = statusAction.icon;
                     const filteredIndex =
@@ -1590,29 +1728,8 @@ export default function AccountsPage() {
                           />
                         </TableCell>
                         <TableCell>
-                          <QuotaProgress
-                            label="5小时"
-                            remainPercent={account.primaryRemainPercent}
-                            resetsAt={usageBuckets.primaryResetsAt}
-                            icon={RefreshCw}
-                            tone="green"
-                            emptyText={secondaryWindowOnly ? "未提供" : "--"}
-                            emptyResetText={
-                              secondaryWindowOnly ? "未提供" : "未知"
-                            }
-                          />
+                          <QuotaOverviewCell items={quotaItems} />
                         </TableCell>
-                        <TableCell>
-                          <QuotaProgress
-                          label="7天"
-                          remainPercent={account.secondaryRemainPercent}
-                          resetsAt={usageBuckets.secondaryResetsAt}
-                          icon={RefreshCw}
-                          tone="blue"
-                          emptyText={primaryWindowOnly ? "未提供" : "--"}
-                          emptyResetText={primaryWindowOnly ? "未提供" : "未知"}
-                        />
-                      </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1">
                           <span className="rounded bg-muted/50 px-2 py-0.5 font-mono text-xs">
