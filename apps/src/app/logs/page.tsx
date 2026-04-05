@@ -599,6 +599,27 @@ function normalizeRequestType(value: string): "ws" | "http" {
   return String(value || "").trim().toLowerCase() === "ws" ? "ws" : "http";
 }
 
+function normalizeDisplayServiceTier(value: string | null | undefined): string {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized || normalized === "auto") {
+    return "";
+  }
+  if (normalized === "priority") {
+    return "fast";
+  }
+  return normalized;
+}
+
+function resolveDisplayServiceTier(
+  requestServiceTier: string | null | undefined,
+): string {
+  const direct = normalizeDisplayServiceTier(requestServiceTier);
+  if (direct) {
+    return direct;
+  }
+  return "auto";
+}
+
 function RequestTypeBadge({ requestType }: { requestType: string }) {
   const normalized = normalizeRequestType(requestType);
   const label = normalized.toUpperCase();
@@ -614,12 +635,13 @@ function RequestTypeBadge({ requestType }: { requestType: string }) {
 }
 
 function ServiceTierBadge({ serviceTier }: { serviceTier: string }) {
-  const normalized = String(serviceTier || "").trim().toLowerCase();
-  if (!normalized) {
-    return null;
-  }
+  const normalized = resolveDisplayServiceTier(serviceTier);
+  const toneClass =
+    normalized === "fast"
+      ? "border-amber-500/20 bg-amber-500/10 text-amber-500"
+      : "border-slate-500/20 bg-slate-500/10 text-slate-500";
   return (
-    <Badge className="h-5 rounded-full border-amber-500/20 bg-amber-500/10 px-1.5 text-[10px] font-medium text-amber-500">
+    <Badge className={cn("h-5 rounded-full px-1.5 text-[10px] font-medium", toneClass)}>
       {normalized}
     </Badge>
   );
@@ -1046,10 +1068,14 @@ function GatewayTooltipCell({
  * # 返回
  * 返回函数执行结果
  */
-function ModelEffortCell({ log }: { log: RequestLog }) {
+function ModelEffortCell({
+  log,
+}: {
+  log: RequestLog;
+}) {
   const model = String(log.model || "").trim();
   const effort = String(log.reasoningEffort || "").trim();
-  const serviceTier = String(log.serviceTier || "").trim();
+  const serviceTier = resolveDisplayServiceTier(log.serviceTier);
   const display = formatModelEffortDisplay(log);
 
   return (
@@ -1079,7 +1105,7 @@ function ModelEffortCell({ log }: { log: RequestLog }) {
           <div className="space-y-0.5">
             <div className="text-[10px] text-background/70">服务等级</div>
             <div className="break-all font-mono text-[11px]">
-              {serviceTier || "-"}
+              {serviceTier}
             </div>
           </div>
         </div>

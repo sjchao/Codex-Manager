@@ -635,6 +635,27 @@ pub(crate) fn log_request_start(
     buffer_trace_line(trace_id, line);
 }
 
+pub(crate) fn log_client_service_tier(
+    trace_id: &str,
+    transport: &str,
+    path: &str,
+    has_field: bool,
+    raw_value: Option<&str>,
+    normalized_value: Option<&str>,
+) {
+    let line = format!(
+        "ts={} event=CLIENT_SERVICE_TIER trace_id={} transport={} path={} has_field={} raw_service_tier={} normalized_service_tier={}",
+        current_trace_ts(),
+        sanitize_text(trace_id),
+        sanitize_text(transport),
+        sanitize_text(path),
+        if has_field { "true" } else { "false" },
+        sanitize_text(raw_value.unwrap_or("-")),
+        sanitize_text(normalized_value.unwrap_or("-")),
+    );
+    buffer_trace_line(trace_id, line);
+}
+
 /// 函数 `log_request_body_preview`
 ///
 /// 作者: gaohongshun

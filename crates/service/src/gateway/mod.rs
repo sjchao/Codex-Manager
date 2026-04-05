@@ -6,13 +6,13 @@ mod concurrency;
 mod conversation_binding;
 #[path = "routing/cooldown.rs"]
 mod cooldown;
+#[path = "observability/error_log.rs"]
+mod error_log;
 mod error_response;
 #[path = "routing/failover.rs"]
 mod failover;
 #[path = "observability/http_bridge/mod.rs"]
 mod http_bridge;
-#[path = "observability/error_log.rs"]
-mod error_log;
 #[path = "request/incoming_headers.rs"]
 mod incoming_headers;
 #[path = "request/local_count_tokens.rs"]
@@ -62,8 +62,6 @@ use metrics::{
 pub(crate) use metrics::{
     begin_rpc_request, duration_to_millis, gateway_metrics_prometheus, record_usage_refresh_outcome,
 };
-pub(crate) use request_log::{RequestLogTraceContext, RequestLogUsage};
-pub(crate) use trace_log::{log_request_final, log_request_start, next_trace_id};
 use protocol_adapter::{
     adapt_request_for_protocol, adapt_upstream_response,
     adapt_upstream_response_with_tool_name_restore_map, build_anthropic_error_body,
@@ -71,15 +69,19 @@ use protocol_adapter::{
     convert_openai_completions_stream_chunk, ResponseAdapter, ToolNameRestoreMap,
 };
 pub(super) use request_helpers::{
-    is_html_content_type, is_upstream_challenge_response, normalize_models_path,
-    parse_request_metadata,
+    inspect_service_tier_for_log, inspect_service_tier_value, is_html_content_type,
+    is_upstream_challenge_response, normalize_models_path, parse_request_metadata,
 };
 #[cfg(test)]
 use request_helpers::{should_drop_incoming_header, should_drop_incoming_header_for_failover};
+pub(crate) use request_log::{RequestLogTraceContext, RequestLogUsage};
 use request_rewrite::{
     apply_request_overrides_with_forced_prompt_cache_key,
     apply_request_overrides_with_service_tier_and_forced_prompt_cache_key,
     apply_request_overrides_with_service_tier_and_prompt_cache_key, compute_upstream_url,
+};
+pub(crate) use trace_log::{
+    log_client_service_tier, log_request_final, log_request_start, next_trace_id,
 };
 #[cfg(test)]
 use upstream::config::normalize_upstream_base_url;
@@ -799,8 +801,13 @@ pub(crate) fn gateway_collect_routed_candidates(
     storage: &codexmanager_core::storage::Storage,
     key_id: &str,
     model: Option<&str>,
-) -> Result<Vec<(codexmanager_core::storage::Account, codexmanager_core::storage::Token)>, String>
-{
+) -> Result<
+    Vec<(
+        codexmanager_core::storage::Account,
+        codexmanager_core::storage::Token,
+    )>,
+    String,
+> {
     let mut candidates = collect_gateway_candidates(storage)?;
     apply_route_strategy(&mut candidates, key_id, model);
     Ok(candidates)

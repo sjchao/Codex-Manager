@@ -12,6 +12,13 @@ pub(crate) struct ParsedRequestMetadata {
     pub(crate) has_prompt_cache_key: bool,
 }
 
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ServiceTierLogDiagnostic {
+    pub(crate) has_field: bool,
+    pub(crate) raw_value: Option<String>,
+    pub(crate) normalized_value: Option<String>,
+}
+
 /// 函数 `parse_request_metadata`
 ///
 /// 作者: gaohongshun
@@ -63,11 +70,7 @@ pub(crate) fn parse_request_metadata(body: &[u8]) -> ParsedRequestMetadata {
         .and_then(Value::as_str)
         .map(str::trim)
         .is_some_and(|v| !v.is_empty());
-    let service_tier = value
-        .get("service_tier")
-        .and_then(Value::as_str)
-        .and_then(crate::apikey::service_tier::normalize_service_tier)
-        .map(str::to_string);
+    let service_tier = inspect_service_tier_value(value.get("service_tier")).normalized_value;
 
     ParsedRequestMetadata {
         model,
@@ -79,6 +82,37 @@ pub(crate) fn parse_request_metadata(body: &[u8]) -> ParsedRequestMetadata {
             .unwrap_or(false),
         request_shape,
         has_prompt_cache_key,
+    }
+}
+
+pub(crate) fn inspect_service_tier_for_log(body: &[u8]) -> ServiceTierLogDiagnostic {
+    if body.is_empty() {
+        return ServiceTierLogDiagnostic::default();
+    }
+    let Ok(value) = serde_json::from_slice::<Value>(body) else {
+        return ServiceTierLogDiagnostic::default();
+    };
+    inspect_service_tier_value(value.get("service_tier"))
+}
+
+pub(crate) fn inspect_service_tier_value(value: Option<&Value>) -> ServiceTierLogDiagnostic {
+    let Some(value) = value else {
+        return ServiceTierLogDiagnostic::default();
+    };
+
+    let raw_value = Some(match value {
+        Value::String(text) => text.clone(),
+        other => serde_json::to_string(other).unwrap_or_else(|_| "<serialize_failed>".to_string()),
+    });
+    let normalized_value = value
+        .as_str()
+        .and_then(crate::apikey::service_tier::normalize_service_tier_for_log)
+        .map(str::to_string);
+
+    ServiceTierLogDiagnostic {
+        has_field: true,
+        raw_value,
+        normalized_value,
     }
 }
 

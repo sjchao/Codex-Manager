@@ -18,6 +18,24 @@ pub(crate) fn normalize_service_tier(value: &str) -> Option<&'static str> {
     }
 }
 
+/// 函数 `normalize_service_tier_for_log`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-05
+///
+/// # 参数
+/// - value: 参数 value
+///
+/// # 返回
+/// 返回函数执行结果
+pub(crate) fn normalize_service_tier_for_log(value: &str) -> Option<&'static str> {
+    if value.trim().eq_ignore_ascii_case("priority") {
+        return Some("fast");
+    }
+    normalize_service_tier(value)
+}
+
 /// 函数 `normalize_service_tier_owned`
 ///
 /// 作者: gaohongshun

@@ -211,7 +211,7 @@ fn insert_api_key_record(
             name: Some("proxy-runtime-ws".to_string()),
             model_slug: Some("gpt-5.4-mini".to_string()),
             reasoning_effort: Some("high".to_string()),
-            service_tier: Some("priority".to_string()),
+            service_tier: Some("fast".to_string()),
             rotation_strategy: rotation_strategy.to_string(),
             aggregate_api_id: None,
             aggregate_api_url: None,
@@ -308,23 +308,26 @@ async fn start_mock_upstream_ws() -> (
     let (capture_tx, capture_rx) = oneshot::channel();
     let handle = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.expect("accept mock upstream");
-        let captured_headers = std::sync::Arc::new(std::sync::Mutex::new(None::<(String, HashMap<String, String>)>));
+        let captured_headers = std::sync::Arc::new(std::sync::Mutex::new(
+            None::<(String, HashMap<String, String>)>,
+        ));
         let captured_headers_clone = captured_headers.clone();
-        let mut websocket = accept_hdr_async(stream, move |request: &Request, response: Response| {
-            let mut headers = HashMap::new();
-            for (name, value) in request.headers() {
-                if let Ok(text) = value.to_str() {
-                    headers.insert(name.as_str().to_ascii_lowercase(), text.to_string());
+        let mut websocket =
+            accept_hdr_async(stream, move |request: &Request, response: Response| {
+                let mut headers = HashMap::new();
+                for (name, value) in request.headers() {
+                    if let Ok(text) = value.to_str() {
+                        headers.insert(name.as_str().to_ascii_lowercase(), text.to_string());
+                    }
                 }
-            }
-            let mut guard = captured_headers_clone
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            *guard = Some((request.uri().path().to_string(), headers));
-            Ok(response)
-        })
-        .await
-        .expect("accept websocket handshake");
+                let mut guard = captured_headers_clone
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                *guard = Some((request.uri().path().to_string(), headers));
+                Ok(response)
+            })
+            .await
+            .expect("accept websocket handshake");
 
         let mut frames = Vec::new();
         if let Some(Ok(Message::Text(text))) = websocket.next().await {
@@ -415,7 +418,9 @@ async fn unsupported_responses_websocket_returns_426() {
         &[("OpenAI-Beta", "responses_websockets=2026-02-06")],
     );
 
-    let err = connect_async(request).await.expect_err("websocket should fail");
+    let err = connect_async(request)
+        .await
+        .expect_err("websocket should fail");
     match err {
         tokio_tungstenite::tungstenite::Error::Http(response) => {
             assert_eq!(response.status(), StatusCode::UPGRADE_REQUIRED);
@@ -433,12 +438,15 @@ async fn official_responses_websocket_proxies_frames_and_headers() {
     let db_path = new_test_db_path("codexmanager-proxy-runtime-ws-supported");
     let _db_guard = EnvGuard::set("CODEXMANAGER_DB_PATH", db_path.to_string_lossy().as_ref());
     let storage = init_test_storage(&db_path);
-    let (upstream_addr, mut upstream_events, capture_rx, upstream_handle) = start_mock_upstream_ws().await;
+    let (upstream_addr, mut upstream_events, capture_rx, upstream_handle) =
+        start_mock_upstream_ws().await;
     insert_api_key_record(
         &storage,
         "platform_key_ws_supported",
         crate::apikey_profile::ROTATION_ACCOUNT,
-        Some(format!("http://{upstream_addr}/chatgpt.com/backend-api/codex")),
+        Some(format!(
+            "http://{upstream_addr}/chatgpt.com/backend-api/codex"
+        )),
     );
     insert_account_and_token(&storage);
     tokio::task::spawn_blocking(|| {
@@ -506,7 +514,10 @@ async fn official_responses_websocket_proxies_frames_and_headers() {
     let first_client_event = first_client_event.expect("first client event result");
     match first_client_event {
         Message::Text(text) => {
-            assert!(text.contains("\"response.created\""), "unexpected event: {text}");
+            assert!(
+                text.contains("\"response.created\""),
+                "unexpected event: {text}"
+            );
         }
         other => panic!("unexpected first client event: {other:?}"),
     }
@@ -527,10 +538,11 @@ async fn official_responses_websocket_proxies_frames_and_headers() {
         .await
         .expect("send second frame");
 
-    let second_upstream_frame = tokio::time::timeout(Duration::from_secs(5), upstream_events.recv())
-        .await
-        .expect("second upstream frame timeout")
-        .expect("second upstream frame channel");
+    let second_upstream_frame =
+        tokio::time::timeout(Duration::from_secs(5), upstream_events.recv())
+            .await
+            .expect("second upstream frame timeout")
+            .expect("second upstream frame channel");
     let second_payload: serde_json::Value =
         serde_json::from_str(&second_upstream_frame).expect("parse second upstream frame");
     assert_eq!(second_payload["type"], "response.create");
@@ -551,7 +563,10 @@ async fn official_responses_websocket_proxies_frames_and_headers() {
     let second_client_event = second_client_event.expect("second client event result");
     match second_client_event {
         Message::Text(text) => {
-            assert!(text.contains("\"response.completed\""), "unexpected event: {text}");
+            assert!(
+                text.contains("\"response.completed\""),
+                "unexpected event: {text}"
+            );
         }
         other => panic!("unexpected second client event: {other:?}"),
     }
@@ -588,10 +603,7 @@ async fn official_responses_websocket_proxies_frames_and_headers() {
         Some("client_req_ws_1")
     );
     assert_eq!(
-        capture
-            .headers
-            .get("x-openai-subagent")
-            .map(String::as_str),
+        capture.headers.get("x-openai-subagent").map(String::as_str),
         Some("review")
     );
     assert_eq!(
@@ -620,17 +632,24 @@ async fn official_responses_websocket_proxies_frames_and_headers() {
     let request_logs = storage
         .list_request_logs(None, 10)
         .expect("list request logs");
-    assert!(
-        request_logs
-            .iter()
-            .any(|item| item.request_type.as_deref() == Some("ws")),
-        "expected websocket request log entry"
+    let ws_logs: Vec<_> = request_logs
+        .iter()
+        .filter(|item| item.request_type.as_deref() == Some("ws"))
+        .collect();
+    assert_eq!(
+        ws_logs.len(),
+        2,
+        "expected two websocket request log entries"
     );
     assert!(
-        request_logs
+        ws_logs
             .iter()
             .any(|item| item.service_tier.as_deref() == Some("fast")),
-        "expected service tier to be preserved in logs"
+        "expected websocket request log to keep explicit fast service tier"
+    );
+    assert!(
+        ws_logs.iter().any(|item| item.service_tier.is_none()),
+        "expected follow-up websocket request without explicit service tier to stay empty"
     );
 
     client_ws.close(None).await.expect("close client websocket");

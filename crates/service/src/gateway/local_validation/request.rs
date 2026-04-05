@@ -184,6 +184,7 @@ fn apply_passthrough_request_overrides(
     path: &str,
     body: Vec<u8>,
     api_key: &ApiKey,
+    explicit_service_tier_for_log: Option<String>,
 ) -> (
     Vec<u8>,
     Option<String>,
@@ -211,7 +212,7 @@ fn apply_passthrough_request_overrides(
         request_meta
             .reasoning_effort
             .or(api_key.reasoning_effort.clone()),
-        request_meta.service_tier.or(effective_service_tier),
+        explicit_service_tier_for_log,
         request_meta.has_prompt_cache_key,
         request_meta.request_shape,
     )
@@ -241,6 +242,15 @@ pub(super) fn build_local_validation_result(
     let request_method = request.method().as_str().to_string();
     let method = Method::from_bytes(request_method.as_bytes())
         .map_err(|_| LocalValidationError::new(405, "unsupported method"))?;
+    let initial_service_tier_diagnostic = super::super::inspect_service_tier_for_log(&body);
+    super::super::log_client_service_tier(
+        trace_id.as_str(),
+        "http",
+        normalized_path.as_str(),
+        initial_service_tier_diagnostic.has_field,
+        initial_service_tier_diagnostic.raw_value.as_deref(),
+        initial_service_tier_diagnostic.normalized_value.as_deref(),
+    );
     let initial_request_meta = super::super::parse_request_metadata(&body);
     let initial_local_conversation_id = resolve_local_conversation_id(
         api_key.protocol_type.as_str(),
@@ -257,8 +267,12 @@ pub(super) fn build_local_validation_result(
             service_tier_for_log,
             has_prompt_cache_key,
             request_shape,
-        ) =
-            apply_passthrough_request_overrides(&normalized_path, body, &api_key);
+        ) = apply_passthrough_request_overrides(
+            &normalized_path,
+            body,
+            &api_key,
+            initial_request_meta.service_tier.clone(),
+        );
         let incoming_headers = incoming_headers
             .with_conversation_id_override(initial_local_conversation_id.as_deref());
         return Ok(LocalValidationResult {
@@ -366,7 +380,7 @@ pub(super) fn build_local_validation_result(
     let reasoning_for_log = request_meta
         .reasoning_effort
         .or(api_key.reasoning_effort.clone());
-    let service_tier_for_log = request_meta.service_tier.or(effective_service_tier);
+    let service_tier_for_log = client_request_meta.service_tier;
     let is_stream = client_request_meta.is_stream;
     let has_prompt_cache_key = client_request_meta.has_prompt_cache_key;
     let request_shape = client_request_meta.request_shape;

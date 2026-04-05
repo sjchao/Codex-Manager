@@ -30,6 +30,8 @@ struct PreparedClientFrame {
     model: Option<String>,
     reasoning_effort: Option<String>,
     service_tier: Option<String>,
+    raw_service_tier: Option<String>,
+    has_service_tier_field: bool,
 }
 
 struct ConnectedUpstreamWebsocket {
@@ -155,13 +157,14 @@ async fn run_responses_websocket_session(mut socket: WebSocket, context: WsReque
         }
     };
 
-    let mut upstream = match connect_upstream_websocket(&context, prepared_first.model.as_deref()).await {
-        Ok(stream) => stream,
-        Err(err) => {
-            send_ws_error_and_close(&mut socket, err).await;
-            return;
-        }
-    };
+    let mut upstream =
+        match connect_upstream_websocket(&context, prepared_first.model.as_deref()).await {
+            Ok(stream) => stream,
+            Err(err) => {
+                send_ws_error_and_close(&mut socket, err).await;
+                return;
+            }
+        };
     let first_pending = begin_ws_request_log(&context, &prepared_first);
 
     if let Err(err) = upstream
@@ -180,7 +183,9 @@ async fn run_responses_websocket_session(mut socket: WebSocket, context: WsReque
         );
         send_ws_error_and_close(
             &mut socket,
-            WsSessionError::bad_gateway(format!("send first upstream websocket frame failed: {err}")),
+            WsSessionError::bad_gateway(format!(
+                "send first upstream websocket frame failed: {err}"
+            )),
         )
         .await;
         return;
@@ -432,7 +437,10 @@ fn authorize_websocket_request(headers: &HeaderMap) -> Result<WsRequestContext, 
         .ok_or_else(|| text_error_response(StatusCode::FORBIDDEN, "invalid api key"))?;
 
     if api_key.status != "active" {
-        return Err(text_error_response(StatusCode::FORBIDDEN, "api key disabled"));
+        return Err(text_error_response(
+            StatusCode::FORBIDDEN,
+            "api key disabled",
+        ));
     }
     if !crate::gateway::gateway_supports_official_responses_websocket(&api_key) {
         return Err(upgrade_required_response(
@@ -480,14 +488,18 @@ fn rewrite_client_frame(
     text: &str,
     context: &WsRequestContext,
 ) -> Result<PreparedClientFrame, WsSessionError> {
-    let mut payload = serde_json::from_str::<Value>(text)
-        .map_err(|err| WsSessionError::bad_request(format!("invalid websocket json payload: {err}")))?;
+    let mut payload = serde_json::from_str::<Value>(text).map_err(|err| {
+        WsSessionError::bad_request(format!("invalid websocket json payload: {err}"))
+    })?;
     let Some(mut object) = payload.as_object_mut().cloned() else {
         return Err(WsSessionError::bad_request(
             "websocket payload must be a JSON object",
         ));
     };
-    let Some(message_type) = object.remove("type").and_then(|value| value.as_str().map(str::to_string)) else {
+    let Some(message_type) = object
+        .remove("type")
+        .and_then(|value| value.as_str().map(str::to_string))
+    else {
         return Err(WsSessionError::bad_request(
             "websocket payload missing type=response.create",
         ));
@@ -497,20 +509,9 @@ fn rewrite_client_frame(
             "unsupported websocket message type: {message_type}"
         )));
     }
-    let service_tier_for_log = object
-        .get("service_tier")
-        .and_then(Value::as_str)
-        .and_then(crate::apikey::service_tier::normalize_service_tier)
-        .map(str::to_string)
-        .or_else(|| {
-            context
-                .api_key
-                .service_tier
-                .as_deref()
-                .and_then(crate::apikey::service_tier::normalize_service_tier)
-                .map(str::to_string)
-        });
-
+    let service_tier_diagnostic =
+        crate::gateway::inspect_service_tier_value(object.get("service_tier"));
+    let explicit_service_tier_for_log = service_tier_diagnostic.normalized_value.clone();
     let previous_response_id = object.remove("previous_response_id");
     let generate = object.remove("generate");
     let client_metadata = merge_turn_metadata(
@@ -560,14 +561,19 @@ fn rewrite_client_frame(
                     .and_then(Value::as_str)
                     .map(str::to_string)
             }),
-        service_tier: service_tier_for_log,
+        service_tier: explicit_service_tier_for_log,
+        raw_service_tier: service_tier_diagnostic.raw_value,
+        has_service_tier_field: service_tier_diagnostic.has_field,
         text: serde_json::to_string(&Value::Object(rewritten_object)).map_err(|err| {
             WsSessionError::bad_request(format!("serialize websocket request failed: {err}"))
         })?,
     })
 }
 
-fn merge_turn_metadata(client_metadata: Option<Value>, turn_metadata: Option<&str>) -> Option<Value> {
+fn merge_turn_metadata(
+    client_metadata: Option<Value>,
+    turn_metadata: Option<&str>,
+) -> Option<Value> {
     let Some(turn_metadata) = turn_metadata
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -649,9 +655,9 @@ async fn connect_upstream_websocket(
         }
     }
 
-    Err(WsSessionError::bad_gateway(
-        last_error.unwrap_or_else(|| "connect upstream websocket failed".to_string()),
-    ))
+    Err(WsSessionError::bad_gateway(last_error.unwrap_or_else(
+        || "connect upstream websocket failed".to_string(),
+    )))
 }
 
 async fn resolve_bearer_token_for_websocket(
@@ -672,9 +678,11 @@ async fn resolve_bearer_token_for_websocket(
 }
 
 fn build_upstream_websocket_url(upstream_base: &str) -> Result<String, WsSessionError> {
-    let (target_url, _) = crate::gateway::gateway_compute_upstream_url(upstream_base, RESPONSES_PATH);
-    let mut url = url::Url::parse(target_url.as_str())
-        .map_err(|err| WsSessionError::bad_gateway(format!("invalid upstream websocket url: {err}")))?;
+    let (target_url, _) =
+        crate::gateway::gateway_compute_upstream_url(upstream_base, RESPONSES_PATH);
+    let mut url = url::Url::parse(target_url.as_str()).map_err(|err| {
+        WsSessionError::bad_gateway(format!("invalid upstream websocket url: {err}"))
+    })?;
     match url.scheme() {
         "http" => {
             let _ = url.set_scheme("ws");
@@ -697,13 +705,10 @@ fn build_upstream_websocket_request(
     account: &codexmanager_core::storage::Account,
     bearer_token: &str,
     context: &WsRequestContext,
-) -> Result<
-    tokio_tungstenite::tungstenite::handshake::client::Request,
-    WsSessionError,
-> {
-    let mut request = ws_url
-        .into_client_request()
-        .map_err(|err| WsSessionError::bad_gateway(format!("build upstream websocket request failed: {err}")))?;
+) -> Result<tokio_tungstenite::tungstenite::handshake::client::Request, WsSessionError> {
+    let mut request = ws_url.into_client_request().map_err(|err| {
+        WsSessionError::bad_gateway(format!("build upstream websocket request failed: {err}"))
+    })?;
     let headers = request.headers_mut();
     insert_header(headers, "Authorization", &format!("Bearer {bearer_token}"))?;
     if let Some(account_id) = account
@@ -714,8 +719,16 @@ fn build_upstream_websocket_request(
     {
         insert_header(headers, "ChatGPT-Account-ID", account_id)?;
     }
-    insert_header(headers, "User-Agent", &crate::gateway::current_codex_user_agent())?;
-    insert_header(headers, "originator", &crate::gateway::current_wire_originator())?;
+    insert_header(
+        headers,
+        "User-Agent",
+        &crate::gateway::current_codex_user_agent(),
+    )?;
+    insert_header(
+        headers,
+        "originator",
+        &crate::gateway::current_wire_originator(),
+    )?;
     insert_header(headers, "OpenAI-Beta", RESPONSES_WS_BETA_HEADER_VALUE)?;
     if let Some(residency_requirement) = crate::gateway::current_residency_requirement() {
         insert_header(
@@ -771,6 +784,14 @@ fn begin_ws_request_log(
         true,
         "ws",
         context.api_key.protocol_type.as_str(),
+    );
+    crate::gateway::log_client_service_tier(
+        trace_id.as_str(),
+        "ws",
+        RESPONSES_PATH,
+        prepared.has_service_tier_field,
+        prepared.raw_service_tier.as_deref(),
+        prepared.service_tier.as_deref(),
     );
     PendingWsRequestLog {
         trace_id,
@@ -833,7 +854,11 @@ struct WsTerminalEvent {
 
 fn inspect_ws_terminal_event(text: &str) -> Option<WsTerminalEvent> {
     let value = serde_json::from_str::<Value>(text).ok()?;
-    let event_type = value.get("type").and_then(Value::as_str)?.trim().to_ascii_lowercase();
+    let event_type = value
+        .get("type")
+        .and_then(Value::as_str)?
+        .trim()
+        .to_ascii_lowercase();
     match event_type.as_str() {
         "response.completed" | "response.done" => Some(WsTerminalEvent {
             status_code: 200,
@@ -873,22 +898,40 @@ fn parse_ws_usage(value: &Value) -> crate::gateway::RequestLogUsage {
         input_tokens: usage
             .and_then(|map| map.get("input_tokens"))
             .and_then(Value::as_i64)
-            .or_else(|| usage.and_then(|map| map.get("prompt_tokens")).and_then(Value::as_i64)),
+            .or_else(|| {
+                usage
+                    .and_then(|map| map.get("prompt_tokens"))
+                    .and_then(Value::as_i64)
+            }),
         cached_input_tokens: usage
             .and_then(|map| map.get("input_tokens_details"))
             .and_then(|details| details.get("cached_tokens"))
             .and_then(Value::as_i64)
-            .or_else(|| usage.and_then(|map| map.get("cached_input_tokens")).and_then(Value::as_i64)),
+            .or_else(|| {
+                usage
+                    .and_then(|map| map.get("cached_input_tokens"))
+                    .and_then(Value::as_i64)
+            }),
         output_tokens: usage
             .and_then(|map| map.get("output_tokens"))
             .and_then(Value::as_i64)
-            .or_else(|| usage.and_then(|map| map.get("completion_tokens")).and_then(Value::as_i64)),
-        total_tokens: usage.and_then(|map| map.get("total_tokens")).and_then(Value::as_i64),
+            .or_else(|| {
+                usage
+                    .and_then(|map| map.get("completion_tokens"))
+                    .and_then(Value::as_i64)
+            }),
+        total_tokens: usage
+            .and_then(|map| map.get("total_tokens"))
+            .and_then(Value::as_i64),
         reasoning_output_tokens: usage
             .and_then(|map| map.get("output_tokens_details"))
             .and_then(|details| details.get("reasoning_tokens"))
             .and_then(Value::as_i64)
-            .or_else(|| usage.and_then(|map| map.get("reasoning_output_tokens")).and_then(Value::as_i64)),
+            .or_else(|| {
+                usage
+                    .and_then(|map| map.get("reasoning_output_tokens"))
+                    .and_then(Value::as_i64)
+            }),
     }
 }
 
@@ -910,13 +953,11 @@ fn extract_ws_error_message(value: &Value) -> Option<String> {
         })
 }
 
-fn insert_header(
-    headers: &mut HeaderMap,
-    name: &str,
-    value: &str,
-) -> Result<(), WsSessionError> {
+fn insert_header(headers: &mut HeaderMap, name: &str, value: &str) -> Result<(), WsSessionError> {
     let header_name = header::HeaderName::from_bytes(name.as_bytes()).map_err(|err| {
-        WsSessionError::bad_gateway(format!("invalid upstream websocket header name {name}: {err}"))
+        WsSessionError::bad_gateway(format!(
+            "invalid upstream websocket header name {name}: {err}"
+        ))
     })?;
     let header_value = HeaderValue::from_str(value).map_err(|err| {
         WsSessionError::bad_gateway(format!("invalid upstream websocket header {name}: {err}"))
@@ -952,10 +993,9 @@ fn parse_bool_header(value: Option<&HeaderValue>) -> bool {
 
 fn upgrade_required_response(message: impl Into<String>) -> Response<Body> {
     let mut response = text_response(StatusCode::UPGRADE_REQUIRED, message.into());
-    response.headers_mut().insert(
-        header::UPGRADE,
-        HeaderValue::from_static("websocket"),
-    );
+    response
+        .headers_mut()
+        .insert(header::UPGRADE, HeaderValue::from_static("websocket"));
     response.headers_mut().insert(
         crate::error_codes::ERROR_CODE_HEADER_NAME,
         HeaderValue::from_static("upgrade_required"),

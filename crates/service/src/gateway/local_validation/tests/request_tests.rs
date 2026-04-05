@@ -130,7 +130,10 @@ fn anthropic_key_applies_fast_service_tier_as_priority_on_responses_request() {
     );
     let payload: Value = serde_json::from_slice(&rewritten).expect("json body");
 
-    assert_eq!(payload.get("service_tier").and_then(Value::as_str), Some("priority"));
+    assert_eq!(
+        payload.get("service_tier").and_then(Value::as_str),
+        Some("priority")
+    );
 }
 
 #[test]
@@ -189,7 +192,7 @@ fn openai_key_keeps_empty_overrides() {
     assert_eq!(service_tier, None);
 }
 
-/// 函数 `aggregate_passthrough_applies_model_reasoning_and_service_tier_overrides`
+/// 函数 `aggregate_passthrough_applies_model_reasoning_and_service_tier_overrides_without_forcing_log_tier`
 ///
 /// 作者: gaohongshun
 ///
@@ -201,7 +204,8 @@ fn openai_key_keeps_empty_overrides() {
 /// # 返回
 /// 无
 #[test]
-fn aggregate_passthrough_applies_model_reasoning_and_service_tier_overrides() {
+fn aggregate_passthrough_applies_model_reasoning_and_service_tier_overrides_without_forcing_log_tier(
+) {
     let api_key = sample_api_key(
         crate::apikey_profile::PROTOCOL_OPENAI_COMPAT,
         Some("gpt-5.4"),
@@ -217,7 +221,7 @@ fn aggregate_passthrough_applies_model_reasoning_and_service_tier_overrides() {
         service_tier_for_log,
         _has_prompt_cache_key,
         _request_shape,
-    ) = apply_passthrough_request_overrides("/v1/responses", body, &api_key);
+    ) = apply_passthrough_request_overrides("/v1/responses", body, &api_key, None);
     let payload: Value = serde_json::from_slice(&rewritten_body).expect("json body");
 
     assert_eq!(
@@ -232,6 +236,42 @@ fn aggregate_passthrough_applies_model_reasoning_and_service_tier_overrides() {
             .and_then(Value::as_str),
         Some("high")
     );
+    assert_eq!(
+        payload.get("service_tier").and_then(Value::as_str),
+        Some("priority")
+    );
+    assert_eq!(model_for_log.as_deref(), Some("gpt-5.4"));
+    assert_eq!(reasoning_for_log.as_deref(), Some("high"));
+    assert_eq!(service_tier_for_log, None);
+}
+
+#[test]
+fn aggregate_passthrough_preserves_fast_service_tier_for_log_when_request_is_rewritten() {
+    let api_key = sample_api_key(
+        crate::apikey_profile::PROTOCOL_OPENAI_COMPAT,
+        Some("gpt-5.4"),
+        Some("high"),
+        None,
+    );
+    let body =
+        br#"{"model":"gpt-4.1","input":"hi","reasoning":{"effort":"low"},"service_tier":"Fast"}"#
+            .to_vec();
+
+    let (
+        rewritten_body,
+        model_for_log,
+        reasoning_for_log,
+        service_tier_for_log,
+        _has_prompt_cache_key,
+        _request_shape,
+    ) = apply_passthrough_request_overrides(
+        "/v1/responses",
+        body,
+        &api_key,
+        Some("fast".to_string()),
+    );
+    let payload: Value = serde_json::from_slice(&rewritten_body).expect("json body");
+
     assert_eq!(
         payload.get("service_tier").and_then(Value::as_str),
         Some("priority")
