@@ -87,7 +87,10 @@ If this project has been helpful to you, you are welcome to support the author.
 | Build locally, package, release, and run scripts | [Build, Release, and Script Guide](docs/release/构建发布与脚本说明.md) |
 
 ## Recent Changes
-  - Current latest version: `v0.1.17` (2026-04-05, pre-release)
+  - Current latest version: `v0.1.17` (2026-04-06, release)
+  -  the local gateway now has stronger Gemini CLI compatibility. Requests can be relayed to `/v1/responses`, with Gemini SSE streaming, permission confirmation, tools, MCP, and skill call chains handled end-to-end.
+  -  fixed a Gemini `response.completed` issue where tool output could be misclassified as the final assistant message, reducing cases like `已修改 Desktop\\gemini.txt。` leaking into the final reply.
+  -  fixed a token-refresh polling boundary issue. The scheduler now prefetches tokens that will enter the refresh window before the next poll cycle, reducing edge misses when both the poll interval and the refresh-ahead window are `600s`.
   - Request logs now distinguish between the client-explicit service tier and the effective service tier that actually goes upstream after platform-key overrides, so `auto` no longer obscures whether a default `Fast` setting was really applied.
   - Regular platform keys now use a wildcard-compatible protocol mode for Codex and Claude Code. The gateway routes `/v1/messages*` with Claude semantics and other standard paths with Codex / OpenAI semantics, so separate keys are no longer required for those clients.
   - The settings page now includes model forward rules with `pattern=target` syntax, for example `spark*=gpt-5.4-mini`. Platform-key bound models still take precedence over global forwarding rules.
@@ -95,6 +98,8 @@ If this project has been helpful to you, you are welcome to support the author.
   - Version alignment for this round is complete too: the workspace, frontend package, Tauri desktop app, lockfile, README, and CHANGELOG have all been updated to `0.1.17`.
 
 ### Recent Commit Summary
+- `f4a03df`: fixed a Gemini completed-event issue where tool output could be mistaken for the final assistant message.
+- `2d3b583`: fixed Gemini CLI SSE tool-call compatibility and strengthened `/v1/responses`, tools, MCP, and skill support.
 - `a2c0e05`: switched platform-key protocol handling to wildcard path-based routing and added global model forwarding rules.
 - `4389764`: added effective service-tier logging so request logs now separate client-explicit and actually applied values.
 - `83bdb96`: expanded account-page and usage-modal quota rendering so refreshes now surface both standard and extra quota windows.
@@ -123,7 +128,7 @@ If this project has been helpful to you, you are welcome to support the author.
 - Settings page: supports the `System Derive` button, single-account concurrency limit, and a more conservative high-concurrency degradation strategy
 - System internal interface inventory: lists all currently available desktop commands, service RPC methods, and plugin built-in functions
 - Local service: auto-start, customizable port, and listen address
-- Local gateway: provides one unified OpenAI-compatible endpoint for CLI tools and third-party tooling
+- Local gateway: provides one unified OpenAI-compatible endpoint for Codex CLI, Gemini CLI, Claude Code, and third-party tooling; Gemini requests can be relayed to `/v1/responses` with SSE, tools, MCP, and skill compatibility
 
 ## Screenshots
 ![Dashboard](assets/images/dashboard.png)

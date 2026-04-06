@@ -84,6 +84,7 @@ const DEFAULT_TOKEN_REFRESH_POLL_INTERVAL_SECS: u64 = 60;
 const MIN_TOKEN_REFRESH_POLL_INTERVAL_SECS: u64 = 10;
 const TOKEN_REFRESH_FAILURE_BACKOFF_MAX_SECS: u64 = 300;
 const TOKEN_REFRESH_AHEAD_SECS: i64 = 600;
+const TOKEN_REFRESH_LOOKAHEAD_BUFFER_SECS: u64 = 60;
 const TOKEN_REFRESH_FALLBACK_AGE_SECS: i64 = 2700;
 const DEFAULT_TOKEN_REFRESH_BATCH_LIMIT: usize = 2048;
 const BACKGROUND_TASK_RESTART_REQUIRED_KEYS: [&str; 5] = [
@@ -284,8 +285,12 @@ fn reset_usage_poll_cursor_for_tests() {
 pub(crate) fn refresh_tokens_before_expiry_for_all_accounts() -> Result<(), String> {
     let storage = open_storage().ok_or_else(|| "storage unavailable".to_string())?;
     let now = now_ts();
+    let due_cutoff = token_refresh_due_cutoff(
+        now,
+        TOKEN_REFRESH_POLL_INTERVAL_SECS_ATOMIC.load(std::sync::atomic::Ordering::Relaxed),
+    );
     let mut tokens = storage
-        .list_tokens_due_for_refresh(now, token_refresh_batch_limit())
+        .list_tokens_due_for_refresh(due_cutoff, token_refresh_batch_limit())
         .map_err(|e| e.to_string())?;
     if tokens.is_empty() {
         return Ok(());
@@ -309,7 +314,7 @@ pub(crate) fn refresh_tokens_before_expiry_for_all_accounts() -> Result<(), Stri
         );
         let _ =
             storage.update_token_refresh_schedule(&token.account_id, exp_opt, Some(scheduled_at));
-        if scheduled_at > now {
+        if scheduled_at > due_cutoff {
             skipped = skipped.saturating_add(1);
             continue;
         }
@@ -742,4 +747,9 @@ fn token_refresh_schedule(
             .saturating_add(fallback_age_secs)
             .max(now_ts_secs),
     )
+}
+
+fn token_refresh_due_cutoff(now_ts_secs: i64, poll_interval_secs: u64) -> i64 {
+    let lookahead_secs = poll_interval_secs.saturating_add(TOKEN_REFRESH_LOOKAHEAD_BUFFER_SECS);
+    now_ts_secs.saturating_add(i64::try_from(lookahead_secs).unwrap_or(i64::MAX))
 }
