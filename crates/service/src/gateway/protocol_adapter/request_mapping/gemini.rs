@@ -57,20 +57,43 @@ pub(crate) fn convert_gemini_generate_content_request(
         out.insert("tools".to_string(), Value::Array(tools));
     }
 
-    if let Some(generation_config) = obj.get("generationConfig").and_then(Value::as_object) {
-        copy_optional_field(generation_config, &mut out, "temperature", "temperature");
-        copy_optional_field(generation_config, &mut out, "topP", "top_p");
-        copy_optional_field(generation_config, &mut out, "topK", "top_k");
-        copy_optional_field(generation_config, &mut out, "candidateCount", "n");
-        copy_optional_field(
+    if let Some(generation_config) = get_object_field(obj, &["generationConfig", "generation_config"])
+    {
+        copy_optional_field_alias(
             generation_config,
             &mut out,
-            "maxOutputTokens",
+            &["temperature"],
+            "temperature",
+        );
+        copy_optional_field_alias(generation_config, &mut out, &["topP", "top_p"], "top_p");
+        copy_optional_field_alias(generation_config, &mut out, &["topK", "top_k"], "top_k");
+        copy_optional_field_alias(
+            generation_config,
+            &mut out,
+            &["candidateCount", "candidate_count"],
+            "n",
+        );
+        copy_optional_field_alias(
+            generation_config,
+            &mut out,
+            &["maxOutputTokens", "max_output_tokens"],
             "max_output_tokens",
         );
-        if let Some(stop_sequences) = generation_config.get("stopSequences") {
+        if let Some(stop_sequences) =
+            get_value_field(generation_config, &["stopSequences", "stop_sequences"])
+        {
             out.insert("stop".to_string(), stop_sequences.clone());
         }
+    }
+
+    if let Some(reasoning) = resolve_gemini_reasoning_payload(obj) {
+        out.insert("reasoning".to_string(), reasoning);
+        out.insert(
+            "include".to_string(),
+            Value::Array(vec![Value::String(
+                "reasoning.encrypted_content".to_string(),
+            )]),
+        );
     }
 
     if let Some(prompt_cache_key) = super::resolve_prompt_cache_key(obj, out.get("model")) {
@@ -111,14 +134,13 @@ fn extract_model_from_path(path: &str) -> Option<String> {
 fn collect_gemini_tool_names(source: &serde_json::Map<String, Value>) -> Vec<String> {
     let mut names = Vec::new();
 
-    if let Some(tools) = source.get("tools").and_then(Value::as_array) {
+    if let Some(tools) = get_array_field(source, &["tools"]) {
         for tool in tools {
             let Some(tool_obj) = tool.as_object() else {
                 continue;
             };
-            let Some(function_declarations) = tool_obj
-                .get("functionDeclarations")
-                .and_then(Value::as_array)
+            let Some(function_declarations) =
+                get_array_field(tool_obj, &["functionDeclarations", "function_declarations"])
             else {
                 continue;
             };
@@ -136,12 +158,10 @@ fn collect_gemini_tool_names(source: &serde_json::Map<String, Value>) -> Vec<Str
         }
     }
 
-    if let Some(allowed_function_names) = source
-        .get("toolConfig")
-        .and_then(|value| value.get("functionCallingConfig"))
-        .and_then(|value| value.get("allowedFunctionNames"))
-        .and_then(Value::as_array)
-    {
+    if let Some(allowed_function_names) = get_tool_config_field_array(source, &[
+        "allowedFunctionNames",
+        "allowed_function_names",
+    ]) {
         for name in allowed_function_names {
             let Some(name) = name
                 .as_str()
@@ -190,8 +210,10 @@ fn collect_gemini_allowed_function_names(
 ) -> Option<BTreeSet<String>> {
     let allowed_items = source
         .get("toolConfig")
-        .and_then(|value| value.get("functionCallingConfig"))
-        .and_then(|value| value.get("allowedFunctionNames"))?;
+        .or_else(|| source.get("tool_config"))
+        .and_then(Value::as_object)
+        .and_then(|value| get_object_field(value, &["functionCallingConfig", "function_calling_config"]))
+        .and_then(|value| get_value_field(value, &["allowedFunctionNames", "allowed_function_names"]))?;
     let mut names = BTreeSet::new();
     if let Some(items) = allowed_items.as_array() {
         for item in items {
@@ -216,7 +238,8 @@ fn convert_gemini_contents_to_responses_input(
     let mut pending_tool_calls: BTreeMap<String, VecDeque<String>> = BTreeMap::new();
     let mut synthetic_call_index = 0usize;
 
-    if let Some(system_instruction) = source.get("systemInstruction") {
+    if let Some(system_instruction) = get_value_field(source, &["systemInstruction", "system_instruction"])
+    {
         let system_text = extract_text_from_content_like(system_instruction);
         if !system_text.trim().is_empty() {
             messages.push(json!({
@@ -278,7 +301,9 @@ fn convert_gemini_contents_to_responses_input(
                 continue;
             }
 
-            if let Some(function_call) = part_obj.get("functionCall").and_then(Value::as_object) {
+            if let Some(function_call) =
+                get_object_field(part_obj, &["functionCall", "function_call"])
+            {
                 if !pending_model_parts.is_empty() {
                     messages.push(json!({
                         "role": "assistant",
@@ -328,7 +353,7 @@ fn convert_gemini_contents_to_responses_input(
             }
 
             if let Some(function_response) =
-                part_obj.get("functionResponse").and_then(Value::as_object)
+                get_object_field(part_obj, &["functionResponse", "function_response"])
             {
                 if !pending_user_parts.is_empty() {
                     messages.push(json!({
@@ -513,10 +538,7 @@ fn map_gemini_function_response_output_items(output: &Value) -> Vec<Value> {
 }
 
 fn resolve_parallel_tool_calls(source: &serde_json::Map<String, Value>) -> bool {
-    source
-        .get("toolConfig")
-        .and_then(|value| value.get("functionCallingConfig"))
-        .and_then(|value| value.get("disableParallelToolUse"))
+    get_tool_config_field_value(source, &["disableParallelToolUse", "disable_parallel_tool_use"])
         .and_then(Value::as_bool)
         .map(|disabled| !disabled)
         .unwrap_or(true)
@@ -529,15 +551,15 @@ fn resolve_tool_choice(
 ) -> Option<Value> {
     let config = source
         .get("toolConfig")
-        .and_then(|value| value.get("functionCallingConfig"))
-        .and_then(Value::as_object)?;
+        .or_else(|| source.get("tool_config"))
+        .and_then(Value::as_object)
+        .and_then(|value| get_object_field(value, &["functionCallingConfig", "function_calling_config"]))?;
     let mode = config
         .get("mode")
         .and_then(Value::as_str)
         .map(|value| value.trim().to_ascii_uppercase())
         .unwrap_or_else(|| "AUTO".to_string());
-    let allowed = config
-        .get("allowedFunctionNames")
+    let allowed = get_value_field(config, &["allowedFunctionNames", "allowed_function_names"])
         .and_then(Value::as_array)
         .map(|items| {
             items
@@ -580,16 +602,15 @@ fn map_gemini_tools_to_responses(
     allowed_function_names: Option<&BTreeSet<String>>,
 ) -> Option<Vec<Value>> {
     let mut out = Vec::new();
-    let Some(tools) = source.get("tools").and_then(Value::as_array) else {
+    let Some(tools) = get_array_field(source, &["tools"]) else {
         return None;
     };
     for tool in tools {
         let Some(tool_obj) = tool.as_object() else {
             continue;
         };
-        let Some(function_declarations) = tool_obj
-            .get("functionDeclarations")
-            .and_then(Value::as_array)
+        let Some(function_declarations) =
+            get_array_field(tool_obj, &["functionDeclarations", "function_declarations"])
         else {
             continue;
         };
@@ -612,9 +633,10 @@ fn map_gemini_tools_to_responses(
             if let Some(description) = declaration.get("description") {
                 mapped.insert("description".to_string(), description.clone());
             }
-            let parameters = declaration
-                .get("parametersJsonSchema")
-                .or_else(|| declaration.get("parameters"))
+            let parameters = get_value_field(
+                declaration.as_object().expect("declaration object"),
+                &["parametersJsonSchema", "parameters_json_schema", "parameters"],
+            )
                 .cloned()
                 .unwrap_or_else(|| json!({ "type": "object", "properties": {} }));
             mapped.insert(
@@ -634,9 +656,10 @@ fn map_gemini_tools_to_responses(
 fn map_gemini_image_part_to_responses_item(
     part_obj: &serde_json::Map<String, Value>,
 ) -> Option<Value> {
-    if let Some(inline_data) = part_obj.get("inlineData").and_then(Value::as_object) {
+    if let Some(inline_data) = get_object_field(part_obj, &["inlineData", "inline_data"]) {
         let mime_type = inline_data
             .get("mimeType")
+            .or_else(|| inline_data.get("mime_type"))
             .and_then(Value::as_str)
             .unwrap_or("image/png");
         let data = inline_data
@@ -650,7 +673,7 @@ fn map_gemini_image_part_to_responses_item(
         }));
     }
 
-    let file_data = part_obj.get("fileData").and_then(Value::as_object)?;
+    let file_data = get_object_field(part_obj, &["fileData", "file_data"])?;
     let file_uri = file_data
         .get("fileUri")
         .or_else(|| file_data.get("file_uri"))
@@ -692,13 +715,83 @@ fn extract_text_from_content_like(value: &Value) -> String {
     parts.join("\n\n")
 }
 
-fn copy_optional_field(
+fn copy_optional_field_alias(
     source: &serde_json::Map<String, Value>,
     target: &mut serde_json::Map<String, Value>,
-    from_key: &str,
+    from_keys: &[&str],
     to_key: &str,
 ) {
-    if let Some(value) = source.get(from_key) {
+    if let Some(value) = get_value_field(source, from_keys) {
         target.insert(to_key.to_string(), value.clone());
+    }
+}
+
+fn get_value_field<'a>(
+    source: &'a serde_json::Map<String, Value>,
+    keys: &[&str],
+) -> Option<&'a Value> {
+    keys.iter().find_map(|key| source.get(*key))
+}
+
+fn get_array_field<'a>(
+    source: &'a serde_json::Map<String, Value>,
+    keys: &[&str],
+) -> Option<&'a Vec<Value>> {
+    get_value_field(source, keys).and_then(Value::as_array)
+}
+
+fn get_object_field<'a>(
+    source: &'a serde_json::Map<String, Value>,
+    keys: &[&str],
+) -> Option<&'a serde_json::Map<String, Value>> {
+    get_value_field(source, keys).and_then(Value::as_object)
+}
+
+fn get_tool_config_field_value<'a>(
+    source: &'a serde_json::Map<String, Value>,
+    keys: &[&str],
+) -> Option<&'a Value> {
+    source
+        .get("toolConfig")
+        .or_else(|| source.get("tool_config"))
+        .and_then(Value::as_object)
+        .and_then(|value| get_object_field(value, &["functionCallingConfig", "function_calling_config"]))
+        .and_then(|value| get_value_field(value, keys))
+}
+
+fn get_tool_config_field_array<'a>(
+    source: &'a serde_json::Map<String, Value>,
+    keys: &[&str],
+) -> Option<&'a Vec<Value>> {
+    get_tool_config_field_value(source, keys).and_then(Value::as_array)
+}
+
+fn resolve_gemini_reasoning_payload(
+    source: &serde_json::Map<String, Value>,
+) -> Option<Value> {
+    let generation_config = get_object_field(source, &["generationConfig", "generation_config"])?;
+    let thinking_config =
+        get_object_field(generation_config, &["thinkingConfig", "thinking_config"])?;
+
+    if let Some(level) = get_value_field(thinking_config, &["thinkingLevel", "thinking_level"])
+        .and_then(Value::as_str)
+        .and_then(crate::reasoning_effort::normalize_reasoning_effort)
+    {
+        return Some(json!({ "effort": level }));
+    }
+
+    let budget = get_value_field(thinking_config, &["thinkingBudget", "thinking_budget"])
+        .and_then(Value::as_i64)?;
+    let effort = map_gemini_thinking_budget_to_effort(budget)?;
+    Some(json!({ "effort": effort }))
+}
+
+fn map_gemini_thinking_budget_to_effort(budget: i64) -> Option<&'static str> {
+    match budget {
+        i64::MIN..=-1 => None,
+        0..=1024 => Some("low"),
+        1025..=8192 => Some("medium"),
+        8193..=24576 => Some("high"),
+        24577..=i64::MAX => Some("xhigh"),
     }
 }

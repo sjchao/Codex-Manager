@@ -304,3 +304,99 @@ fn gemini_mcp_tool_names_are_sanitized_for_openai_and_restored() {
     );
     assert_eq!(value["tool_choice"]["name"], mapped_name);
 }
+
+#[test]
+fn gemini_request_supports_snake_case_fields_and_thinking_config() {
+    let body = serde_json::json!({
+        "system_instruction": {
+            "parts": [{ "text": "你是一个谨慎的代码助手" }]
+        },
+        "contents": [{
+            "role": "user",
+            "parts": [{
+                "text": "分析这个截图"
+            }, {
+                "inline_data": {
+                    "mime_type": "image/png",
+                    "data": "ZmFrZS1pbWFnZQ=="
+                }
+            }]
+        }],
+        "generation_config": {
+            "temperature": 0.2,
+            "top_p": 0.9,
+            "top_k": 32,
+            "candidate_count": 2,
+            "max_output_tokens": 128,
+            "stop_sequences": ["STOP"],
+            "thinking_config": {
+                "thinking_budget": 9000
+            }
+        },
+        "tools": [{
+            "function_declarations": [{
+                "name": "tool.a/b",
+                "description": "读取文件",
+                "parameters_json_schema": {
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string" }
+                    },
+                    "required": ["path"]
+                }
+            }]
+        }],
+        "tool_config": {
+            "function_calling_config": {
+                "mode": "ANY",
+                "allowed_function_names": ["tool.a/b"],
+                "disable_parallel_tool_use": true
+            }
+        }
+    });
+    let body = serde_json::to_vec(&body).expect("serialize request");
+
+    let adapted = adapt_request_for_protocol(
+        "gemini_native",
+        "/v1beta/models/gemini-2.5-pro:generateContent",
+        body,
+    )
+    .expect("adapt request");
+
+    let value: serde_json::Value = serde_json::from_slice(&adapted.body).expect("adapted json");
+    assert_eq!(value["instructions"], "你是一个谨慎的代码助手");
+    assert_eq!(value["temperature"], 0.2);
+    assert_eq!(value["top_p"], 0.9);
+    assert_eq!(value["top_k"], 32);
+    assert_eq!(value["n"], 2);
+    assert_eq!(value["max_output_tokens"], 128);
+    assert_eq!(value["stop"], serde_json::json!(["STOP"]));
+    assert_eq!(value["reasoning"]["effort"], "high");
+    assert_eq!(
+        value["include"],
+        serde_json::json!(["reasoning.encrypted_content"])
+    );
+    assert_eq!(value["parallel_tool_calls"], false);
+
+    let input_items = value["input"].as_array().expect("input array");
+    assert_eq!(input_items[0]["role"], "user");
+    let content_items = input_items[0]["content"].as_array().expect("content array");
+    assert_eq!(content_items[0]["type"], "input_text");
+    assert_eq!(content_items[0]["text"], "分析这个截图");
+    assert_eq!(content_items[1]["type"], "input_image");
+    assert_eq!(
+        content_items[1]["image_url"],
+        "data:image/png;base64,ZmFrZS1pbWFnZQ=="
+    );
+
+    let mapped_name = value["tools"][0]["name"]
+        .as_str()
+        .expect("mapped tool name");
+    assert_eq!(mapped_name, "tool_a_b");
+    assert_eq!(
+        value["tools"][0]["parameters"]["required"],
+        serde_json::json!(["path"])
+    );
+    assert_eq!(value["tool_choice"]["type"], "function");
+    assert_eq!(value["tool_choice"]["name"], mapped_name);
+}
