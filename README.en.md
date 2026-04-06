@@ -87,7 +87,7 @@ If this project has been helpful to you, you are welcome to support the author.
 | Build locally, package, release, and run scripts | [Build, Release, and Script Guide](docs/release/构建发布与脚本说明.md) |
 
 ## Recent Changes
-  - Current latest version: `v0.1.17` (2026-04-06, release)
+  - Current latest version: `v0.1.18` (2026-04-06, release)
   -  the local gateway now has stronger Gemini CLI compatibility. Requests can be relayed to `/v1/responses`, with Gemini SSE streaming, permission confirmation, tools, MCP, and skill call chains handled end-to-end.
   -  fixed a Gemini `response.completed` issue where tool output could be misclassified as the final assistant message, reducing cases like `已修改 Desktop\\gemini.txt。` leaking into the final reply.
   -  fixed a token-refresh polling boundary issue. The scheduler now prefetches tokens that will enter the refresh window before the next poll cycle, reducing edge misses when both the poll interval and the refresh-ahead window are `600s`.
@@ -95,7 +95,7 @@ If this project has been helpful to you, you are welcome to support the author.
   - Regular platform keys now use a wildcard-compatible protocol mode for Codex and Claude Code. The gateway routes `/v1/messages*` with Claude semantics and other standard paths with Codex / OpenAI semantics, so separate keys are no longer required for those clients.
   - The settings page now includes model forward rules with `pattern=target` syntax, for example `spark*=gpt-5.4-mini`. Platform-key bound models still take precedence over global forwarding rules.
   - The account-page quota detail popup has also been realigned so it now sits on the vertical midpoint of the quota overview card, making the 5-hour, 7-day, and extra quota details feel anchored to the correct hover target instead of floating too high.
-  - Version alignment for this round is complete too: the workspace, frontend package, Tauri desktop app, lockfile, README, and CHANGELOG have all been updated to `0.1.17`.
+  - Version alignment for this round is complete too: the workspace, frontend package, Tauri desktop app, lockfile, README, and CHANGELOG have all been updated to `0.1.18`.
 
 ### Recent Commit Summary
 - `f4a03df`: fixed a Gemini completed-event issue where tool output could be mistaken for the final assistant message.

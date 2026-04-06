@@ -5,8 +5,14 @@
 
 ## [Unreleased]
 
+## [0.1.18] - 2026-04-06
+
 ### Fixed
 - 调整账号页“额度详情”悬浮卡的定位方式，右侧浮层改为按额度概览卡片中线对齐，减少提示内容明显偏上的视觉错位。
+- 对齐 Gemini → Codex/Responses 请求链路（CPA 兼容），并清理 Gemini 路线未使用代码，消除编译告警。
+
+### Changed
+- 发布版本提升到 `0.1.18`，同步更新 workspace、前端包、Tauri 桌面端、锁文件、README 与 CHANGELOG 的版本说明。
 
 ## [0.1.17] - 2026-04-05
 
@@ -189,7 +195,8 @@
 ### Changed
 - 账号管理页操作区整合为单一“账号操作”下拉菜单，替代右侧多按钮堆叠，界面更简洁。
 
-[Unreleased]: https://github.com/qxcnm/Codex-Manager/compare/v0.1.17...HEAD
+[Unreleased]: https://github.com/qxcnm/Codex-Manager/compare/v0.1.18...HEAD
+[0.1.18]: https://github.com/qxcnm/Codex-Manager/releases/tag/v0.1.18
 [0.1.17]: https://github.com/qxcnm/Codex-Manager/releases/tag/v0.1.17
 [0.1.16]: https://github.com/qxcnm/Codex-Manager/releases/tag/v0.1.16
 [0.1.15]: https://github.com/qxcnm/Codex-Manager/releases/tag/v0.1.15

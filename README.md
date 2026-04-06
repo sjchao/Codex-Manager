@@ -89,7 +89,7 @@
 | 本地构建、打包、发版、脚本调用 | [构建发布与脚本说明](docs/release/构建发布与脚本说明.md) |
 
 ## 最近变更
-  - 当前最新版本：`v0.1.17`（2026-04-06，release）
+  - 当前最新版本：`v0.1.18`（2026-04-06，release）
   - 本地网关已补强 Gemini CLI 兼容，请求可转发到 `/v1/responses`，并补齐 Gemini SSE 流、权限确认、tools、MCP 与 skill 调用链路。
   - 修复 Gemini `response.completed` 中工具结果被误当成最终正文的问题，减少 `已修改 Desktop\\gemini.txt。` 这类工具结果串到最终回答里的情况。
   - 修复令牌刷新轮询边界问题，轮询现在会预抓“下一轮轮询窗口内即将进入刷新窗口”的 token，降低当轮询间隔与提前刷新窗口都为 `600s` 时偶发 refresh 踩线失效的概率。
@@ -97,7 +97,7 @@
   - 平台 Key 的普通协议类型已经收敛成“通配兼容 (Codex / Claude Code)”，默认按请求路径自动分流：`/v1/messages*` 走 Claude 语义，其它标准路径走 Codex / OpenAI 语义，不再需要为不同客户端重复维护两套 Key。
   - 设置页新增“模型转发规则”，支持使用 `pattern=target` 做全局模型改写，例如 `spark*=gpt-5.4-mini`；如果平台 Key 自身绑定了固定模型，则平台 Key 绑定值优先。
   - 账号页的“额度详情”悬浮卡位置也做了收口，浮层现在会按额度概览卡片的中线对齐，查看 5 小时 / 7 天 / 专属额度时更贴近视觉锚点，不会再明显偏上。
-  - 这轮版本收口也已完成：workspace、前端包、Tauri 桌面端、锁文件、README 和 CHANGELOG 的版本说明已统一到 `0.1.17`。
+  - 这轮版本收口也已完成：workspace、前端包、Tauri 桌面端、锁文件、README 和 CHANGELOG 的版本说明已统一到 `0.1.18`。
 
 ### 近期提交摘要
 - `f4a03df`：修复 Gemini completed 事件把工具输出误当成最终正文的问题。
