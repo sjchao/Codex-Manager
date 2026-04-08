@@ -1,5 +1,6 @@
 use crate::gateway::error_log::GatewayErrorLogInput;
 use codexmanager_core::storage::{now_ts, RequestLog, RequestTokenStat, Storage};
+use serde::Serialize;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct RequestLogUsage {
@@ -8,6 +9,15 @@ pub(crate) struct RequestLogUsage {
     pub output_tokens: Option<i64>,
     pub total_tokens: Option<i64>,
     pub reasoning_output_tokens: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AggregateApiAttemptFailure {
+    pub aggregate_api_id: Option<String>,
+    pub supplier_name: Option<String>,
+    pub status_code: Option<i64>,
+    pub error: String,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -22,6 +32,7 @@ pub(crate) struct RequestLogTraceContext<'a> {
     pub aggregate_api_supplier_name: Option<&'a str>,
     pub aggregate_api_url: Option<&'a str>,
     pub attempted_aggregate_api_ids: Option<&'a [String]>,
+    pub aggregate_api_attempt_failures: Option<&'a [AggregateApiAttemptFailure]>,
 }
 
 const MODEL_PRICE_PER_1K_TOKENS: &[(&str, f64, f64, f64)] = &[
@@ -324,6 +335,10 @@ pub(crate) fn write_request_log_with_attempts(
         .attempted_aggregate_api_ids
         .filter(|items| !items.is_empty())
         .and_then(|items| serde_json::to_string(items).ok());
+    let aggregate_api_attempt_failures_json = trace_context
+        .aggregate_api_attempt_failures
+        .filter(|items| !items.is_empty())
+        .and_then(|items| serde_json::to_string(items).ok());
     let input_tokens = normalize_token(usage.input_tokens);
     let cached_input_tokens = normalize_token(usage.cached_input_tokens);
     let output_tokens = normalize_token(usage.output_tokens);
@@ -399,6 +414,7 @@ pub(crate) fn write_request_log_with_attempts(
             attempted_account_ids_json,
             initial_aggregate_api_id: initial_aggregate_api_id.map(str::to_string),
             attempted_aggregate_api_ids_json,
+            aggregate_api_attempt_failures_json,
             request_path: request_path.to_string(),
             original_path: Some(original_path.to_string()),
             adapted_path: Some(adapted_path.to_string()),

@@ -699,7 +699,14 @@ export function normalizeApiKeyUsageStats(payload: unknown): ApiKeyUsageStat[] {
       if (!keyId) return null;
       return {
         keyId,
+        todayTokens: asInteger(current.todayTokens ?? current.today_tokens, 0, 0),
         totalTokens: asInteger(current.totalTokens ?? current.total_tokens, 0, 0),
+        todayEstimatedCostUsd: Math.max(
+          0,
+          toNullableNumber(
+            current.todayEstimatedCostUsd ?? current.today_estimated_cost_usd
+          ) ?? 0
+        ),
         estimatedCostUsd: Math.max(
           0,
           toNullableNumber(current.estimatedCostUsd ?? current.estimated_cost_usd) ?? 0
@@ -1057,6 +1064,32 @@ export function normalizeRequestLog(item: unknown): RequestLog | null {
       source.responseTimeMs ??
       source.response_time_ms
   );
+  const aggregateApiAttemptFailures = asArray(
+    source.aggregateApiAttemptFailures ??
+      source.aggregate_api_attempt_failures
+  )
+    .map((item) => {
+      const current = asObject(item);
+      return {
+        aggregateApiId: asString(
+          current.aggregateApiId ?? current.aggregate_api_id
+        ),
+        supplierName: asString(
+          current.supplierName ?? current.supplier_name
+        ),
+        statusCode: toNullableNumber(
+          current.statusCode ?? current.status_code
+        ),
+        error: asString(current.error),
+      };
+    })
+    .filter(
+      (current) =>
+        current.aggregateApiId.length > 0 ||
+        current.supplierName.length > 0 ||
+        current.statusCode != null ||
+        current.error.length > 0
+    );
 
   return {
     id,
@@ -1075,6 +1108,7 @@ export function normalizeRequestLog(item: unknown): RequestLog | null {
     )
       .map((value) => asString(value))
       .filter((value) => value.length > 0),
+    aggregateApiAttemptFailures,
     requestPath,
     originalPath: asString(source.originalPath ?? source.original_path),
     adaptedPath: asString(source.adaptedPath ?? source.adapted_path),

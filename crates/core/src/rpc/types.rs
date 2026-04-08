@@ -376,7 +376,9 @@ pub struct ApiKeyListResult {
 #[serde(rename_all = "camelCase")]
 pub struct ApiKeyUsageStatSummary {
     pub key_id: String,
+    pub today_tokens: i64,
     pub total_tokens: i64,
+    pub today_estimated_cost_usd: f64,
     pub estimated_cost_usd: f64,
 }
 
@@ -559,6 +561,16 @@ pub struct ApiKeyModelListResult {
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RequestLogAggregateApiAttemptFailure {
+    pub aggregate_api_id: Option<String>,
+    pub supplier_name: Option<String>,
+    pub status_code: Option<i64>,
+    #[serde(default)]
+    pub error: String,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RequestLogSummary {
     pub trace_id: Option<String>,
     pub key_id: Option<String>,
@@ -569,6 +581,8 @@ pub struct RequestLogSummary {
     pub initial_aggregate_api_id: Option<String>,
     #[serde(default)]
     pub attempted_aggregate_api_ids: Vec<String>,
+    #[serde(default)]
+    pub aggregate_api_attempt_failures: Vec<RequestLogAggregateApiAttemptFailure>,
     pub request_path: String,
     pub original_path: Option<String>,
     pub adapted_path: Option<String>,

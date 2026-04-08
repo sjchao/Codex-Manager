@@ -97,10 +97,33 @@ impl Storage {
     ///
     /// # 返回
     /// 返回函数执行结果
-    pub fn summarize_request_token_stats_by_key(&self) -> Result<Vec<ApiKeyTokenUsageSummary>> {
+    pub fn summarize_request_token_stats_by_key(
+        &self,
+        start_ts: i64,
+        end_ts: i64,
+    ) -> Result<Vec<ApiKeyTokenUsageSummary>> {
         let mut stmt = self.conn.prepare(
             "SELECT
                 key_id,
+                IFNULL(
+                    SUM(
+                        CASE
+                            WHEN created_at >= ?1 AND created_at < ?2 THEN
+                                CASE
+                                    WHEN total_tokens IS NOT NULL THEN
+                                        CASE WHEN total_tokens > 0 THEN total_tokens ELSE 0 END
+                                    ELSE
+                                        CASE
+                                            WHEN IFNULL(input_tokens, 0) - IFNULL(cached_input_tokens, 0) + IFNULL(output_tokens, 0) > 0
+                                                THEN IFNULL(input_tokens, 0) - IFNULL(cached_input_tokens, 0) + IFNULL(output_tokens, 0)
+                                            ELSE 0
+                                        END
+                                END
+                            ELSE 0
+                        END
+                    ),
+                    0
+                ) AS today_tokens,
                 IFNULL(
                     SUM(
                         CASE
@@ -116,19 +139,31 @@ impl Storage {
                     ),
                     0
                 ) AS total_tokens,
+                IFNULL(
+                    SUM(
+                        CASE
+                            WHEN created_at >= ?1 AND created_at < ?2
+                                THEN IFNULL(estimated_cost_usd, 0.0)
+                            ELSE 0.0
+                        END
+                    ),
+                    0.0
+                ) AS today_estimated_cost_usd,
                 IFNULL(SUM(estimated_cost_usd), 0.0) AS estimated_cost_usd
              FROM request_token_stats
              WHERE key_id IS NOT NULL AND TRIM(key_id) <> ''
              GROUP BY key_id
              ORDER BY total_tokens DESC, key_id ASC",
         )?;
-        let mut rows = stmt.query([])?;
+        let mut rows = stmt.query((start_ts, end_ts))?;
         let mut items = Vec::new();
         while let Some(row) = rows.next()? {
             items.push(ApiKeyTokenUsageSummary {
                 key_id: row.get(0)?,
-                total_tokens: row.get(1)?,
-                estimated_cost_usd: row.get(2)?,
+                today_tokens: row.get(1)?,
+                total_tokens: row.get(2)?,
+                today_estimated_cost_usd: row.get(3)?,
+                estimated_cost_usd: row.get(4)?,
             });
         }
         Ok(items)

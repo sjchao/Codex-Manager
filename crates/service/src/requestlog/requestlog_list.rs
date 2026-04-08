@@ -1,5 +1,6 @@
 use codexmanager_core::rpc::types::{
-    RequestLogListParams, RequestLogListResult, RequestLogSummary,
+    RequestLogAggregateApiAttemptFailure, RequestLogListParams, RequestLogListResult,
+    RequestLogSummary,
 };
 use codexmanager_core::storage::RequestLog;
 
@@ -23,6 +24,13 @@ fn normalize_upstream_url(raw: Option<&str>) -> Option<String> {
     raw.map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
+}
+
+fn parse_aggregate_api_attempt_failures(
+    raw: Option<&str>,
+) -> Vec<RequestLogAggregateApiAttemptFailure> {
+    raw.and_then(|value| serde_json::from_str::<Vec<RequestLogAggregateApiAttemptFailure>>(value).ok())
+        .unwrap_or_default()
 }
 
 /// 函数 `read_request_logs`
@@ -191,6 +199,8 @@ fn to_request_log_summary(item: RequestLog) -> RequestLogSummary {
         .as_deref()
         .and_then(|raw| serde_json::from_str::<Vec<String>>(raw).ok())
         .unwrap_or_default();
+    let aggregate_api_attempt_failures =
+        parse_aggregate_api_attempt_failures(item.aggregate_api_attempt_failures_json.as_deref());
     RequestLogSummary {
         trace_id: item.trace_id,
         key_id: item.key_id,
@@ -199,6 +209,7 @@ fn to_request_log_summary(item: RequestLog) -> RequestLogSummary {
         attempted_account_ids,
         initial_aggregate_api_id: item.initial_aggregate_api_id,
         attempted_aggregate_api_ids,
+        aggregate_api_attempt_failures,
         request_path: item.request_path,
         original_path: item.original_path,
         adapted_path: item.adapted_path,

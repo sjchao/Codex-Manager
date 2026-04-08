@@ -61,6 +61,7 @@ import {
   ApiKey,
   GatewayErrorLog,
   RequestLog,
+  RequestLogAggregateApiAttemptFailure,
   RequestLogFilterSummary,
   RequestLogListResult,
   StartupSnapshot,
@@ -1006,8 +1007,64 @@ function RequestRouteInfoCell({ log }: { log: RequestLog }) {
  * # 返回
  * 返回函数执行结果
  */
-function ErrorInfoCell({ error }: { error: string }) {
+function aggregateApiAttemptFailureLabel(
+  failure: RequestLogAggregateApiAttemptFailure
+) {
+  return failure.supplierName || failure.aggregateApiId || "渠道";
+}
+
+function aggregateApiAttemptFailureStatus(
+  failure: RequestLogAggregateApiAttemptFailure
+) {
+  return failure.statusCode == null ? "ERR" : String(failure.statusCode);
+}
+
+function ErrorInfoCell({
+  error,
+  aggregateApiAttemptFailures,
+}: {
+  error: string;
+  aggregateApiAttemptFailures?: RequestLogAggregateApiAttemptFailure[];
+}) {
   const text = String(error || "").trim();
+  const failures = (aggregateApiAttemptFailures ?? []).filter(
+    (failure) =>
+      String(failure.supplierName || "").trim().length > 0 ||
+      String(failure.aggregateApiId || "").trim().length > 0 ||
+      failure.statusCode != null ||
+      String(failure.error || "").trim().length > 0
+  );
+  if (failures.length > 0) {
+    return (
+      <div className="flex flex-wrap gap-1.5">
+        {failures.map((failure, index) => {
+          const label = aggregateApiAttemptFailureLabel(failure);
+          const status = aggregateApiAttemptFailureStatus(failure);
+          const detail = String(failure.error || "").trim() || "未返回具体错误信息";
+          return (
+            <Tooltip key={`${label}-${status}-${index}`}>
+              <TooltipTrigger render={<div />} className="block text-left">
+                <span
+                  title={detail}
+                  className="inline-flex max-w-[220px] cursor-help items-center rounded-md border border-red-500/20 bg-red-500/10 px-2 py-0.5 font-medium text-red-600 dark:text-red-300"
+                >
+                  <span className="truncate">{`${label}<${status}>`}</span>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-md">
+                <div className="space-y-1.5">
+                  <div className="font-medium text-foreground">{`${label}<${status}>`}</div>
+                  <div className="max-w-[360px] break-all font-mono text-[11px]">
+                    {detail}
+                  </div>
+                </div>
+              </TooltipContent>
+            </Tooltip>
+          );
+        })}
+      </div>
+    );
+  }
   if (!text) {
     return <span className="text-muted-foreground">-</span>;
   }
@@ -1015,7 +1072,10 @@ function ErrorInfoCell({ error }: { error: string }) {
   return (
     <Tooltip>
       <TooltipTrigger render={<div />} className="block text-left">
-        <span className="block max-w-[220px] truncate font-medium text-red-400">
+        <span
+          title={text}
+          className="block max-w-[220px] cursor-help truncate font-medium text-red-500 dark:text-red-400"
+        >
           {text}
         </span>
       </TooltipTrigger>
@@ -1729,7 +1789,12 @@ function LogsPageContent() {
                       </div>
                     </TableCell>
                     <TableCell className="px-4 py-3 text-left align-top">
-                      <ErrorInfoCell error={log.error} />
+                      <ErrorInfoCell
+                        error={log.error}
+                        aggregateApiAttemptFailures={
+                          log.aggregateApiAttemptFailures
+                        }
+                      />
                     </TableCell>
                   </TableRow>
                 ))

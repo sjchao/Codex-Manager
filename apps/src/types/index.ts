@@ -142,7 +142,9 @@ export interface AggregateApiTestResult {
 
 export interface ApiKeyUsageStat {
   keyId: string;
+  todayTokens: number;
   totalTokens: number;
+  todayEstimatedCostUsd: number;
   estimatedCostUsd: number;
 }
 
@@ -238,6 +240,13 @@ export interface ModelOption {
   displayName: string;
 }
 
+export interface RequestLogAggregateApiAttemptFailure {
+  aggregateApiId: string;
+  supplierName: string;
+  statusCode: number | null;
+  error: string;
+}
+
 export interface RequestLog {
   id: string;
   traceId: string;
@@ -247,6 +256,7 @@ export interface RequestLog {
   attemptedAccountIds: string[];
   initialAggregateApiId: string;
   attemptedAggregateApiIds: string[];
+  aggregateApiAttemptFailures: RequestLogAggregateApiAttemptFailure[];
   requestPath: string;
   originalPath: string;
   adaptedPath: string;

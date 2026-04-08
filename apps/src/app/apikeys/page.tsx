@@ -97,6 +97,20 @@ function formatCompactTokenAmount(value: number | null | undefined): string {
   return formatCompactNumber(normalized, "0.00", 2, true);
 }
 
+function formatTokenUsagePair(
+  todayValue: number | null | undefined,
+  totalValue: number | null | undefined
+): string {
+  return `${formatCompactTokenAmount(todayValue)} / ${formatCompactTokenAmount(totalValue)}`;
+}
+
+function formatUsdUsagePair(
+  todayValue: number | null | undefined,
+  totalValue: number | null | undefined
+): string {
+  return `${formatUsd(todayValue || 0)} / ${formatUsd(totalValue || 0)}`;
+}
+
 /**
  * 函数 `ApiKeyStatCard`
  *
@@ -136,6 +150,13 @@ function ApiKeyStatCard({
     </Card>
   );
 }
+
+type ApiKeyUsageOverviewItem = {
+  todayTokens: number;
+  totalTokens: number;
+  todayCostUsd: number;
+  totalCostUsd: number;
+};
 
 export default function ApiKeysPage() {
   const serviceAddr = useAppStore((state) => state.serviceStatus.addr);
@@ -180,28 +201,46 @@ export default function ApiKeysPage() {
     queryKey: ["apikey-usage-overview", serviceAddr || null],
     queryFn: async () => {
       const stats = await accountClient.listApiKeyUsageStats();
-      const usageByKey = stats.reduce<Record<string, number>>((result, item) => {
+      const usageByKey = stats.reduce<Record<string, ApiKeyUsageOverviewItem>>((result, item) => {
         const keyId = String(item.keyId || "").trim();
         if (!keyId) return result;
-        result[keyId] = Math.max(0, item.totalTokens || 0);
+        result[keyId] = {
+          todayTokens: Math.max(0, item.todayTokens || 0),
+          totalTokens: Math.max(0, item.totalTokens || 0),
+          todayCostUsd: Math.max(0, item.todayEstimatedCostUsd || 0),
+          totalCostUsd: Math.max(0, item.estimatedCostUsd || 0),
+        };
         return result;
       }, {});
 
-      const totalTokens = Object.values(usageByKey).reduce((sum, value) => sum + value, 0);
+      const todayTokens = stats.reduce(
+        (sum, item) => sum + Math.max(0, item.todayTokens || 0),
+        0,
+      );
+      const totalTokens = stats.reduce(
+        (sum, item) => sum + Math.max(0, item.totalTokens || 0),
+        0,
+      );
+      const todayCostUsd = stats.reduce(
+        (sum, item) => sum + Math.max(0, item.todayEstimatedCostUsd || 0),
+        0,
+      );
       const totalCostUsd = stats.reduce(
         (sum, item) => sum + Math.max(0, item.estimatedCostUsd || 0),
         0,
       );
       return {
         usageByKey,
+        todayTokens,
         totalTokens,
+        todayCostUsd,
         totalCostUsd,
       };
     },
     enabled: isUsageQueryEnabled && isPageActive,
     retry: 1,
   });
-  const usageByKey = usageOverview?.usageByKey || {};
+  const usageByKey: Record<string, ApiKeyUsageOverviewItem> = usageOverview?.usageByKey || {};
   const showOverviewLoading = isServiceReady && isPageActive && isUsageOverviewLoading;
 
   /**
@@ -385,18 +424,24 @@ export default function ApiKeysPage() {
         ) : (
           <>
             <ApiKeyStatCard
-              title="总使用 Token"
-              value={formatCompactTokenAmount(usageOverview?.totalTokens || 0)}
+              title="Token 使用量"
+              value={formatTokenUsagePair(
+                usageOverview?.todayTokens,
+                usageOverview?.totalTokens,
+              )}
               icon={Zap}
               color="h-4 w-4 text-amber-500"
-              sub="按全部平台密钥累计"
+              sub="当天 / 总量（全部平台密钥）"
             />
             <ApiKeyStatCard
               title="总费用"
-              value={formatUsd(usageOverview?.totalCostUsd || 0)}
+              value={formatUsdUsagePair(
+                usageOverview?.todayCostUsd,
+                usageOverview?.totalCostUsd,
+              )}
               icon={DollarSign}
               color="h-4 w-4 text-emerald-500"
-              sub="按全部平台密钥累计"
+              sub="当天 / 总量（全部平台密钥）"
             />
           </>
         )}
@@ -412,7 +457,7 @@ export default function ApiKeysPage() {
                 <TableHead>协议</TableHead>
                 <TableHead>轮转策略</TableHead>
                 <TableHead>绑定模型</TableHead>
-                <TableHead>总使用 Token</TableHead>
+                <TableHead>Token 使用量</TableHead>
                 <TableHead>状态</TableHead>
                 <TableHead className="text-center">操作</TableHead>
               </TableRow>
@@ -505,7 +550,10 @@ export default function ApiKeysPage() {
                         )}
                       </TableCell>
                       <TableCell className="font-mono text-xs">
-                        {formatCompactTokenAmount(usageByKey[key.id] ?? 0)}
+                        {formatTokenUsagePair(
+                          usageByKey[key.id]?.todayTokens,
+                          usageByKey[key.id]?.totalTokens,
+                        )}
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">

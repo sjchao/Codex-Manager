@@ -1143,6 +1143,8 @@ fn request_token_stats_can_summarize_total_tokens_by_key() {
     let storage = Storage::open_in_memory().expect("open in memory");
     storage.init().expect("init schema");
     let created_at = now_ts();
+    let today_start = created_at - 1;
+    let today_end = created_at + 2;
 
     for (
         request_log_id,
@@ -1152,6 +1154,7 @@ fn request_token_stats_can_summarize_total_tokens_by_key() {
         cached_input_tokens,
         output_tokens,
         estimated_cost_usd,
+        current_created_at,
     ) in [
         (
             101_i64,
@@ -1161,6 +1164,7 @@ fn request_token_stats_can_summarize_total_tokens_by_key() {
             None,
             None,
             Some(0.12),
+            created_at,
         ),
         (
             102_i64,
@@ -1170,6 +1174,7 @@ fn request_token_stats_can_summarize_total_tokens_by_key() {
             Some(30_i64),
             Some(25_i64),
             Some(0.34),
+            created_at - 86_400,
         ),
         (
             103_i64,
@@ -1179,8 +1184,18 @@ fn request_token_stats_can_summarize_total_tokens_by_key() {
             None,
             None,
             Some(0.78),
+            created_at,
         ),
-        (104_i64, "", Some(999_i64), None, None, None, Some(9.99)),
+        (
+            104_i64,
+            "",
+            Some(999_i64),
+            None,
+            None,
+            None,
+            Some(9.99),
+            created_at,
+        ),
     ] {
         storage
             .insert_request_token_stat(&RequestTokenStat {
@@ -1198,21 +1213,25 @@ fn request_token_stats_can_summarize_total_tokens_by_key() {
                 total_tokens,
                 reasoning_output_tokens: Some(0),
                 estimated_cost_usd,
-                created_at,
+                created_at: current_created_at,
             })
             .expect("insert token stat");
     }
 
     let summary = storage
-        .summarize_request_token_stats_by_key()
+        .summarize_request_token_stats_by_key(today_start, today_end)
         .expect("summarize by key");
 
     assert_eq!(summary.len(), 2);
     assert_eq!(summary[0].key_id, "gk_alpha");
+    assert_eq!(summary[0].today_tokens, 120);
     assert_eq!(summary[0].total_tokens, 205);
+    assert!((summary[0].today_estimated_cost_usd - 0.12).abs() < f64::EPSILON);
     assert!((summary[0].estimated_cost_usd - 0.46).abs() < f64::EPSILON);
     assert_eq!(summary[1].key_id, "gk_beta");
+    assert_eq!(summary[1].today_tokens, 75);
     assert_eq!(summary[1].total_tokens, 75);
+    assert!((summary[1].today_estimated_cost_usd - 0.78).abs() < f64::EPSILON);
     assert!((summary[1].estimated_cost_usd - 0.78).abs() < f64::EPSILON);
 }
 

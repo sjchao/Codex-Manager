@@ -10,9 +10,34 @@ use crate::aggregate_api::{
     AGGREGATE_API_AUTH_APIKEY, AGGREGATE_API_AUTH_USERPASS, AGGREGATE_API_PROVIDER_CLAUDE,
     AGGREGATE_API_PROVIDER_CODEX, AGGREGATE_API_STATUS_ACTIVE,
 };
-use crate::gateway::request_log::RequestLogUsage;
+use crate::gateway::request_log::{AggregateApiAttemptFailure, RequestLogUsage};
 
 const AGGREGATE_API_RETRY_ATTEMPTS_PER_CHANNEL: usize = 3;
+
+fn should_retry_same_aggregate_candidate(status_code: u16) -> bool {
+    !matches!(status_code, 403 | 409)
+}
+
+fn push_aggregate_api_attempt_failure(
+    failures: &mut Vec<AggregateApiAttemptFailure>,
+    candidate: &AggregateApi,
+    supplier_name: Option<&str>,
+    status_code: u16,
+    error: Option<&str>,
+) {
+    let Some(error) = error.map(str::trim).filter(|value| !value.is_empty()) else {
+        return;
+    };
+    failures.push(AggregateApiAttemptFailure {
+        aggregate_api_id: Some(candidate.id.clone()),
+        supplier_name: supplier_name
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
+        status_code: Some(i64::from(status_code)),
+        error: error.to_string(),
+    });
+}
 
 fn is_aggregate_api_active(status: &str) -> bool {
     status
@@ -696,6 +721,7 @@ pub(in super::super) fn proxy_aggregate_request(
     let client = super::super::super::fresh_upstream_client();
     let mut request = Some(request);
     let mut attempted_aggregate_api_ids = Vec::new();
+    let mut aggregate_api_attempt_failures = Vec::new();
     let mut last_attempt_url: Option<String> = None;
     let mut last_attempt_supplier_name: Option<String> = None;
     let mut last_attempt_error: Option<String> = None;
@@ -714,6 +740,13 @@ pub(in super::super) fn proxy_aggregate_request(
             last_attempt_supplier_name = candidate_supplier_name.clone();
             last_attempt_error = Some("aggregate api secret not found".to_string());
             last_failure_status = 403;
+            push_aggregate_api_attempt_failure(
+                &mut aggregate_api_attempt_failures,
+                &candidate,
+                candidate_supplier_name.as_deref(),
+                403,
+                last_attempt_error.as_deref(),
+            );
             continue;
         };
 
@@ -725,14 +758,30 @@ pub(in super::super) fn proxy_aggregate_request(
                 last_attempt_supplier_name = candidate_supplier_name.clone();
                 last_attempt_error = Some(err);
                 last_failure_status = 502;
+                push_aggregate_api_attempt_failure(
+                    &mut aggregate_api_attempt_failures,
+                    &candidate,
+                    candidate_supplier_name.as_deref(),
+                    502,
+                    last_attempt_error.as_deref(),
+                );
                 continue;
             }
         };
 
         let mut succeeded = false;
+        let mut candidate_failure_status: Option<u16> = None;
+        let mut candidate_failure_error: Option<String> = None;
         for attempt_idx in 0..=AGGREGATE_API_RETRY_ATTEMPTS_PER_CHANNEL {
             if super::super::support::deadline::is_expired(request_deadline) {
                 let message = "aggregate api request timeout".to_string();
+                push_aggregate_api_attempt_failure(
+                    &mut aggregate_api_attempt_failures,
+                    &candidate,
+                    candidate_supplier_name.as_deref(),
+                    504,
+                    Some(message.as_str()),
+                );
                 let request = request
                     .take()
                     .expect("request should still be available for timeout response");
@@ -760,6 +809,9 @@ pub(in super::super) fn proxy_aggregate_request(
                         aggregate_api_supplier_name: candidate_supplier_name.as_deref(),
                         aggregate_api_url: Some(candidate_url.as_str()),
                         attempted_aggregate_api_ids: Some(attempted_aggregate_api_ids.as_slice()),
+                        aggregate_api_attempt_failures: (!aggregate_api_attempt_failures
+                            .is_empty())
+                            .then_some(aggregate_api_attempt_failures.as_slice()),
                         ..Default::default()
                     },
                     Some(key_id),
@@ -785,6 +837,8 @@ pub(in super::super) fn proxy_aggregate_request(
                     last_attempt_supplier_name = candidate_supplier_name.clone();
                     last_attempt_error = Some("invalid aggregate api url".to_string());
                     last_failure_status = 502;
+                    candidate_failure_status = Some(502);
+                    candidate_failure_error = last_attempt_error.clone();
                     break;
                 }
             };
@@ -839,8 +893,10 @@ pub(in super::super) fn proxy_aggregate_request(
                     let message = format!("aggregate api upstream error: {err}");
                     last_attempt_url = Some(url.as_str().to_string());
                     last_attempt_supplier_name = candidate_supplier_name.clone();
-                    last_attempt_error = Some(message);
+                    last_attempt_error = Some(message.clone());
                     last_failure_status = 502;
+                    candidate_failure_status = Some(502);
+                    candidate_failure_error = Some(message);
                     if attempt_idx < AGGREGATE_API_RETRY_ATTEMPTS_PER_CHANNEL {
                         continue;
                     }
@@ -872,9 +928,13 @@ pub(in super::super) fn proxy_aggregate_request(
                 );
                 last_attempt_url = Some(url.as_str().to_string());
                 last_attempt_supplier_name = candidate_supplier_name.clone();
-                last_attempt_error = Some(message);
+                last_attempt_error = Some(message.clone());
                 last_failure_status = 502;
-                if attempt_idx < AGGREGATE_API_RETRY_ATTEMPTS_PER_CHANNEL {
+                candidate_failure_status = Some(status_code);
+                candidate_failure_error = Some(message);
+                if should_retry_same_aggregate_candidate(status_code)
+                    && attempt_idx < AGGREGATE_API_RETRY_ATTEMPTS_PER_CHANNEL
+                {
                     continue;
                 }
                 break;
@@ -956,6 +1016,15 @@ pub(in super::super) fn proxy_aggregate_request(
                 final_error.as_deref(),
                 started_at.elapsed().as_millis(),
             );
+            if let Some(final_error_text) = final_error.as_deref() {
+                push_aggregate_api_attempt_failure(
+                    &mut aggregate_api_attempt_failures,
+                    &candidate,
+                    candidate_supplier_name.as_deref(),
+                    status_code,
+                    Some(final_error_text),
+                );
+            }
             super::super::super::write_request_log(
                 storage,
                 super::super::super::request_log::RequestLogTraceContext {
@@ -967,6 +1036,9 @@ pub(in super::super) fn proxy_aggregate_request(
                     aggregate_api_supplier_name: candidate_supplier_name.as_deref(),
                     aggregate_api_url: Some(candidate_url.as_str()),
                     attempted_aggregate_api_ids: Some(attempted_aggregate_api_ids.as_slice()),
+                    aggregate_api_attempt_failures: (!aggregate_api_attempt_failures
+                        .is_empty())
+                        .then_some(aggregate_api_attempt_failures.as_slice()),
                     ..Default::default()
                 },
                 Some(key_id),
@@ -994,6 +1066,14 @@ pub(in super::super) fn proxy_aggregate_request(
         if succeeded {
             return Ok(());
         }
+
+        push_aggregate_api_attempt_failure(
+            &mut aggregate_api_attempt_failures,
+            &candidate,
+            candidate_supplier_name.as_deref(),
+            candidate_failure_status.unwrap_or(last_failure_status),
+            candidate_failure_error.as_deref(),
+        );
 
         if candidate_idx + 1 < total_candidates {
             super::super::super::record_gateway_failover_attempt();
@@ -1026,6 +1106,8 @@ pub(in super::super) fn proxy_aggregate_request(
             aggregate_api_supplier_name: last_attempt_supplier_name.as_deref(),
             aggregate_api_url: last_attempt_url.as_deref(),
             attempted_aggregate_api_ids: Some(attempted_aggregate_api_ids.as_slice()),
+            aggregate_api_attempt_failures: (!aggregate_api_attempt_failures.is_empty())
+                .then_some(aggregate_api_attempt_failures.as_slice()),
             ..Default::default()
         },
         Some(key_id),
@@ -1203,7 +1285,10 @@ mod bridge_tests {
 mod tests {
     use codexmanager_core::storage::AggregateApi;
 
-    use super::{build_upstream_url, effective_action_path, resolve_passthrough_sse_protocol};
+    use super::{
+        build_upstream_url, effective_action_path, resolve_passthrough_sse_protocol,
+        should_retry_same_aggregate_candidate,
+    };
     use crate::gateway::{PassthroughSseProtocol, ResponseAdapter};
 
     fn aggregate_api_with_action(action: Option<&str>) -> AggregateApi {
@@ -1266,6 +1351,21 @@ mod tests {
         let url = build_upstream_url("https://api.example.com", "/v1/messages?beta=true")
             .expect("build upstream url");
         assert_eq!(url.as_str(), "https://api.example.com/v1/messages?beta=true");
+    }
+
+    #[test]
+    fn aggregate_api_409_does_not_retry_same_candidate() {
+        assert!(!should_retry_same_aggregate_candidate(409));
+    }
+
+    #[test]
+    fn aggregate_api_403_does_not_retry_same_candidate() {
+        assert!(!should_retry_same_aggregate_candidate(403));
+    }
+
+    #[test]
+    fn aggregate_api_5xx_still_retries_same_candidate() {
+        assert!(should_retry_same_aggregate_candidate(503));
     }
 
     /// 函数 `final_error_promotes_success_status_to_bad_gateway`

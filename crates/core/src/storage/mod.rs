@@ -111,6 +111,7 @@ pub struct RequestLog {
     pub attempted_account_ids_json: Option<String>,
     pub initial_aggregate_api_id: Option<String>,
     pub attempted_aggregate_api_ids_json: Option<String>,
+    pub aggregate_api_attempt_failures_json: Option<String>,
     pub request_path: String,
     pub original_path: Option<String>,
     pub adapted_path: Option<String>,
@@ -190,7 +191,9 @@ pub struct GatewayErrorLog {
 #[derive(Debug, Clone)]
 pub struct ApiKeyTokenUsageSummary {
     pub key_id: String,
+    pub today_tokens: i64,
     pub total_tokens: i64,
+    pub today_estimated_cost_usd: f64,
     pub estimated_cost_usd: f64,
 }
 
@@ -556,6 +559,11 @@ impl Storage {
             include_str!("../../migrations/043_request_logs_effective_service_tier.sql"),
             |s| s.ensure_request_log_effective_service_tier_column(),
         )?;
+        self.apply_sql_or_compat_migration(
+            "044_request_logs_aggregate_api_failure_chain",
+            include_str!("../../migrations/044_request_logs_aggregate_api_failure_chain.sql"),
+            |s| s.ensure_request_log_aggregate_api_failure_chain_column(),
+        )?;
         self.ensure_api_key_rotation_columns()?;
         self.ensure_aggregate_apis_table()?;
         self.ensure_aggregate_api_secrets_table()?;
@@ -563,6 +571,7 @@ impl Storage {
         self.ensure_gateway_error_logs_table()?;
         self.ensure_request_log_request_type_and_service_tier_columns()?;
         self.ensure_request_log_effective_service_tier_column()?;
+        self.ensure_request_log_aggregate_api_failure_chain_column()?;
         Ok(())
     }
 

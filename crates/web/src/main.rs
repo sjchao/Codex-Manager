@@ -182,7 +182,22 @@ fn resolve_web_root() -> PathBuf {
         }
         return exe_dir().join(p);
     }
+    if let Some(workspace_root) = detect_workspace_root() {
+        let workspace_web_root = workspace_root.join("apps").join("out");
+        if ensure_index_file(&workspace_web_root.join("index.html")) {
+            return workspace_web_root;
+        }
+    }
     exe_dir().join("web")
+}
+
+fn detect_workspace_root() -> Option<PathBuf> {
+    let current_exe_dir = exe_dir();
+    let workspace_root = current_exe_dir.parent()?.parent()?.to_path_buf();
+    if workspace_root.join("Cargo.toml").is_file() && workspace_root.join("apps").is_dir() {
+        return Some(workspace_root);
+    }
+    None
 }
 
 /// 函数 `exe_dir`
@@ -256,6 +271,25 @@ fn escape_html(text: &str) -> String {
         .replace('>', "&gt;")
         .replace('\"', "&quot;")
         .replace('\'', "&#39;")
+}
+
+fn append_no_store_headers(response: &mut Response) {
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("no-store, no-cache, must-revalidate"),
+    );
+    response
+        .headers_mut()
+        .insert(header::PRAGMA, HeaderValue::from_static("no-cache"));
+    response
+        .headers_mut()
+        .insert(header::EXPIRES, HeaderValue::from_static("0"));
+}
+
+async fn disable_ui_cache(request: Request, next: Next) -> Response {
+    let mut response = next.run(request).await;
+    append_no_store_headers(&mut response);
+    response
 }
 
 /// 函数 `runtime_info`
@@ -446,7 +480,8 @@ async fn async_main() {
         .route("/__login", get(auth::login_page).post(auth::login_submit))
         .route("/__logout", get(auth::logout).post(auth::logout))
         .merge(protected_app)
-        .with_state(state);
+        .with_state(state)
+        .layer(axum::middleware::from_fn(disable_ui_cache));
 
     println!("codexmanager-web listening on {web_addr} (service={service_addr})");
 

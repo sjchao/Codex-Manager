@@ -64,10 +64,10 @@ impl Storage {
     pub fn insert_request_log(&self, log: &RequestLog) -> Result<i64> {
         self.conn.execute(
             "INSERT INTO request_logs (
-                trace_id, key_id, account_id, initial_account_id, attempted_account_ids_json, initial_aggregate_api_id, attempted_aggregate_api_ids_json,
+                trace_id, key_id, account_id, initial_account_id, attempted_account_ids_json, initial_aggregate_api_id, attempted_aggregate_api_ids_json, aggregate_api_attempt_failures_json,
                 request_path, original_path, adapted_path,
                 method, request_type, model, reasoning_effort, service_tier, effective_service_tier, response_adapter, upstream_url, aggregate_api_supplier_name, aggregate_api_url, status_code, duration_ms, error, created_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)",
             params![
                 &log.trace_id,
                 &log.key_id,
@@ -76,6 +76,7 @@ impl Storage {
                 &log.attempted_account_ids_json,
                 &log.initial_aggregate_api_id,
                 &log.attempted_aggregate_api_ids_json,
+                &log.aggregate_api_attempt_failures_json,
                 &log.request_path,
                 &log.original_path,
                 &log.adapted_path,
@@ -119,10 +120,10 @@ impl Storage {
         let tx = self.conn.unchecked_transaction()?;
         tx.execute(
             "INSERT INTO request_logs (
-                trace_id, key_id, account_id, initial_account_id, attempted_account_ids_json, initial_aggregate_api_id, attempted_aggregate_api_ids_json,
+                trace_id, key_id, account_id, initial_account_id, attempted_account_ids_json, initial_aggregate_api_id, attempted_aggregate_api_ids_json, aggregate_api_attempt_failures_json,
                 request_path, original_path, adapted_path,
                 method, request_type, model, reasoning_effort, service_tier, effective_service_tier, response_adapter, upstream_url, aggregate_api_supplier_name, aggregate_api_url, status_code, duration_ms, error, created_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)",
             params![
                 &log.trace_id,
                 &log.key_id,
@@ -131,6 +132,7 @@ impl Storage {
                 &log.attempted_account_ids_json,
                 &log.initial_aggregate_api_id,
                 &log.attempted_aggregate_api_ids_json,
+                &log.aggregate_api_attempt_failures_json,
                 &log.request_path,
                 &log.original_path,
                 &log.adapted_path,
@@ -226,7 +228,7 @@ impl Storage {
         let filters = build_request_log_filters(query, status_filter);
         let sql = format!(
             "SELECT
-                r.trace_id, r.key_id, r.account_id, r.initial_account_id, r.attempted_account_ids_json, r.initial_aggregate_api_id, r.attempted_aggregate_api_ids_json,
+                r.trace_id, r.key_id, r.account_id, r.initial_account_id, r.attempted_account_ids_json, r.initial_aggregate_api_id, r.attempted_aggregate_api_ids_json, r.aggregate_api_attempt_failures_json,
                 r.request_path, r.original_path, r.adapted_path,
                 r.method, r.request_type, r.model, r.reasoning_effort, r.service_tier, r.effective_service_tier, r.response_adapter, r.upstream_url, r.aggregate_api_supplier_name, r.aggregate_api_url, r.status_code, r.duration_ms,
                 t.input_tokens, t.cached_input_tokens, t.output_tokens, t.total_tokens, t.reasoning_output_tokens, t.estimated_cost_usd,
@@ -397,6 +399,7 @@ impl Storage {
                 attempted_account_ids_json TEXT,
                 initial_aggregate_api_id TEXT,
                 attempted_aggregate_api_ids_json TEXT,
+                aggregate_api_attempt_failures_json TEXT,
                 request_path TEXT NOT NULL,
                 original_path TEXT,
                 adapted_path TEXT,
@@ -550,6 +553,11 @@ impl Storage {
         Ok(())
     }
 
+    pub(super) fn ensure_request_log_aggregate_api_failure_chain_column(&self) -> Result<()> {
+        self.ensure_column("request_logs", "aggregate_api_attempt_failures_json", "TEXT")?;
+        Ok(())
+    }
+
     /// 函数 `ensure_request_log_duration_column`
     ///
     /// 作者: gaohongshun
@@ -680,29 +688,30 @@ fn map_request_log_row(row: &Row<'_>) -> Result<RequestLog> {
         attempted_account_ids_json: row.get(4)?,
         initial_aggregate_api_id: row.get(5)?,
         attempted_aggregate_api_ids_json: row.get(6)?,
-        request_path: row.get(7)?,
-        original_path: row.get(8)?,
-        adapted_path: row.get(9)?,
-        method: row.get(10)?,
-        request_type: row.get(11)?,
-        model: row.get(12)?,
-        reasoning_effort: row.get(13)?,
-        service_tier: row.get(14)?,
-        effective_service_tier: row.get(15)?,
-        response_adapter: row.get(16)?,
-        upstream_url: row.get(17)?,
-        aggregate_api_supplier_name: row.get(18)?,
-        aggregate_api_url: row.get(19)?,
-        status_code: row.get(20)?,
-        duration_ms: row.get(21)?,
-        input_tokens: row.get(22)?,
-        cached_input_tokens: row.get(23)?,
-        output_tokens: row.get(24)?,
-        total_tokens: row.get(25)?,
-        reasoning_output_tokens: row.get(26)?,
-        estimated_cost_usd: row.get(27)?,
-        error: row.get(28)?,
-        created_at: row.get(29)?,
+        aggregate_api_attempt_failures_json: row.get(7)?,
+        request_path: row.get(8)?,
+        original_path: row.get(9)?,
+        adapted_path: row.get(10)?,
+        method: row.get(11)?,
+        request_type: row.get(12)?,
+        model: row.get(13)?,
+        reasoning_effort: row.get(14)?,
+        service_tier: row.get(15)?,
+        effective_service_tier: row.get(16)?,
+        response_adapter: row.get(17)?,
+        upstream_url: row.get(18)?,
+        aggregate_api_supplier_name: row.get(19)?,
+        aggregate_api_url: row.get(20)?,
+        status_code: row.get(21)?,
+        duration_ms: row.get(22)?,
+        input_tokens: row.get(23)?,
+        cached_input_tokens: row.get(24)?,
+        output_tokens: row.get(25)?,
+        total_tokens: row.get(26)?,
+        reasoning_output_tokens: row.get(27)?,
+        estimated_cost_usd: row.get(28)?,
+        error: row.get(29)?,
+        created_at: row.get(30)?,
     })
 }
 

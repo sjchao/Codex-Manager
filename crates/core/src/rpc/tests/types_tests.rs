@@ -1,6 +1,7 @@
 use super::{
     AccountListParams, AccountListResult, AccountSummary, ApiKeyUsageStatSummary,
-    RequestLogFilterSummaryResult, RequestLogListParams, RequestLogListResult, RequestLogSummary,
+    RequestLogAggregateApiAttemptFailure, RequestLogFilterSummaryResult,
+    RequestLogListParams, RequestLogListResult, RequestLogSummary,
 };
 
 /// 函数 `account_summary_serialization_matches_compact_contract`
@@ -128,6 +129,14 @@ fn request_log_summary_serialization_includes_trace_route_fields() {
         account_id: Some("acc_1".to_string()),
         initial_account_id: Some("acc_free".to_string()),
         attempted_account_ids: vec!["acc_free".to_string(), "acc_1".to_string()],
+        initial_aggregate_api_id: Some("agg_primary".to_string()),
+        attempted_aggregate_api_ids: vec!["agg_primary".to_string(), "agg_backup".to_string()],
+        aggregate_api_attempt_failures: vec![RequestLogAggregateApiAttemptFailure {
+            aggregate_api_id: Some("agg_primary".to_string()),
+            supplier_name: Some("Xcode".to_string()),
+            status_code: Some(409),
+            error: "concurrency limit".to_string(),
+        }],
         request_path: "/v1/responses".to_string(),
         original_path: Some("/v1/chat/completions".to_string()),
         adapted_path: Some("/v1/responses".to_string()),
@@ -158,6 +167,8 @@ fn request_log_summary_serialization_includes_trace_route_fields() {
         "traceId",
         "initialAccountId",
         "attemptedAccountIds",
+        "attemptedAggregateApiIds",
+        "aggregateApiAttemptFailures",
         "originalPath",
         "adaptedPath",
         "responseAdapter",
@@ -211,6 +222,17 @@ fn request_log_list_result_serialization_includes_pagination_fields() {
             account_id: Some("acc_1".to_string()),
             initial_account_id: Some("acc_free".to_string()),
             attempted_account_ids: vec!["acc_free".to_string(), "acc_1".to_string()],
+            initial_aggregate_api_id: Some("agg_primary".to_string()),
+            attempted_aggregate_api_ids: vec![
+                "agg_primary".to_string(),
+                "agg_backup".to_string(),
+            ],
+            aggregate_api_attempt_failures: vec![RequestLogAggregateApiAttemptFailure {
+                aggregate_api_id: Some("agg_primary".to_string()),
+                supplier_name: Some("Xcode".to_string()),
+                status_code: Some(502),
+                error: "upstream timeout".to_string(),
+            }],
             request_path: "/v1/responses".to_string(),
             original_path: Some("/v1/chat/completions".to_string()),
             adapted_path: Some("/v1/responses".to_string()),
@@ -299,7 +321,9 @@ fn request_log_filter_summary_serialization_uses_camel_case() {
 fn api_key_usage_stat_summary_serialization_uses_camel_case() {
     let result = ApiKeyUsageStatSummary {
         key_id: "gk_test".to_string(),
+        today_tokens: 12,
         total_tokens: 123,
+        today_estimated_cost_usd: 0.45,
         estimated_cost_usd: 4.56,
     };
 
@@ -307,7 +331,13 @@ fn api_key_usage_stat_summary_serialization_uses_camel_case() {
     let obj = value
         .as_object()
         .expect("api key usage stat summary object");
-    for key in ["keyId", "totalTokens", "estimatedCostUsd"] {
+    for key in [
+        "keyId",
+        "todayTokens",
+        "totalTokens",
+        "todayEstimatedCostUsd",
+        "estimatedCostUsd",
+    ] {
         assert!(obj.contains_key(key), "missing key: {key}");
     }
 }

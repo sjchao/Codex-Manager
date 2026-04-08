@@ -190,6 +190,40 @@ fn insert_request_log_with_token_stat_is_visible_via_join() {
 /// # 返回
 /// 无
 #[test]
+fn request_log_preserves_aggregate_api_attempt_failures_json() {
+    let storage = Storage::open_in_memory().expect("open");
+    storage.init().expect("init");
+
+    let log = RequestLog {
+        trace_id: Some("trc-agg-failures".to_string()),
+        key_id: Some("gk_agg".to_string()),
+        initial_aggregate_api_id: Some("agg_primary".to_string()),
+        attempted_aggregate_api_ids_json: Some(
+            r#"["agg_primary","agg_backup"]"#.to_string(),
+        ),
+        aggregate_api_attempt_failures_json: Some(
+            r#"[{"aggregateApiId":"agg_primary","supplierName":"Xcode","statusCode":409,"error":"concurrency limit"}]"#
+                .to_string(),
+        ),
+        request_path: "/v1/responses".to_string(),
+        method: "POST".to_string(),
+        created_at: 321_i64,
+        ..Default::default()
+    };
+
+    storage
+        .insert_request_log(&log)
+        .expect("insert request log with aggregate failures");
+
+    let logs = storage.list_request_logs(None, 10).expect("list request logs");
+    assert_eq!(logs.len(), 1);
+    assert_eq!(
+        logs[0].aggregate_api_attempt_failures_json.as_deref(),
+        log.aggregate_api_attempt_failures_json.as_deref()
+    );
+}
+
+#[test]
 fn token_stat_failure_still_commits_request_log() {
     let storage = Storage::open_in_memory().expect("open");
     // Only create request_logs table, so request_token_stats insert fails.
