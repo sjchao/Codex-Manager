@@ -16,6 +16,8 @@ pub(crate) const AGGREGATE_API_PROVIDER_CODEX: &str = "codex";
 pub(crate) const AGGREGATE_API_PROVIDER_CLAUDE: &str = "claude";
 pub(crate) const AGGREGATE_API_AUTH_APIKEY: &str = "apikey";
 pub(crate) const AGGREGATE_API_AUTH_USERPASS: &str = "userpass";
+pub(crate) const AGGREGATE_API_STATUS_ACTIVE: &str = "active";
+pub(crate) const AGGREGATE_API_STATUS_DISABLED: &str = "disabled";
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -931,7 +933,7 @@ pub(crate) fn create_aggregate_api(
             .map(|value| if value.is_empty() { None } else { Some(value) })
             .unwrap_or(None),
         action: normalized_action,
-        status: "active".to_string(),
+        status: AGGREGATE_API_STATUS_ACTIVE.to_string(),
         created_at,
         updated_at: created_at,
         last_test_at: None,
@@ -1088,6 +1090,26 @@ pub(crate) fn update_aggregate_api(
         }
     }
     Ok(())
+}
+
+pub(crate) fn disable_aggregate_api(api_id: &str) -> Result<(), String> {
+    if api_id.is_empty() {
+        return Err("aggregate api id required".to_string());
+    }
+    let storage = open_storage().ok_or_else(|| "storage unavailable".to_string())?;
+    storage
+        .update_aggregate_api_status(api_id, AGGREGATE_API_STATUS_DISABLED)
+        .map_err(|err| err.to_string())
+}
+
+pub(crate) fn enable_aggregate_api(api_id: &str) -> Result<(), String> {
+    if api_id.is_empty() {
+        return Err("aggregate api id required".to_string());
+    }
+    let storage = open_storage().ok_or_else(|| "storage unavailable".to_string())?;
+    storage
+        .update_aggregate_api_status(api_id, AGGREGATE_API_STATUS_ACTIVE)
+        .map_err(|err| err.to_string())
 }
 
 /// 函数 `delete_aggregate_api`

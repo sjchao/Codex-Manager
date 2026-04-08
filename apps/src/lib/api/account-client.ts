@@ -510,6 +510,10 @@ export const accountClient = {
     ),
   deleteAggregateApi: (apiId: string) =>
     invoke("service_aggregate_api_delete", withAddr({ id: apiId })),
+  disableAggregateApi: (apiId: string) =>
+    invoke("service_aggregate_api_disable", withAddr({ id: apiId })),
+  enableAggregateApi: (apiId: string) =>
+    invoke("service_aggregate_api_enable", withAddr({ id: apiId })),
   async readAggregateApiSecret(apiId: string): Promise<AggregateApiSecretResult> {
     const result = await invoke<unknown>(
       "service_aggregate_api_read_secret",

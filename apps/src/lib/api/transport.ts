@@ -61,6 +61,8 @@ const WEB_COMMAND_MAP: Record<string, WebCommandDescriptor> = {
   service_aggregate_api_create: { rpcMethod: "aggregateApi/create" },
   service_aggregate_api_update: { rpcMethod: "aggregateApi/update" },
   service_aggregate_api_delete: { rpcMethod: "aggregateApi/delete" },
+  service_aggregate_api_disable: { rpcMethod: "aggregateApi/disable" },
+  service_aggregate_api_enable: { rpcMethod: "aggregateApi/enable" },
   service_aggregate_api_read_secret: { rpcMethod: "aggregateApi/readSecret" },
   service_aggregate_api_test_connection: {
     rpcMethod: "aggregateApi/testConnection",

@@ -1,8 +1,9 @@
 use codexmanager_core::rpc::types::{AggregateApiListResult, JsonRpcRequest, JsonRpcResponse};
 
 use crate::{
-    create_aggregate_api, delete_aggregate_api, list_aggregate_apis, read_aggregate_api_secret,
-    test_aggregate_api_connection, update_aggregate_api,
+    create_aggregate_api, delete_aggregate_api, disable_aggregate_api, enable_aggregate_api,
+    list_aggregate_apis, read_aggregate_api_secret, test_aggregate_api_connection,
+    update_aggregate_api,
 };
 
 /// 函数 `api_id_param`
@@ -109,6 +110,14 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
         "aggregateApi/delete" => {
             let api_id = api_id_param(req).unwrap_or("");
             super::ok_or_error(delete_aggregate_api(api_id))
+        }
+        "aggregateApi/disable" => {
+            let api_id = api_id_param(req).unwrap_or("");
+            super::ok_or_error(disable_aggregate_api(api_id))
+        }
+        "aggregateApi/enable" => {
+            let api_id = api_id_param(req).unwrap_or("");
+            super::ok_or_error(enable_aggregate_api(api_id))
         }
         "aggregateApi/testConnection" => {
             let api_id = api_id_param(req).unwrap_or("");
@@ -229,6 +238,27 @@ mod tests {
 
         let with_api_id = try_handle(&rpc_request(
             "aggregateApi/testConnection",
+            serde_json::json!({ "apiId": "ag_test" }),
+        ))
+        .expect("response");
+        assert_ne!(error_message(&with_api_id), "aggregate api id required");
+    }
+
+    #[test]
+    fn aggregate_api_disable_accepts_id_and_api_id() {
+        let missing = try_handle(&rpc_request("aggregateApi/disable", serde_json::json!({})))
+            .expect("response");
+        assert_eq!(error_message(&missing), "aggregate api id required");
+
+        let with_id = try_handle(&rpc_request(
+            "aggregateApi/disable",
+            serde_json::json!({ "id": "ag_test" }),
+        ))
+        .expect("response");
+        assert_ne!(error_message(&with_id), "aggregate api id required");
+
+        let with_api_id = try_handle(&rpc_request(
+            "aggregateApi/disable",
             serde_json::json!({ "apiId": "ag_test" }),
         ))
         .expect("response");

@@ -161,6 +161,24 @@ pub async fn service_aggregate_api_delete(
     rpc_call_in_background("aggregateApi/delete", addr, Some(params)).await
 }
 
+#[tauri::command]
+pub async fn service_aggregate_api_disable(
+    addr: Option<String>,
+    id: String,
+) -> Result<serde_json::Value, String> {
+    let params = serde_json::json!({ "id": id });
+    rpc_call_in_background("aggregateApi/disable", addr, Some(params)).await
+}
+
+#[tauri::command]
+pub async fn service_aggregate_api_enable(
+    addr: Option<String>,
+    id: String,
+) -> Result<serde_json::Value, String> {
+    let params = serde_json::json!({ "id": id });
+    rpc_call_in_background("aggregateApi/enable", addr, Some(params)).await
+}
+
 /// 函数 `service_aggregate_api_test_connection`
 ///
 /// 作者: gaohongshun

@@ -34,6 +34,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import {
   Table,
   TableBody,
@@ -222,6 +223,24 @@ export default function AggregateApiPage() {
     onError: (error: unknown) => {
       toast.error(
         `删除失败: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    },
+  });
+
+  const toggleStatusMutation = useMutation({
+    mutationFn: ({ apiId, enabled }: { apiId: string; enabled: boolean }) =>
+      enabled
+        ? accountClient.enableAggregateApi(apiId)
+        : accountClient.disableAggregateApi(apiId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["aggregate-apis"] });
+      await queryClient.invalidateQueries({ queryKey: ["apikeys"] });
+      await queryClient.invalidateQueries({ queryKey: ["startup-snapshot"] });
+      toast.success("状态已更新");
+    },
+    onError: (error: unknown) => {
+      toast.error(
+        `更新状态失败: ${error instanceof Error ? error.message : String(error)}`,
       );
     },
   });
@@ -480,6 +499,7 @@ export default function AggregateApiPage() {
                   <TableHead className="w-[84px] text-center">类型</TableHead>
                   <TableHead className="w-[148px]">密钥</TableHead>
                   <TableHead className="w-[64px] text-center">顺序</TableHead>
+                  <TableHead className="w-[112px]">状态</TableHead>
                   <TableHead className="w-[130px]">测试连通性</TableHead>
                   <TableHead className="text-center">操作</TableHead>
                 </TableRow>
@@ -503,6 +523,9 @@ export default function AggregateApiPage() {
                       <TableCell>
                         <Skeleton className="h-6 w-20 rounded-full" />
                       </TableCell>
+                      <TableCell>
+                        <Skeleton className="h-6 w-20 rounded-full" />
+                      </TableCell>
                       <TableCell className="text-center">
                         <Skeleton className="mx-auto h-8 w-8" />
                       </TableCell>
@@ -510,7 +533,7 @@ export default function AggregateApiPage() {
                   ))
                 ) : filteredAggregateApis.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="h-48 text-center">
+                    <TableCell colSpan={7} className="h-48 text-center">
                       <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground">
                         <ShieldCheck className="h-8 w-8 opacity-20" />
                         <p>
@@ -524,6 +547,8 @@ export default function AggregateApiPage() {
                 ) : (
                   filteredAggregateApis.map((api) => {
                     const revealed = revealedSecrets[api.id];
+                    const isEnabled =
+                      String(api.status || "").trim().toLowerCase() !== "disabled";
                     const createdTimeText = formatTsFromSeconds(
                       api.createdAt,
                       "未知时间",
@@ -649,6 +674,26 @@ export default function AggregateApiPage() {
                         </TableCell>
                         <TableCell className="text-center font-mono text-xs text-muted-foreground">
                           {api.sort}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <Switch
+                              className="scale-75"
+                              checked={isEnabled}
+                              disabled={
+                                !isServiceReady || toggleStatusMutation.isPending
+                              }
+                              onCheckedChange={(enabled) =>
+                                toggleStatusMutation.mutate({
+                                  apiId: api.id,
+                                  enabled,
+                                })
+                              }
+                            />
+                            <span className="text-[10px] font-medium text-muted-foreground">
+                              {isEnabled ? "启用" : "禁用"}
+                            </span>
+                          </div>
                         </TableCell>
                         <TableCell className="whitespace-nowrap align-middle">
                           <div className="flex flex-col items-start gap-1">

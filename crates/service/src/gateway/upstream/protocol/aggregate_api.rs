@@ -8,11 +8,17 @@ use tiny_http::Request;
 
 use crate::aggregate_api::{
     AGGREGATE_API_AUTH_APIKEY, AGGREGATE_API_AUTH_USERPASS, AGGREGATE_API_PROVIDER_CLAUDE,
-    AGGREGATE_API_PROVIDER_CODEX,
+    AGGREGATE_API_PROVIDER_CODEX, AGGREGATE_API_STATUS_ACTIVE,
 };
 use crate::gateway::request_log::RequestLogUsage;
 
 const AGGREGATE_API_RETRY_ATTEMPTS_PER_CHANNEL: usize = 3;
+
+fn is_aggregate_api_active(status: &str) -> bool {
+    status
+        .trim()
+        .eq_ignore_ascii_case(AGGREGATE_API_STATUS_ACTIVE)
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -608,7 +614,7 @@ pub(crate) fn resolve_aggregate_api_rotation_candidates(
         .map_err(|err| err.to_string())?
         .into_iter()
         .filter(|api| {
-            api.status == "active"
+            is_aggregate_api_active(api.status.as_str())
                 && normalize_provider_type_value(api.provider_type.as_str()) == provider_type
         })
         .collect::<Vec<_>>();
@@ -622,8 +628,12 @@ pub(crate) fn resolve_aggregate_api_rotation_candidates(
             .find_aggregate_api_by_id(api_id)
             .map_err(|err| err.to_string())?
         {
-            candidates.retain(|api| api.id != preferred.id);
-            candidates.insert(0, preferred);
+            let preferred_provider = normalize_provider_type_value(preferred.provider_type.as_str());
+            if is_aggregate_api_active(preferred.status.as_str()) && preferred_provider == provider_type
+            {
+                candidates.retain(|api| api.id != preferred.id);
+                candidates.insert(0, preferred);
+            }
         }
     }
 

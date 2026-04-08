@@ -330,6 +330,16 @@ function formatCompactKeyLabel(keyId: string): string {
   return `${keyId.slice(0, 8)}...`;
 }
 
+function resolveApiKeyDisplayNameById(
+  keyId: string,
+  apiKeyMap: Map<string, ApiKey>,
+): string {
+  const normalized = String(keyId || "").trim();
+  if (!normalized) return "-";
+  const apiKeyName = String(apiKeyMap.get(normalized)?.name || "").trim();
+  return apiKeyName || normalized;
+}
+
 /**
  * 函数 `resolveDisplayRequestPath`
  *
@@ -697,6 +707,7 @@ function AccountKeyInfoCell({
     aggregateApiMap,
   );
   const apiKey = apiKeyMap.get(log.keyId) || null;
+  const apiKeyDisplayName = resolveApiKeyDisplayNameById(log.keyId, apiKeyMap);
   const aggregateApiById = apiKey?.aggregateApiId
     ? aggregateApiMap.get(apiKey.aggregateApiId) || null
     : null;
@@ -763,7 +774,9 @@ function AccountKeyInfoCell({
             </div>
             <div className="flex items-center gap-1 text-[9px] text-muted-foreground">
               <Shield className="h-2.5 w-2.5" />
-              <span className="font-mono">{formatCompactKeyLabel(log.keyId)}</span>
+              <span className="font-mono">
+                {formatCompactKeyLabel(apiKeyDisplayName)}
+              </span>
             </div>
             {showAggregateAttemptHint ? (
               <div className="text-[9px] text-amber-500">
@@ -789,7 +802,7 @@ function AccountKeyInfoCell({
             <div className="space-y-0.5">
               <div className="text-[10px] text-background/70">密钥</div>
               <div className="break-all font-mono text-[11px]">
-                {log.keyId || "-"}
+                {apiKeyDisplayName}
               </div>
             </div>
             {attemptedAggregateApiLabels.length > 1 ? (
@@ -824,9 +837,7 @@ function AccountKeyInfoCell({
           </div>
           <div className="flex items-center gap-1 text-[9px] text-muted-foreground">
             <Shield className="h-2.5 w-2.5" />
-            <span className="font-mono">
-              {formatCompactKeyLabel(log.keyId)}
-            </span>
+            <span className="font-mono">{formatCompactKeyLabel(apiKeyDisplayName)}</span>
           </div>
           {showAttemptHint ? (
             <div className="text-[9px] text-amber-500">
@@ -870,7 +881,7 @@ function AccountKeyInfoCell({
           <div className="space-y-0.5">
             <div className="text-[10px] text-background/70">密钥</div>
             <div className="break-all font-mono text-[11px]">
-              {log.keyId || "-"}
+              {apiKeyDisplayName}
             </div>
           </div>
         </div>
