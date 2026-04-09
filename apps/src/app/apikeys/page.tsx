@@ -167,10 +167,10 @@ export default function ApiKeysPage() {
     isServiceReady,
     deleteApiKey,
     toggleApiKeyStatus,
-    refreshModels,
+    refreshApiKeys,
     readApiKeySecret,
     isToggling,
-    isRefreshingModels,
+    isRefreshingApiKeys,
   } = useApiKeys();
   const isPageActive = useDesktopPageActive("/apikeys/");
   const isUsageQueryEnabled = useDeferredDesktopActivation(isServiceReady);
@@ -399,11 +399,11 @@ export default function ApiKeysPage() {
           <Button
             variant="outline"
             className="glass-card h-10 gap-2"
-            onClick={() => refreshModels(true)}
-            disabled={!isServiceReady || isRefreshingModels}
+            onClick={refreshApiKeys}
+            disabled={!isServiceReady || isRefreshingApiKeys}
           >
-            <RefreshCw className={isRefreshingModels ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-            刷新模型
+            <RefreshCw className={isRefreshingApiKeys ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+            刷新
           </Button>
           <Button
             className="h-10 gap-2 shadow-lg shadow-primary/20"

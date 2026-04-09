@@ -168,15 +168,23 @@ export function useApiKeys() {
     },
   });
 
-  const refreshModelsMutation = useMutation({
-    mutationFn: (refreshRemote: boolean) => accountClient.listModels(refreshRemote),
-    onSuccess: async (models) => {
-      queryClient.setQueryData(["apikey-models"], models);
-      await queryClient.invalidateQueries({ queryKey: ["startup-snapshot"] });
-      toast.success("模型列表已刷新");
+  const refreshApiKeysMutation = useMutation({
+    mutationFn: async () => {
+      const apiKeysResult = await apiKeysQuery.refetch();
+      if (apiKeysResult.error) {
+        throw apiKeysResult.error;
+      }
+      await Promise.all([
+        queryClient.refetchQueries({ queryKey: ["apikey-usage-stats"], type: "active" }),
+        queryClient.refetchQueries({ queryKey: ["apikey-usage-overview"], type: "active" }),
+        queryClient.invalidateQueries({ queryKey: ["startup-snapshot"] }),
+      ]);
+    },
+    onSuccess: () => {
+      toast.success("平台密钥列表已刷新");
     },
     onError: (error: unknown) => {
-      toast.error(`刷新模型失败: ${getAppErrorMessage(error)}`);
+      toast.error(`刷新失败: ${getAppErrorMessage(error)}`);
     },
   });
 
@@ -215,16 +223,16 @@ export function useApiKeys() {
       if (!ensureServiceReady(enabled ? "启用密钥" : "禁用密钥")) return;
       toggleStatusMutation.mutate({ id, enabled });
     },
-    refreshModels: (refreshRemote = true) => {
-      if (!ensureServiceReady("刷新模型")) return;
-      refreshModelsMutation.mutate(refreshRemote);
+    refreshApiKeys: () => {
+      if (!ensureServiceReady("刷新平台密钥列表")) return;
+      refreshApiKeysMutation.mutate();
     },
     readApiKeySecret: async (id: string) => {
       if (!ensureServiceReady("读取密钥")) return "";
       return await readSecretMutation.mutateAsync(id);
     },
     isToggling: toggleStatusMutation.isPending,
-    isRefreshingModels: refreshModelsMutation.isPending,
+    isRefreshingApiKeys: refreshApiKeysMutation.isPending,
     isReadingSecret: readSecretMutation.isPending,
   };
 }
