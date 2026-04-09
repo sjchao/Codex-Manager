@@ -951,7 +951,7 @@ pub(in super::super) fn proxy_aggregate_request(
                         attempted_aggregate_api_ids: Some(attempted_aggregate_api_ids.as_slice()),
                         aggregate_api_attempt_failures: (!aggregate_api_attempt_failures
                             .is_empty())
-                            .then_some(aggregate_api_attempt_failures.as_slice()),
+                        .then_some(aggregate_api_attempt_failures.as_slice()),
                         ..Default::default()
                     },
                     Some(key_id),
@@ -1011,6 +1011,16 @@ pub(in super::super) fn proxy_aggregate_request(
                 request_deadline,
                 is_stream,
             )?;
+            let dispatch = format!("candidate_attempt_{attempt_idx}");
+            super::super::super::trace_log::log_upstream_request_body(
+                trace_id,
+                "aggregate_api",
+                dispatch.as_str(),
+                url.as_str(),
+                None,
+                body.as_ref(),
+                body.as_ref(),
+            );
 
             let attempt_started_at = Instant::now();
             let upstream = match builder.send() {

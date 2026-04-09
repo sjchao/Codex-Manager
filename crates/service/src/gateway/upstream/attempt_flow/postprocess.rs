@@ -185,6 +185,7 @@ fn retry_compact_challenge_with_standard_responses(
     client: &reqwest::blocking::Client,
     method: &reqwest::Method,
     upstream_base: &str,
+    trace_id: &str,
     request_deadline: Option<Instant>,
     incoming_headers: &super::super::super::IncomingHeaderSnapshot,
     body: &Bytes,
@@ -217,6 +218,7 @@ fn retry_compact_challenge_with_standard_responses(
     let standard_body = Bytes::from(standard_body);
     let standard_ctx = UpstreamRequestContext {
         request_path: standard_path,
+        trace_id,
     };
 
     if debug {
@@ -617,6 +619,7 @@ where
         client,
         method,
         upstream_base,
+        request_ctx.trace_id,
         request_deadline,
         incoming_headers,
         body,
@@ -805,6 +808,7 @@ mod tests {
         let incoming_headers = IncomingHeaderSnapshot::default();
         let request_ctx = UpstreamRequestContext {
             request_path: "/v1/responses",
+            trace_id: "trc_postprocess_send_upstream_request_retries_with_fresh_client",
         };
         let body = Bytes::from_static(br#"{"model":"gpt-5.3-codex","input":"hello"}"#);
         let upstream = super::super::transport::send_upstream_request(
@@ -913,6 +917,7 @@ mod tests {
         let incoming_headers = IncomingHeaderSnapshot::default();
         let request_ctx = UpstreamRequestContext {
             request_path: "/v1/responses",
+            trace_id: "trc_postprocess_send_upstream_request_preserves_first_error",
         };
         let body = Bytes::from_static(br#"{"model":"gpt-5.3-codex","input":"hello"}"#);
         let upstream = super::super::transport::send_upstream_request(
@@ -1016,6 +1021,7 @@ mod tests {
         let incoming_headers = IncomingHeaderSnapshot::default();
         let request_ctx = UpstreamRequestContext {
             request_path: "/v1/responses",
+            trace_id: "trc_postprocess_send_upstream_request_does_not_retry_after_success",
         };
         let body = Bytes::from_static(br#"{"model":"gpt-5.3-codex","input":"hello"}"#);
         let upstream = super::super::transport::send_upstream_request(

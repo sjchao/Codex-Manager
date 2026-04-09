@@ -1,5 +1,9 @@
 use tiny_http::{Request, Response};
 
+fn should_log_gateway_ingress(path: &str) -> bool {
+    path.starts_with("/v1/responses")
+}
+
 /// 函数 `handle_gateway_request`
 ///
 /// 作者: gaohongshun
@@ -30,6 +34,44 @@ pub(crate) fn handle_gateway_request(mut request: Request) -> Result<(), String>
     let trace_id = super::trace_log::next_trace_id();
     let request_path_for_log = super::normalize_models_path(request.url());
     let request_method_for_log = request.method().as_str().to_string();
+    if should_log_gateway_ingress(request_path_for_log.as_str()) {
+        let front_trace_for_log =
+            super::local_validation::header_text_for_log(&request, super::FRONT_TRACE_HEADER_NAME);
+        let host_for_log = super::local_validation::header_text_for_log(&request, "host");
+        let content_length_for_log =
+            super::local_validation::header_text_for_log(&request, "content-length");
+        let transfer_encoding_for_log =
+            super::local_validation::header_text_for_log(&request, "transfer-encoding");
+        let content_type_for_log =
+            super::local_validation::header_text_for_log(&request, "content-type");
+        let user_agent_for_log =
+            super::local_validation::header_text_for_log(&request, "user-agent");
+        let client_request_id_for_log =
+            super::local_validation::header_text_for_log(&request, "x-client-request-id");
+        let x_forwarded_for_for_log =
+            super::local_validation::header_text_for_log(&request, "x-forwarded-for");
+        let x_real_ip_for_log = super::local_validation::header_text_for_log(&request, "x-real-ip");
+        let listen_port_for_log =
+            super::local_validation::host_port_for_log(host_for_log.as_deref());
+        let remote_addr_for_log = request.remote_addr().map(|addr| addr.to_string());
+        super::log_gateway_ingress(
+            trace_id.as_str(),
+            front_trace_for_log.as_deref(),
+            "gateway_backend",
+            listen_port_for_log.as_deref(),
+            remote_addr_for_log.as_deref(),
+            request_method_for_log.as_str(),
+            request_path_for_log.as_str(),
+            host_for_log.as_deref(),
+            content_length_for_log.as_deref(),
+            transfer_encoding_for_log.as_deref(),
+            content_type_for_log.as_deref(),
+            user_agent_for_log.as_deref(),
+            client_request_id_for_log.as_deref(),
+            x_forwarded_for_for_log.as_deref(),
+            x_real_ip_for_log.as_deref(),
+        );
+    }
     let validated =
         match super::local_validation::prepare_local_request(&mut request, trace_id.clone(), debug)
         {

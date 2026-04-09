@@ -172,6 +172,18 @@ fn resolve_local_conversation_id(
         })
 }
 
+fn matches_exact_or_query(path: &str, endpoint: &str) -> bool {
+    path == endpoint
+        || path
+            .strip_prefix(endpoint)
+            .map(|suffix| suffix.starts_with('?'))
+            .unwrap_or(false)
+}
+
+fn should_reject_empty_request_body(method: &Method, path: &str, body: &[u8]) -> bool {
+    body.is_empty() && *method == Method::POST && matches_exact_or_query(path, "/v1/responses")
+}
+
 /// 函数 `apply_passthrough_request_overrides`
 ///
 /// 作者: gaohongshun
@@ -251,6 +263,15 @@ pub(super) fn build_local_validation_result(
     let request_method = request.method().as_str().to_string();
     let method = Method::from_bytes(request_method.as_bytes())
         .map_err(|_| LocalValidationError::new(405, "unsupported method"))?;
+    if should_reject_empty_request_body(&method, normalized_path.as_str(), &body) {
+        log::warn!(
+            "event=gateway_request_rejected_empty_body method={} path={} protocol_type={}",
+            request_method,
+            normalized_path,
+            effective_protocol_type,
+        );
+        return Err(LocalValidationError::new(400, "request body is empty"));
+    }
     let initial_service_tier_diagnostic = super::super::inspect_service_tier_for_log(&body);
     super::super::log_client_service_tier(
         trace_id.as_str(),

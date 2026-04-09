@@ -1,6 +1,6 @@
 use super::{build_backend_base_url, build_local_backend_client, proxy_handler, ProxyState};
 use axum::body::{to_bytes, Body};
-use axum::extract::State;
+use axum::extract::{ConnectInfo, State};
 use axum::http::{Request as HttpRequest, StatusCode};
 use codexmanager_core::storage::{Account, ApiKey, Storage, Token, UsageSnapshotRecord};
 use futures_util::{SinkExt, StreamExt};
@@ -119,6 +119,7 @@ fn request_without_content_length_over_limit_returns_413() {
         .expect("runtime");
     let state = ProxyState {
         backend_base_url: "http://127.0.0.1:1".to_string(),
+        listen_port: "48760".to_string(),
         client: Client::new(),
     };
     let request = HttpRequest::builder()
@@ -127,7 +128,11 @@ fn request_without_content_length_over_limit_returns_413() {
         .body(Body::from(vec![b'x'; 9]))
         .expect("request");
 
-    let response = runtime.block_on(proxy_handler(State(state), request));
+    let response = runtime.block_on(proxy_handler(
+        State(state),
+        ConnectInfo("127.0.0.1:41000".parse().expect("socket addr")),
+        request,
+    ));
     assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
     let body = runtime
         .block_on(to_bytes(response.into_body(), usize::MAX))
@@ -156,6 +161,7 @@ fn backend_send_failure_returns_502() {
         .expect("runtime");
     let state = ProxyState {
         backend_base_url: "http://127.0.0.1:1".to_string(),
+        listen_port: "48760".to_string(),
         client: Client::new(),
     };
     let request = HttpRequest::builder()
@@ -164,7 +170,11 @@ fn backend_send_failure_returns_502() {
         .body(Body::empty())
         .expect("request");
 
-    let response = runtime.block_on(proxy_handler(State(state), request));
+    let response = runtime.block_on(proxy_handler(
+        State(state),
+        ConnectInfo("127.0.0.1:41001".parse().expect("socket addr")),
+        request,
+    ));
     assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
     let error_code = response
         .headers()
@@ -409,6 +419,7 @@ async fn unsupported_responses_websocket_returns_426() {
 
     let state = ProxyState {
         backend_base_url: "http://127.0.0.1:1".to_string(),
+        listen_port: "48760".to_string(),
         client: Client::new(),
     };
     let (front_addr, shutdown_tx, server_handle) = start_front_proxy_test_server(state).await;
@@ -458,6 +469,7 @@ async fn official_responses_websocket_proxies_frames_and_headers() {
 
     let state = ProxyState {
         backend_base_url: "http://127.0.0.1:1".to_string(),
+        listen_port: "48760".to_string(),
         client: Client::new(),
     };
     let (front_addr, shutdown_tx, server_handle) = start_front_proxy_test_server(state).await;

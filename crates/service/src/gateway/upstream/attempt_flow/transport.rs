@@ -12,6 +12,7 @@ enum RequestCompression {
 #[derive(Debug, Clone, Copy)]
 pub(in super::super) struct UpstreamRequestContext<'a> {
     pub(in super::super) request_path: &'a str,
+    pub(in super::super) trace_id: &'a str,
 }
 
 impl<'a> UpstreamRequestContext<'a> {
@@ -26,9 +27,10 @@ impl<'a> UpstreamRequestContext<'a> {
     ///
     /// # 返回
     /// 返回函数执行结果
-    pub(in super::super) fn from_request(request: &'a Request) -> Self {
+    pub(in super::super) fn from_request(request: &'a Request, trace_id: &'a str) -> Self {
         Self {
             request_path: request.url(),
+            trace_id,
         }
     }
 }
@@ -130,6 +132,13 @@ fn has_header(headers: &[(String, String)], name: &str) -> bool {
     headers
         .iter()
         .any(|(header_name, _)| header_name.eq_ignore_ascii_case(name))
+}
+
+fn header_value<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
+    headers
+        .iter()
+        .find(|(header_name, _)| header_name.eq_ignore_ascii_case(name))
+        .map(|(_, value)| value.as_str())
 }
 
 /// 函数 `resolve_chatgpt_account_header`
@@ -444,6 +453,7 @@ fn send_upstream_request_with_compression_override(
         request_compression,
         &mut upstream_headers,
     );
+    let content_encoding = header_value(upstream_headers.as_slice(), "Content-Encoding");
     let build_request = |http: &reqwest::blocking::Client| {
         let mut builder = http.request(method.clone(), target_url);
         if let Some(timeout) =
@@ -460,12 +470,30 @@ fn send_upstream_request_with_compression_override(
         builder
     };
 
+    super::super::super::trace_log::log_upstream_request_body(
+        request_ctx.trace_id,
+        "account_upstream",
+        "primary_client",
+        target_url,
+        content_encoding,
+        body.as_ref(),
+        body_for_request.as_ref(),
+    );
     let result = match build_request(client).send() {
         Ok(resp) => Ok(resp),
         Err(first_err) => {
             // 中文注释：进程启动后才开启系统代理时，旧单例 client 可能仍走旧网络路径；
             // 这里用 fresh client 立刻重试一次，避免必须手动重连服务。
             let fresh = super::super::super::fresh_upstream_client_for_account(account.id.as_str());
+            super::super::super::trace_log::log_upstream_request_body(
+                request_ctx.trace_id,
+                "account_upstream",
+                "fresh_client_retry",
+                target_url,
+                content_encoding,
+                body.as_ref(),
+                body_for_request.as_ref(),
+            );
             match build_request(&fresh).send() {
                 Ok(resp) => Ok(resp),
                 Err(_) => Err(first_err),

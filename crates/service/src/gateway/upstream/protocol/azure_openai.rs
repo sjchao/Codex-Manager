@@ -319,6 +319,15 @@ pub(in super::super) fn proxy_azure_request(
     }
 
     let attempt_started_at = Instant::now();
+    super::super::super::trace_log::log_upstream_request_body(
+        trace_id,
+        "azure_openai",
+        "primary_client",
+        url.as_str(),
+        None,
+        body.as_ref(),
+        body.as_ref(),
+    );
     let upstream = match builder.send() {
         Ok(resp) => {
             let duration_ms = super::super::super::duration_to_millis(attempt_started_at.elapsed());
@@ -350,6 +359,15 @@ pub(in super::super) fn proxy_azure_request(
                 retry_builder = retry_builder.header("Content-Type", "application/json");
                 retry_builder = retry_builder.body(body.clone());
             }
+            super::super::super::trace_log::log_upstream_request_body(
+                trace_id,
+                "azure_openai",
+                "fresh_client_retry",
+                url.as_str(),
+                None,
+                body.as_ref(),
+                body.as_ref(),
+            );
             match retry_builder.send() {
                 Ok(resp) => {
                     let duration_ms =

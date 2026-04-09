@@ -1,4 +1,4 @@
-use super::{build_target_url, filter_request_headers};
+use super::{apply_front_trace_header, build_target_url, filter_request_headers};
 use axum::http::{HeaderMap, HeaderName, HeaderValue, Uri};
 
 /// 函数 `build_target_url_keeps_path_and_query`
@@ -52,4 +52,22 @@ fn filter_request_headers_drops_forbidden_headers() {
     assert!(filtered.contains_key("content-type"));
     assert!(!filtered.contains_key("host"));
     assert!(!filtered.contains_key("connection"));
+}
+
+#[test]
+fn apply_front_trace_header_overrides_existing_value() {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        HeaderName::from_static(crate::gateway::FRONT_TRACE_HEADER_NAME),
+        HeaderValue::from_static("stale-trace"),
+    );
+
+    apply_front_trace_header(&mut headers, "trc_front_1");
+
+    assert_eq!(
+        headers
+            .get(crate::gateway::FRONT_TRACE_HEADER_NAME)
+            .and_then(|value| value.to_str().ok()),
+        Some("trc_front_1")
+    );
 }

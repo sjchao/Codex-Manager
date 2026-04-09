@@ -82,7 +82,8 @@ use request_rewrite::{
     apply_request_overrides_with_service_tier_and_prompt_cache_key, compute_upstream_url,
 };
 pub(crate) use trace_log::{
-    log_client_service_tier, log_request_final, log_request_start, next_trace_id,
+    log_client_service_tier, log_front_proxy_ingress, log_gateway_ingress, log_request_final,
+    log_request_start, next_trace_id, FRONT_TRACE_HEADER_NAME,
 };
 #[cfg(test)]
 use upstream::config::normalize_upstream_base_url;

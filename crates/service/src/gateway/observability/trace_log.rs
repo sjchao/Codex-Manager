@@ -1,3 +1,4 @@
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Write};
@@ -13,6 +14,7 @@ const TRACE_FLUSH_WAIT_TIMEOUT_MS: u64 = 200;
 const ENV_TRACE_QUEUE_CAPACITY: &str = "CODEXMANAGER_TRACE_QUEUE_CAPACITY";
 const ENV_GEMINI_TRACE_DIAGNOSTICS: &str = "CODEXMANAGER_GEMINI_TRACE_DIAGNOSTICS";
 const TRACE_PENDING_LINE_LIMIT: usize = 32;
+pub(crate) const FRONT_TRACE_HEADER_NAME: &str = "x-codexmanager-front-trace";
 
 static TRACE_WRITER: OnceLock<TraceAsyncWriter> = OnceLock::new();
 static TRACE_SEQ: AtomicU64 = AtomicU64::new(1);
@@ -272,6 +274,23 @@ fn short_fingerprint(value: &str) -> String {
         hash = hash.wrapping_mul(1099511628211);
     }
     format!("{hash:016x}")
+}
+
+fn short_body_sha256(body: &[u8]) -> String {
+    let digest = Sha256::digest(body);
+    digest[..8]
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+fn trace_safe_target_url(target_url: &str) -> String {
+    let without_fragment = target_url.split('#').next().unwrap_or(target_url);
+    let without_query = without_fragment
+        .split('?')
+        .next()
+        .unwrap_or(without_fragment);
+    sanitize_text(without_query)
 }
 
 fn gemini_trace_diagnostics_enabled() -> bool {
@@ -669,7 +688,7 @@ pub(crate) fn log_client_service_tier(
     buffer_trace_line(trace_id, line);
 }
 
-/// 函数 `log_request_body_preview`
+/// 函数 `log_request_body_summary`
 ///
 /// 作者: gaohongshun
 ///
@@ -680,8 +699,118 @@ pub(crate) fn log_client_service_tier(
 ///
 /// # 返回
 /// 无
-pub(crate) fn log_request_body_preview(trace_id: &str, body: &[u8]) {
-    let _ = (trace_id, body, super::trace_body_preview_max_bytes());
+pub(crate) fn log_request_body_summary(trace_id: &str, body: &[u8]) {
+    let line = format!(
+        "ts={} event=REQUEST_BODY trace_id={} body_len={} body_sha256={}",
+        current_trace_ts(),
+        sanitize_text(trace_id),
+        body.len(),
+        short_body_sha256(body),
+    );
+    buffer_trace_line(trace_id, line);
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn log_front_proxy_ingress(
+    front_trace: &str,
+    listener: &str,
+    listen_port: Option<&str>,
+    remote_addr: Option<&str>,
+    method: &str,
+    path: &str,
+    host: Option<&str>,
+    content_length: Option<&str>,
+    transfer_encoding: Option<&str>,
+    content_type: Option<&str>,
+    user_agent: Option<&str>,
+    client_request_id: Option<&str>,
+    body: &[u8],
+) {
+    let line = format!(
+        "ts={} event=FRONT_PROXY_INGRESS front_trace={} listener={} listen_port={} remote_addr={} method={} path={} host={} content_length={} transfer_encoding={} content_type={} user_agent={} x_client_request_id={} body_len={} body_sha256={}",
+        current_trace_ts(),
+        sanitize_text(front_trace),
+        sanitize_text(listener),
+        sanitize_text(listen_port.unwrap_or("-")),
+        sanitize_text(remote_addr.unwrap_or("-")),
+        sanitize_text(method),
+        sanitize_text(path),
+        sanitize_text(host.unwrap_or("-")),
+        sanitize_text(content_length.unwrap_or("-")),
+        sanitize_text(transfer_encoding.unwrap_or("-")),
+        sanitize_text(content_type.unwrap_or("-")),
+        sanitize_text(user_agent.unwrap_or("-")),
+        sanitize_text(client_request_id.unwrap_or("-")),
+        body.len(),
+        short_body_sha256(body),
+    );
+    append_trace_line(line, false);
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn log_gateway_ingress(
+    trace_id: &str,
+    front_trace: Option<&str>,
+    listener: &str,
+    listen_port: Option<&str>,
+    remote_addr: Option<&str>,
+    method: &str,
+    path: &str,
+    host: Option<&str>,
+    content_length: Option<&str>,
+    transfer_encoding: Option<&str>,
+    content_type: Option<&str>,
+    user_agent: Option<&str>,
+    client_request_id: Option<&str>,
+    x_forwarded_for: Option<&str>,
+    x_real_ip: Option<&str>,
+) {
+    let line = format!(
+        "ts={} event=GATEWAY_INGRESS trace_id={} front_trace={} listener={} listen_port={} remote_addr={} method={} path={} host={} content_length={} transfer_encoding={} content_type={} user_agent={} x_client_request_id={} x_forwarded_for={} x_real_ip={}",
+        current_trace_ts(),
+        sanitize_text(trace_id),
+        sanitize_text(front_trace.unwrap_or("-")),
+        sanitize_text(listener),
+        sanitize_text(listen_port.unwrap_or("-")),
+        sanitize_text(remote_addr.unwrap_or("-")),
+        sanitize_text(method),
+        sanitize_text(path),
+        sanitize_text(host.unwrap_or("-")),
+        sanitize_text(content_length.unwrap_or("-")),
+        sanitize_text(transfer_encoding.unwrap_or("-")),
+        sanitize_text(content_type.unwrap_or("-")),
+        sanitize_text(user_agent.unwrap_or("-")),
+        sanitize_text(client_request_id.unwrap_or("-")),
+        sanitize_text(x_forwarded_for.unwrap_or("-")),
+        sanitize_text(x_real_ip.unwrap_or("-")),
+    );
+    append_trace_line(line, false);
+}
+
+pub(crate) fn log_upstream_request_body(
+    trace_id: &str,
+    stage: &str,
+    dispatch: &str,
+    target_url: &str,
+    content_encoding: Option<&str>,
+    source_body: &[u8],
+    sent_body: &[u8],
+) {
+    let line = format!(
+        "ts={} event=UPSTREAM_REQUEST_BODY trace_id={} stage={} dispatch={} target_url={} content_encoding={} source_body_len={} source_body_sha256={} sent_body_len={} sent_body_sha256={} body_changed={}",
+        current_trace_ts(),
+        sanitize_text(trace_id),
+        sanitize_text(stage),
+        sanitize_text(dispatch),
+        trace_safe_target_url(target_url),
+        sanitize_text(content_encoding.unwrap_or("-")),
+        source_body.len(),
+        short_body_sha256(source_body),
+        sent_body.len(),
+        short_body_sha256(sent_body),
+        if source_body == sent_body { "false" } else { "true" },
+    );
+    buffer_trace_line(trace_id, line);
 }
 
 pub(crate) fn log_gemini_request_diagnostics(
@@ -1143,8 +1272,8 @@ pub(crate) fn log_failed_request(
 #[cfg(test)]
 mod tests {
     use super::{
-        clear_trace_error, has_error_text, log_failed_request, mark_trace_has_error,
-        trace_has_error,
+        clear_trace_error, has_error_text, log_failed_request, short_body_sha256, trace_has_error,
+        trace_safe_target_url,
     };
 
     /// 函数 `has_error_text_ignores_empty_and_dash`
@@ -1218,6 +1347,23 @@ mod tests {
             Some(200),
             None,
             Some(18),
+        );
+    }
+
+    #[test]
+    fn short_body_sha256_is_stable() {
+        assert_eq!(
+            short_body_sha256(br#"{"model":"gpt-5.4"}"#),
+            "3918ebbf899fcad8"
+        );
+        assert_eq!(short_body_sha256(&[]), "e3b0c44298fc1c14");
+    }
+
+    #[test]
+    fn trace_safe_target_url_drops_query_and_fragment() {
+        assert_eq!(
+            trace_safe_target_url("https://api.example.com/v1/responses?key=secret#frag"),
+            "https://api.example.com/v1/responses"
         );
     }
 }

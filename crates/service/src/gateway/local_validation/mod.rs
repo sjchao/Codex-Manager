@@ -94,3 +94,11 @@ pub(super) fn prepare_local_request(
         api_key,
     )
 }
+
+pub(super) fn header_text_for_log(request: &Request, header_name: &str) -> Option<String> {
+    io::header_text_for_log(request, header_name)
+}
+
+pub(super) fn host_port_for_log(host: Option<&str>) -> Option<String> {
+    io::host_port_for_log(host)
+}

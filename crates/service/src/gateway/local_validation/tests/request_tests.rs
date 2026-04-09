@@ -285,6 +285,64 @@ fn aggregate_passthrough_preserves_fast_service_tier_for_log_when_request_is_rew
     assert_eq!(effective_service_tier_for_log.as_deref(), Some("fast"));
 }
 
+#[test]
+fn empty_body_is_rejected_only_for_post_responses_requests() {
+    assert!(should_reject_empty_request_body(
+        &reqwest::Method::POST,
+        "/v1/responses",
+        &[]
+    ));
+    assert!(should_reject_empty_request_body(
+        &reqwest::Method::POST,
+        "/v1/responses?stream=true",
+        &[]
+    ));
+}
+
+#[test]
+fn empty_body_guard_ignores_other_paths_or_methods() {
+    assert!(!should_reject_empty_request_body(
+        &reqwest::Method::GET,
+        "/v1/models",
+        &[]
+    ));
+    assert!(!should_reject_empty_request_body(
+        &reqwest::Method::GET,
+        "/v1/responses/resp_123",
+        &[]
+    ));
+    assert!(!should_reject_empty_request_body(
+        &reqwest::Method::POST,
+        "/v1/responses/resp_123",
+        &[]
+    ));
+    assert!(!should_reject_empty_request_body(
+        &reqwest::Method::POST,
+        "/v1/responses/compact",
+        &[]
+    ));
+    assert!(!should_reject_empty_request_body(
+        &reqwest::Method::POST,
+        "/v1/chat/completions",
+        &[]
+    ));
+    assert!(!should_reject_empty_request_body(
+        &reqwest::Method::PATCH,
+        "/v1/responses",
+        &[]
+    ));
+    assert!(!should_reject_empty_request_body(
+        &reqwest::Method::POST,
+        "/health",
+        &[]
+    ));
+    assert!(!should_reject_empty_request_body(
+        &reqwest::Method::POST,
+        "/v1/responses",
+        br#"{}"#
+    ));
+}
+
 /// 函数 `anthropic_model_must_exist_in_cached_model_options`
 ///
 /// 作者: gaohongshun

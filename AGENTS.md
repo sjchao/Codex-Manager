@@ -2,6 +2,9 @@
 
 This document outlines the architectural constraints and coding conventions for the refactored Next.js frontend.
 
+## 0. Most Important
+- 最小化改动，不要做无谓的格式修改
+
 ## 1. Tech Stack
 - **Framework**: Next.js 14+ (App Router).
 - **Language**: TypeScript (Strict mode).
