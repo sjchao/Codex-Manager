@@ -111,6 +111,19 @@ function formatUsdUsagePair(
   return `${formatUsd(todayValue || 0)} / ${formatUsd(totalValue || 0)}`;
 }
 
+function formatLocalUsageDayKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getMillisecondsUntilNextLocalDay(date: Date): number {
+  const nextDay = new Date(date);
+  nextDay.setHours(24, 0, 0, 0);
+  return Math.max(1000, nextDay.getTime() - date.getTime() + 1000);
+}
+
 /**
  * 函数 `ApiKeyStatCard`
  *
@@ -183,6 +196,9 @@ export default function ApiKeysPage() {
   const [apiKeyModalOpen, setApiKeyModalOpen] = useState(false);
   const [editingKeyId, setEditingKeyId] = useState<string | null>(null);
   const [deleteKeyId, setDeleteKeyId] = useState<string | null>(null);
+  const [usageDayKey, setUsageDayKey] = useState(() =>
+    formatLocalUsageDayKey(new Date())
+  );
 
   useEffect(() => {
     if (isPageActive) {
@@ -193,12 +209,58 @@ export default function ApiKeysPage() {
     setDeleteKeyId(null);
   }, [isPageActive]);
 
+  useEffect(() => {
+    let timerId: number | null = null;
+    const syncUsageDayKey = () => {
+      setUsageDayKey((current) => {
+        const next = formatLocalUsageDayKey(new Date());
+        return current === next ? current : next;
+      });
+    };
+    const scheduleMidnightRefresh = () => {
+      if (timerId !== null) {
+        window.clearTimeout(timerId);
+      }
+      timerId = window.setTimeout(() => {
+        syncUsageDayKey();
+        scheduleMidnightRefresh();
+      }, getMillisecondsUntilNextLocalDay(new Date()));
+    };
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        syncUsageDayKey();
+        scheduleMidnightRefresh();
+      }
+    };
+
+    syncUsageDayKey();
+    scheduleMidnightRefresh();
+
+    window.addEventListener("focus", syncUsageDayKey);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      if (timerId !== null) {
+        window.clearTimeout(timerId);
+      }
+      window.removeEventListener("focus", syncUsageDayKey);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isPageActive) {
+      return;
+    }
+    setUsageDayKey(formatLocalUsageDayKey(new Date()));
+  }, [isPageActive]);
+
   const editingApiKey = useMemo(
     () => apiKeys.find((item) => item.id === editingKeyId) || null,
     [apiKeys, editingKeyId]
   );
   const { data: usageOverview, isPending: isUsageOverviewLoading } = useQuery({
-    queryKey: ["apikey-usage-overview", serviceAddr || null],
+    queryKey: ["apikey-usage-overview", serviceAddr || null, usageDayKey],
     queryFn: async () => {
       const stats = await accountClient.listApiKeyUsageStats();
       const usageByKey = stats.reduce<Record<string, ApiKeyUsageOverviewItem>>((result, item) => {
