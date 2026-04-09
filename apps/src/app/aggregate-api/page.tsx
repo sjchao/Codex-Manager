@@ -252,7 +252,9 @@ export default function AggregateApiPage() {
         Number(api.sort) || 0,
       );
       const nextSort =
-        (Number(api.sort) || 0) <= currentMinSort ? currentMinSort : currentMinSort - 5;
+        (Number(api.sort) || 0) <= currentMinSort
+          ? currentMinSort
+          : currentMinSort - 5;
 
       if ((Number(api.sort) || 0) === nextSort) {
         return false;
@@ -262,6 +264,7 @@ export default function AggregateApiPage() {
         providerType: api.providerType,
         supplierName: api.supplierName || "",
         sort: nextSort,
+        weight: api.weight,
         url: api.url,
         key: null,
       });
@@ -397,7 +400,7 @@ export default function AggregateApiPage() {
    */
   const copySecret = async (
     apiId: string,
-    target: "key" | "username" | "password"
+    target: "key" | "username" | "password",
   ) => {
     try {
       const secret = await ensureSecretLoaded(apiId);
@@ -498,7 +501,8 @@ export default function AggregateApiPage() {
                   <TableHead className="max-w-[220px]">供应商 / URL</TableHead>
                   <TableHead className="w-[84px] text-center">类型</TableHead>
                   <TableHead className="w-[148px]">密钥</TableHead>
-                  <TableHead className="w-[64px] text-center">顺序</TableHead>
+                  <TableHead className="w-[64px] text-center">排序</TableHead>
+                  <TableHead className="w-[72px] text-center">权重</TableHead>
                   <TableHead className="w-[112px]">状态</TableHead>
                   <TableHead className="w-[130px]">测试连通性</TableHead>
                   <TableHead className="text-center">操作</TableHead>
@@ -521,6 +525,9 @@ export default function AggregateApiPage() {
                         <Skeleton className="mx-auto h-4 w-12" />
                       </TableCell>
                       <TableCell>
+                        <Skeleton className="mx-auto h-4 w-12" />
+                      </TableCell>
+                      <TableCell>
                         <Skeleton className="h-6 w-20 rounded-full" />
                       </TableCell>
                       <TableCell>
@@ -533,7 +540,7 @@ export default function AggregateApiPage() {
                   ))
                 ) : filteredAggregateApis.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="h-48 text-center">
+                    <TableCell colSpan={8} className="h-48 text-center">
                       <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground">
                         <ShieldCheck className="h-8 w-8 opacity-20" />
                         <p>
@@ -648,12 +655,16 @@ export default function AggregateApiPage() {
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
                                   <DropdownMenuItem
-                                    onClick={() => void copySecret(api.id, "username")}
+                                    onClick={() =>
+                                      void copySecret(api.id, "username")
+                                    }
                                   >
                                     复制用户名
                                   </DropdownMenuItem>
                                   <DropdownMenuItem
-                                    onClick={() => void copySecret(api.id, "password")}
+                                    onClick={() =>
+                                      void copySecret(api.id, "password")
+                                    }
                                   >
                                     复制密码
                                   </DropdownMenuItem>
@@ -674,6 +685,9 @@ export default function AggregateApiPage() {
                         </TableCell>
                         <TableCell className="text-center font-mono text-xs text-muted-foreground">
                           {api.sort}
+                        </TableCell>
+                        <TableCell className="text-center font-mono text-xs text-muted-foreground">
+                          {api.weight}
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-2">

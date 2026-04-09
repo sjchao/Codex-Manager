@@ -1,5 +1,5 @@
 use codexmanager_core::storage::{
-    now_ts, Account, ApiKey, Event, RequestLog, RequestTokenStat, Storage, Token,
+    now_ts, Account, AggregateApi, ApiKey, Event, RequestLog, RequestTokenStat, Storage, Token,
     UsageSnapshotRecord,
 };
 
@@ -111,6 +111,48 @@ fn storage_can_find_token_and_account_by_account_id() {
         .find_token_by_account_id("missing-account")
         .expect("find missing token")
         .is_none());
+}
+
+#[test]
+fn storage_aggregate_api_weight_roundtrip() {
+    let storage = Storage::open_in_memory().expect("open in memory");
+    storage.init().expect("init schema");
+
+    let aggregate_api = AggregateApi {
+        id: "agg-weight-1".to_string(),
+        provider_type: "codex".to_string(),
+        supplier_name: Some("weighted".to_string()),
+        sort: 10,
+        weight: 250,
+        url: "https://aggregate.example.com/v1".to_string(),
+        auth_type: "apikey".to_string(),
+        auth_params_json: None,
+        action: None,
+        status: "active".to_string(),
+        created_at: now_ts(),
+        updated_at: now_ts(),
+        last_test_at: None,
+        last_test_status: None,
+        last_test_error: None,
+    };
+    storage
+        .insert_aggregate_api(&aggregate_api)
+        .expect("insert aggregate api");
+
+    let loaded = storage
+        .find_aggregate_api_by_id("agg-weight-1")
+        .expect("find aggregate api")
+        .expect("aggregate api exists");
+    assert_eq!(loaded.weight, 250);
+
+    storage
+        .update_aggregate_api_weight("agg-weight-1", 500)
+        .expect("update aggregate api weight");
+    let updated = storage
+        .find_aggregate_api_by_id("agg-weight-1")
+        .expect("find updated aggregate api")
+        .expect("updated aggregate api exists");
+    assert_eq!(updated.weight, 500);
 }
 
 /// 函数 `token_upsert_keeps_refresh_schedule_columns`

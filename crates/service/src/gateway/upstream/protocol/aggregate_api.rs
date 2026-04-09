@@ -2,7 +2,8 @@ use bytes::Bytes;
 use codexmanager_core::storage::{AggregateApi, Storage};
 use reqwest::header::{HeaderName, HeaderValue};
 use serde::Deserialize;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 use tiny_http::Request;
 
@@ -13,6 +14,8 @@ use crate::aggregate_api::{
 use crate::gateway::request_log::{AggregateApiAttemptFailure, RequestLogUsage};
 
 const AGGREGATE_API_RETRY_ATTEMPTS_PER_CHANNEL: usize = 3;
+static AGGREGATE_API_BUCKET_ROUTE_STATE: OnceLock<Mutex<HashMap<String, HashMap<String, i64>>>> =
+    OnceLock::new();
 
 fn should_retry_same_aggregate_candidate(status_code: u16) -> bool {
     !matches!(status_code, 403 | 409)
@@ -352,10 +355,160 @@ fn normalize_candidate_order(mut candidates: Vec<AggregateApi>) -> Vec<Aggregate
     candidates.sort_by(|left, right| {
         left.sort
             .cmp(&right.sort)
+            .then(right.weight.cmp(&left.weight))
             .then(right.created_at.cmp(&left.created_at))
             .then(left.id.cmp(&right.id))
     });
     candidates
+}
+
+fn aggregate_api_weight(candidate: &AggregateApi) -> i64 {
+    candidate.weight.max(1)
+}
+
+fn aggregate_api_bucket_signature(candidates: &[AggregateApi]) -> String {
+    let mut signature = String::new();
+    for candidate in candidates {
+        if !signature.is_empty() {
+            signature.push('\u{1f}');
+        }
+        signature.push_str(candidate.id.as_str());
+        signature.push(':');
+        signature.push_str(candidate.sort.to_string().as_str());
+        signature.push(':');
+        signature.push_str(aggregate_api_weight(candidate).to_string().as_str());
+    }
+    signature
+}
+
+fn select_smooth_weighted_candidate_position(
+    entries: &[(usize, &AggregateApi)],
+    currents: &mut HashMap<String, i64>,
+) -> Option<usize> {
+    if entries.is_empty() {
+        return None;
+    }
+
+    let total_weight = entries.iter().fold(0_i64, |sum, (_, candidate)| {
+        sum.saturating_add(aggregate_api_weight(candidate))
+    });
+    let mut selected_position = 0usize;
+    let mut best_score = i64::MIN;
+    let mut best_original_index = usize::MAX;
+
+    for (position, (original_index, candidate)) in entries.iter().enumerate() {
+        let score = {
+            let current = currents.entry(candidate.id.clone()).or_insert(0);
+            *current = current.saturating_add(aggregate_api_weight(candidate));
+            *current
+        };
+        if score > best_score || (score == best_score && *original_index < best_original_index) {
+            best_score = score;
+            best_original_index = *original_index;
+            selected_position = position;
+        }
+    }
+
+    let selected_id = entries[selected_position].1.id.clone();
+    if let Some(current) = currents.get_mut(selected_id.as_str()) {
+        *current = current.saturating_sub(total_weight);
+    }
+    Some(selected_position)
+}
+
+fn build_weighted_bucket_order(candidates: &[AggregateApi]) -> Vec<String> {
+    if candidates.len() <= 1 {
+        return candidates.iter().map(|candidate| candidate.id.clone()).collect();
+    }
+
+    let signature = aggregate_api_bucket_signature(candidates);
+    let route_state = AGGREGATE_API_BUCKET_ROUTE_STATE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut guard = crate::lock_utils::lock_recover(
+        route_state,
+        "aggregate_api_bucket_route_state",
+    );
+    let bucket_state = guard.entry(signature).or_default();
+    bucket_state.retain(|candidate_id, _| {
+        candidates.iter().any(|candidate| candidate.id == *candidate_id)
+    });
+    for candidate in candidates {
+        bucket_state.entry(candidate.id.clone()).or_insert(0);
+    }
+
+    let entries = candidates.iter().enumerate().collect::<Vec<_>>();
+    let mut persisted_currents = bucket_state.clone();
+    let Some(first_position) =
+        select_smooth_weighted_candidate_position(entries.as_slice(), &mut persisted_currents)
+    else {
+        return candidates.iter().map(|candidate| candidate.id.clone()).collect();
+    };
+    *bucket_state = persisted_currents.clone();
+    drop(guard);
+
+    let first_index = entries[first_position].0;
+    let mut order = Vec::with_capacity(candidates.len());
+    order.push(candidates[first_index].id.clone());
+
+    let mut remaining = candidates
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| *index != first_index)
+        .collect::<Vec<_>>();
+    let mut local_currents = persisted_currents;
+    while !remaining.is_empty() {
+        let Some(next_position) =
+            select_smooth_weighted_candidate_position(remaining.as_slice(), &mut local_currents)
+        else {
+            break;
+        };
+        let (_, selected) = remaining.remove(next_position);
+        local_currents.remove(selected.id.as_str());
+        order.push(selected.id.clone());
+    }
+
+    order
+}
+
+fn apply_weighted_order_within_same_sort_groups(
+    candidates: &mut [AggregateApi],
+    preserve_head: bool,
+) {
+    let mut start = if preserve_head { 1 } else { 0 };
+    while start < candidates.len() {
+        let current_sort = candidates[start].sort;
+        let mut end = start + 1;
+        while end < candidates.len() && candidates[end].sort == current_sort {
+            end += 1;
+        }
+
+        if end - start > 1 {
+            let order = build_weighted_bucket_order(&candidates[start..end]);
+            let order_index = order
+                .into_iter()
+                .enumerate()
+                .map(|(index, candidate_id)| (candidate_id, index))
+                .collect::<HashMap<_, _>>();
+            let mut reordered = candidates[start..end].to_vec();
+            reordered.sort_by_key(|candidate| {
+                order_index
+                    .get(candidate.id.as_str())
+                    .copied()
+                    .unwrap_or(usize::MAX)
+            });
+            candidates[start..end].clone_from_slice(reordered.as_slice());
+        }
+
+        start = end;
+    }
+}
+
+#[cfg(test)]
+fn clear_aggregate_api_bucket_route_state_for_tests() {
+    if let Some(lock) = AGGREGATE_API_BUCKET_ROUTE_STATE.get() {
+        let mut guard =
+            crate::lock_utils::lock_recover(lock, "aggregate_api_bucket_route_state");
+        guard.clear();
+    }
 }
 
 /// 函数 `apply_gateway_route_strategy_to_aggregate_candidates`
@@ -371,14 +524,11 @@ fn normalize_candidate_order(mut candidates: Vec<AggregateApi>) -> Vec<Aggregate
 /// 无
 pub(crate) fn apply_gateway_route_strategy_to_aggregate_candidates(
     candidates: &mut [AggregateApi],
-    key_id: &str,
-    model: Option<&str>,
+    _key_id: &str,
+    _model: Option<&str>,
     preferred_aggregate_api_id: Option<&str>,
 ) {
     if candidates.len() <= 1 {
-        return;
-    }
-    if crate::gateway::current_route_strategy() != "balanced" {
         return;
     }
 
@@ -389,17 +539,7 @@ pub(crate) fn apply_gateway_route_strategy_to_aggregate_candidates(
         .and_then(|preferred_id| candidates.first().map(|first| (preferred_id, first)))
         .is_some_and(|(preferred_id, first)| first.id == preferred_id);
 
-    if preserves_head {
-        if candidates.len() > 1 {
-            super::super::super::route_hint::apply_balanced_round_robin(
-                &mut candidates[1..],
-                key_id,
-                model,
-            );
-        }
-    } else {
-        super::super::super::route_hint::apply_balanced_round_robin(candidates, key_id, model);
-    }
+    apply_weighted_order_within_same_sort_groups(candidates, preserves_head);
 }
 
 /// 函数 `normalize_provider_type_value`
@@ -1143,11 +1283,16 @@ mod bridge_tests {
     /// # 返回
     /// 返回函数执行结果
     fn candidate(id: &str, sort: i64) -> AggregateApi {
+        candidate_with_weight(id, sort, 100)
+    }
+
+    fn candidate_with_weight(id: &str, sort: i64, weight: i64) -> AggregateApi {
         AggregateApi {
             id: id.to_string(),
             provider_type: AGGREGATE_API_PROVIDER_CODEX.to_string(),
             supplier_name: None,
             sort,
+            weight,
             url: format!("https://{id}.example.com"),
             auth_type: AGGREGATE_API_AUTH_APIKEY.to_string(),
             auth_params_json: None,
@@ -1188,44 +1333,50 @@ mod bridge_tests {
     /// # 返回
     /// 无
     #[test]
-    fn balanced_route_strategy_rotates_aggregate_candidates() {
+    fn same_sort_candidates_with_equal_weight_rotate_first_pick() {
         let _guard = crate::test_env_guard();
-        let previous = std::env::var("CODEXMANAGER_ROUTE_STRATEGY").ok();
-        std::env::set_var("CODEXMANAGER_ROUTE_STRATEGY", "balanced");
-        crate::gateway::reload_runtime_config_from_env();
+        clear_aggregate_api_bucket_route_state_for_tests();
 
-        let mut candidates = vec![
+        let mut first = vec![
             candidate("agg-a", 0),
-            candidate("agg-b", 1),
-            candidate("agg-c", 2),
+            candidate("agg-b", 0),
+            candidate("agg-c", 5),
         ];
         apply_gateway_route_strategy_to_aggregate_candidates(
-            &mut candidates,
-            "gk-aggregate-route-strategy",
+            &mut first,
+            "gk-aggregate-weighted",
             Some("gpt-5.4-mini"),
             None,
         );
-        assert_eq!(ids(&candidates), vec!["agg-a", "agg-b", "agg-c"]);
+        assert_eq!(ids(&first), vec!["agg-a", "agg-b", "agg-c"]);
 
         let mut second = vec![
             candidate("agg-a", 0),
-            candidate("agg-b", 1),
-            candidate("agg-c", 2),
+            candidate("agg-b", 0),
+            candidate("agg-c", 5),
         ];
         apply_gateway_route_strategy_to_aggregate_candidates(
             &mut second,
-            "gk-aggregate-route-strategy",
+            "gk-aggregate-weighted",
             Some("gpt-5.4-mini"),
             None,
         );
-        assert_eq!(ids(&second), vec!["agg-b", "agg-c", "agg-a"]);
+        assert_eq!(ids(&second), vec!["agg-b", "agg-a", "agg-c"]);
 
-        if let Some(value) = previous {
-            std::env::set_var("CODEXMANAGER_ROUTE_STRATEGY", value);
-        } else {
-            std::env::remove_var("CODEXMANAGER_ROUTE_STRATEGY");
-        }
-        crate::gateway::reload_runtime_config_from_env();
+        let mut third = vec![
+            candidate("agg-a", 0),
+            candidate("agg-b", 0),
+            candidate("agg-c", 5),
+        ];
+        apply_gateway_route_strategy_to_aggregate_candidates(
+            &mut third,
+            "gk-aggregate-weighted",
+            Some("gpt-5.4-mini"),
+            None,
+        );
+        assert_eq!(ids(&third), vec!["agg-a", "agg-b", "agg-c"]);
+
+        clear_aggregate_api_bucket_route_state_for_tests();
     }
 
     /// 函数 `balanced_route_strategy_preserves_explicit_preferred_aggregate_api`
@@ -1240,29 +1391,80 @@ mod bridge_tests {
     /// # 返回
     /// 无
     #[test]
-    fn balanced_route_strategy_preserves_explicit_preferred_aggregate_api() {
+    fn same_sort_candidates_respect_weight_bias() {
         let _guard = crate::test_env_guard();
-        let previous = std::env::var("CODEXMANAGER_ROUTE_STRATEGY").ok();
-        std::env::set_var("CODEXMANAGER_ROUTE_STRATEGY", "balanced");
-        crate::gateway::reload_runtime_config_from_env();
+        clear_aggregate_api_bucket_route_state_for_tests();
 
-        let mut candidates = vec![
+        let mut first_pick_counts = std::collections::HashMap::<String, usize>::new();
+        for _ in 0..6 {
+            let mut candidates = vec![
+                candidate_with_weight("agg-heavy", 0, 300),
+                candidate_with_weight("agg-light", 0, 100),
+                candidate("agg-tail", 5),
+            ];
+            apply_gateway_route_strategy_to_aggregate_candidates(
+                &mut candidates,
+                "gk-aggregate-weight-bias",
+                Some("gpt-5.4-mini"),
+                None,
+            );
+            *first_pick_counts.entry(candidates[0].id.clone()).or_default() += 1;
+            assert_eq!(candidates[2].id, "agg-tail");
+        }
+        let heavy = first_pick_counts.get("agg-heavy").copied().unwrap_or_default();
+        let light = first_pick_counts.get("agg-light").copied().unwrap_or_default();
+        assert!(heavy > light);
+        assert!(light > 0);
+
+        clear_aggregate_api_bucket_route_state_for_tests();
+    }
+
+    #[test]
+    fn higher_sort_group_never_jumps_ahead_of_lower_sort_group() {
+        let _guard = crate::test_env_guard();
+        clear_aggregate_api_bucket_route_state_for_tests();
+
+        for _ in 0..6 {
+            let mut candidates = vec![
+                candidate("agg-a", 0),
+                candidate("agg-b", 0),
+                candidate("agg-c", 10),
+            ];
+            apply_gateway_route_strategy_to_aggregate_candidates(
+                &mut candidates,
+                "gk-aggregate-sort-tier",
+                Some("gpt-5.4-mini"),
+                None,
+            );
+            assert!(matches!(candidates[0].id.as_str(), "agg-a" | "agg-b"));
+            assert_eq!(candidates[2].id, "agg-c");
+        }
+
+        clear_aggregate_api_bucket_route_state_for_tests();
+    }
+
+    #[test]
+    fn preferred_aggregate_api_stays_first_when_same_sort_group_reorders() {
+        let _guard = crate::test_env_guard();
+        clear_aggregate_api_bucket_route_state_for_tests();
+
+        let mut first = vec![
             candidate("agg-preferred", 0),
-            candidate("agg-b", 1),
-            candidate("agg-c", 2),
+            candidate("agg-b", 0),
+            candidate("agg-c", 0),
         ];
         apply_gateway_route_strategy_to_aggregate_candidates(
-            &mut candidates,
+            &mut first,
             "gk-aggregate-route-strategy-preferred",
             Some("gpt-5.4-mini"),
             Some("agg-preferred"),
         );
-        assert_eq!(ids(&candidates), vec!["agg-preferred", "agg-b", "agg-c"]);
+        assert_eq!(ids(&first), vec!["agg-preferred", "agg-b", "agg-c"]);
 
         let mut second = vec![
             candidate("agg-preferred", 0),
-            candidate("agg-b", 1),
-            candidate("agg-c", 2),
+            candidate("agg-b", 0),
+            candidate("agg-c", 0),
         ];
         apply_gateway_route_strategy_to_aggregate_candidates(
             &mut second,
@@ -1272,12 +1474,7 @@ mod bridge_tests {
         );
         assert_eq!(ids(&second), vec!["agg-preferred", "agg-c", "agg-b"]);
 
-        if let Some(value) = previous {
-            std::env::set_var("CODEXMANAGER_ROUTE_STRATEGY", value);
-        } else {
-            std::env::remove_var("CODEXMANAGER_ROUTE_STRATEGY");
-        }
-        crate::gateway::reload_runtime_config_from_env();
+        clear_aggregate_api_bucket_route_state_for_tests();
     }
 }
 
@@ -1297,6 +1494,7 @@ mod tests {
             provider_type: "claude".to_string(),
             supplier_name: Some("test".to_string()),
             sort: 0,
+            weight: 100,
             url: "https://open.bigmodel.cn/api/anthropic".to_string(),
             auth_type: "apikey".to_string(),
             auth_params_json: None,

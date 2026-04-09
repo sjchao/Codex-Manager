@@ -71,6 +71,7 @@ export function AggregateApiModal({
   const [providerType, setProviderType] = useState("codex");
   const [supplierName, setSupplierName] = useState("");
   const [sortDraft, setSortDraft] = useState("0");
+  const [weightDraft, setWeightDraft] = useState("100");
   const [url, setUrl] = useState("");
   const [authType, setAuthType] = useState<"apikey" | "userpass">("apikey");
   const [authCustomEnabled, setAuthCustomEnabled] = useState(false);
@@ -105,6 +106,7 @@ export function AggregateApiModal({
     setProviderType(nextProviderType);
     setSupplierName(aggregateApi?.supplierName || "");
     setSortDraft(String(aggregateApi?.sort ?? defaultSort));
+    setWeightDraft(String(aggregateApi?.weight ?? 100));
     setUrl(aggregateApi?.url || "");
     const nextAuthType =
       aggregateApi?.authType === "userpass" ? "userpass" : "apikey";
@@ -198,6 +200,16 @@ export function AggregateApiModal({
       toast.error("顺序必须是数字");
       return;
     }
+    const rawWeight = weightDraft.trim();
+    if (!rawWeight) {
+      toast.error("请输入权重值");
+      return;
+    }
+    const parsedWeight = Number(rawWeight);
+    if (!Number.isFinite(parsedWeight) || parsedWeight < 1) {
+      toast.error("权重必须大于或等于 1");
+      return;
+    }
     if (!aggregateApi?.id && !key.trim()) {
       if (authType === "apikey") {
         toast.error("请输入聚合 API 密钥");
@@ -268,6 +280,7 @@ export function AggregateApiModal({
           providerType,
           supplierName,
           sort: parsedSort,
+          weight: parsedWeight,
           url,
           key: authType === "apikey" ? key || null : null,
           authType,
@@ -292,6 +305,7 @@ export function AggregateApiModal({
         providerType,
         supplierName,
         sort: parsedSort,
+        weight: parsedWeight,
         url,
         key: authType === "apikey" ? key : null,
         authType,
@@ -394,6 +408,22 @@ export function AggregateApiModal({
                   />
                   <p className="text-[11px] leading-4 text-muted-foreground">
                     值越小越靠前，用于聚合 API 轮转优先级
+                  </p>
+                </div>
+
+                <div className="grid gap-2">
+                  <Label htmlFor="aggregate-api-weight">权重</Label>
+                  <Input
+                    id="aggregate-api-weight"
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={weightDraft}
+                    disabled={!isServiceReady}
+                    onChange={(event) => setWeightDraft(event.target.value)}
+                  />
+                  <p className="text-[11px] leading-4 text-muted-foreground">
+                    用于在相同顺序值内分配流量。
                   </p>
                 </div>
 

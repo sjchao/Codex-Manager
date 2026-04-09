@@ -18,6 +18,7 @@ pub(crate) const AGGREGATE_API_AUTH_APIKEY: &str = "apikey";
 pub(crate) const AGGREGATE_API_AUTH_USERPASS: &str = "userpass";
 pub(crate) const AGGREGATE_API_STATUS_ACTIVE: &str = "active";
 pub(crate) const AGGREGATE_API_STATUS_DISABLED: &str = "disabled";
+const DEFAULT_AGGREGATE_API_WEIGHT: i64 = 100;
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -98,6 +99,14 @@ fn normalize_supplier_name(value: Option<String>) -> Result<String, String> {
 /// 返回函数执行结果
 fn normalize_sort(value: Option<i64>) -> i64 {
     value.unwrap_or(0)
+}
+
+fn normalize_weight(value: Option<i64>) -> Result<i64, String> {
+    match value {
+        Some(raw) if raw < 1 => Err("weight must be >= 1".to_string()),
+        Some(raw) => Ok(raw),
+        None => Ok(DEFAULT_AGGREGATE_API_WEIGHT),
+    }
 }
 
 fn normalize_auth_type(value: Option<String>) -> Result<String, String> {
@@ -236,7 +245,9 @@ fn normalize_action_override(
 mod tests {
     use codexmanager_core::storage::AggregateApi;
 
-    use super::{action_path_or_default, normalize_action_override};
+    use super::{
+        action_path_or_default, normalize_action_override, DEFAULT_AGGREGATE_API_WEIGHT,
+    };
 
     fn aggregate_api_with_action(action: Option<&str>) -> AggregateApi {
         AggregateApi {
@@ -244,6 +255,7 @@ mod tests {
             provider_type: "claude".to_string(),
             supplier_name: Some("test".to_string()),
             sort: 0,
+            weight: DEFAULT_AGGREGATE_API_WEIGHT,
             url: "https://open.bigmodel.cn/api/anthropic".to_string(),
             auth_type: "apikey".to_string(),
             auth_params_json: None,
@@ -851,6 +863,7 @@ pub(crate) fn list_aggregate_apis() -> Result<Vec<AggregateApiSummary>, String> 
             provider_type: item.provider_type,
             supplier_name: item.supplier_name,
             sort: item.sort,
+            weight: item.weight,
             url: item.url,
             auth_type: item.auth_type,
             auth_params: item
@@ -887,6 +900,7 @@ pub(crate) fn create_aggregate_api(
     provider_type: Option<String>,
     supplier_name: Option<String>,
     sort: Option<i64>,
+    weight: Option<i64>,
     auth_type: Option<String>,
     auth_custom_enabled: Option<bool>,
     auth_params: Option<serde_json::Value>,
@@ -899,6 +913,7 @@ pub(crate) fn create_aggregate_api(
     let normalized_provider_type = normalize_provider_type(provider_type)?;
     let normalized_supplier_name = normalize_supplier_name(supplier_name)?;
     let normalized_sort = normalize_sort(sort);
+    let normalized_weight = normalize_weight(weight)?;
     let normalized_url = normalize_upstream_base_url(url)?
         .unwrap_or_else(|| provider_default_url(normalized_provider_type.as_str()).to_string());
     let normalized_auth_type = normalize_auth_type(auth_type)?;
@@ -927,6 +942,7 @@ pub(crate) fn create_aggregate_api(
         provider_type: normalized_provider_type,
         supplier_name: Some(normalized_supplier_name),
         sort: normalized_sort,
+        weight: normalized_weight,
         url: normalized_url,
         auth_type: normalized_auth_type,
         auth_params_json: normalized_auth_params_json
@@ -975,6 +991,7 @@ pub(crate) fn update_aggregate_api(
     provider_type: Option<String>,
     supplier_name: Option<String>,
     sort: Option<i64>,
+    weight: Option<i64>,
     auth_type: Option<String>,
     auth_custom_enabled: Option<bool>,
     auth_params: Option<serde_json::Value>,
@@ -1023,6 +1040,11 @@ pub(crate) fn update_aggregate_api(
     if sort.is_some() {
         storage
             .update_aggregate_api_sort(api_id, normalize_sort(sort))
+            .map_err(|err| err.to_string())?;
+    }
+    if let Some(weight) = weight {
+        storage
+            .update_aggregate_api_weight(api_id, normalize_weight(Some(weight))?)
             .map_err(|err| err.to_string())?;
     }
     if let Some(url) = url {

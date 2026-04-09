@@ -224,6 +224,7 @@ pub struct AggregateApi {
     pub provider_type: String,
     pub supplier_name: Option<String>,
     pub sort: i64,
+    pub weight: i64,
     pub url: String,
     pub auth_type: String,
     pub auth_params_json: Option<String>,
@@ -563,6 +564,11 @@ impl Storage {
             "044_request_logs_aggregate_api_failure_chain",
             include_str!("../../migrations/044_request_logs_aggregate_api_failure_chain.sql"),
             |s| s.ensure_request_log_aggregate_api_failure_chain_column(),
+        )?;
+        self.apply_sql_or_compat_migration(
+            "045_aggregate_api_weight",
+            include_str!("../../migrations/045_aggregate_api_weight.sql"),
+            |s| s.ensure_aggregate_apis_table(),
         )?;
         self.ensure_api_key_rotation_columns()?;
         self.ensure_aggregate_apis_table()?;

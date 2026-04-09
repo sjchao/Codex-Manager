@@ -1,5 +1,6 @@
 use super::{
-    AccountListParams, AccountListResult, AccountSummary, ApiKeyUsageStatSummary,
+    AccountListParams, AccountListResult, AccountSummary, AggregateApiSummary,
+    ApiKeyUsageStatSummary,
     RequestLogAggregateApiAttemptFailure, RequestLogFilterSummaryResult,
     RequestLogListParams, RequestLogListResult, RequestLogSummary,
 };
@@ -108,6 +109,31 @@ fn account_list_result_serialization_includes_pagination_fields() {
     for key in ["items", "total", "page", "pageSize"] {
         assert!(obj.contains_key(key), "missing key: {key}");
     }
+}
+
+#[test]
+fn aggregate_api_summary_serialization_includes_weight() {
+    let summary = AggregateApiSummary {
+        id: "agg_1".to_string(),
+        provider_type: "codex".to_string(),
+        supplier_name: Some("weighted".to_string()),
+        sort: 10,
+        weight: 250,
+        url: "https://aggregate.example.com/v1".to_string(),
+        auth_type: "apikey".to_string(),
+        auth_params: None,
+        action: None,
+        status: "active".to_string(),
+        created_at: 1,
+        updated_at: 2,
+        last_test_at: None,
+        last_test_status: None,
+        last_test_error: None,
+    };
+
+    let value = serde_json::to_value(summary).expect("serialize aggregate api summary");
+    let obj = value.as_object().expect("aggregate api summary object");
+    assert_eq!(obj.get("weight"), Some(&serde_json::Value::from(250)));
 }
 
 /// 函数 `request_log_summary_serialization_includes_trace_route_fields`
