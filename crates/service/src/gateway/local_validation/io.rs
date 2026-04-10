@@ -15,7 +15,19 @@ use tiny_http::Request;
 /// 返回函数执行结果
 pub(super) fn read_request_body(
     request: &mut Request,
+    prefetched_body: Option<Vec<u8>>,
 ) -> Result<Vec<u8>, super::LocalValidationError> {
+    if let Some(body) = prefetched_body {
+        let max_body_bytes = crate::gateway::front_proxy_max_body_bytes();
+        if body.len() > max_body_bytes {
+            return Err(super::LocalValidationError::new(
+                413,
+                format!("request body too large: content-length>{max_body_bytes}"),
+            ));
+        }
+        return Ok(body);
+    }
+
     // 中文注释：先把请求体读完再进入鉴权判断，避免客户端写流还在进行时被提前断开。
     let max_body_bytes = crate::gateway::front_proxy_max_body_bytes();
     let expected_content_length = request

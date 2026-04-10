@@ -4,6 +4,57 @@ fn should_log_gateway_ingress(path: &str) -> bool {
     path.starts_with("/v1/responses")
 }
 
+fn respond_local_validation_error(
+    request: Request,
+    trace_id: &str,
+    request_method_for_log: &str,
+    request_path_for_log: &str,
+    status_code: u16,
+    message: String,
+) -> Result<(), String> {
+    super::trace_log::log_request_start(
+        trace_id,
+        "-",
+        request_method_for_log,
+        request_path_for_log,
+        None,
+        None,
+        None,
+        false,
+        "http",
+        "-",
+    );
+    super::trace_log::log_request_final(trace_id, status_code, None, None, Some(message.as_str()), 0);
+    super::record_gateway_request_outcome(request_path_for_log, status_code, None);
+    if let Some(storage) = super::open_storage() {
+        super::write_request_log(
+            &storage,
+            super::request_log::RequestLogTraceContext {
+                trace_id: Some(trace_id),
+                original_path: Some(request_path_for_log),
+                adapted_path: Some(request_path_for_log),
+                response_adapter: None,
+                ..Default::default()
+            },
+            None,
+            None,
+            request_path_for_log,
+            request_method_for_log,
+            None,
+            None,
+            None,
+            Some(status_code),
+            super::request_log::RequestLogUsage::default(),
+            Some(message.as_str()),
+            None,
+        );
+    }
+    let response =
+        super::error_response::terminal_text_response(status_code, message, Some(trace_id));
+    let _ = request.respond(response);
+    Ok(())
+}
+
 /// 函数 `handle_gateway_request`
 ///
 /// 作者: gaohongshun
@@ -15,7 +66,11 @@ fn should_log_gateway_ingress(path: &str) -> bool {
 ///
 /// # 返回
 /// 返回函数执行结果
-pub(crate) fn handle_gateway_request(mut request: Request) -> Result<(), String> {
+pub(crate) fn handle_gateway_request(
+    mut request: Request,
+    prefetched_body: Option<Vec<u8>>,
+    prefetched_body_error: Option<(u16, String)>,
+) -> Result<(), String> {
     // 处理代理请求（鉴权后转发到上游）
     let debug = super::DEFAULT_GATEWAY_DEBUG;
     if request.method().as_str() == "OPTIONS" {
@@ -72,66 +127,33 @@ pub(crate) fn handle_gateway_request(mut request: Request) -> Result<(), String>
             x_real_ip_for_log.as_deref(),
         );
     }
+    if let Some((status_code, message)) = prefetched_body_error {
+        return respond_local_validation_error(
+            request,
+            trace_id.as_str(),
+            request_method_for_log.as_str(),
+            request_path_for_log.as_str(),
+            status_code,
+            message,
+        );
+    }
     let validated =
-        match super::local_validation::prepare_local_request(&mut request, trace_id.clone(), debug)
-        {
+        match super::local_validation::prepare_local_request(
+            &mut request,
+            prefetched_body,
+            trace_id.clone(),
+            debug,
+        ) {
             Ok(v) => v,
             Err(err) => {
-                super::trace_log::log_request_start(
+                return respond_local_validation_error(
+                    request,
                     trace_id.as_str(),
-                    "-",
                     request_method_for_log.as_str(),
                     request_path_for_log.as_str(),
-                    None,
-                    None,
-                    None,
-                    false,
-                    "http",
-                    "-",
-                );
-                super::trace_log::log_request_final(
-                    trace_id.as_str(),
-                    err.status_code,
-                    None,
-                    None,
-                    Some(err.message.as_str()),
-                    0,
-                );
-                super::record_gateway_request_outcome(
-                    request_path_for_log.as_str(),
-                    err.status_code,
-                    None,
-                );
-                if let Some(storage) = super::open_storage() {
-                    super::write_request_log(
-                        &storage,
-                        super::request_log::RequestLogTraceContext {
-                            trace_id: Some(trace_id.as_str()),
-                            original_path: Some(request_path_for_log.as_str()),
-                            adapted_path: Some(request_path_for_log.as_str()),
-                            response_adapter: None,
-                            ..Default::default()
-                        },
-                        None,
-                        None,
-                        &request_path_for_log,
-                        &request_method_for_log,
-                        None,
-                        None,
-                        None,
-                        Some(err.status_code),
-                        super::request_log::RequestLogUsage::default(),
-                        Some(err.message.as_str()),
-                        None,
-                    );
-                }
-                let response = super::error_response::terminal_text_response(
                     err.status_code,
                     err.message,
-                    Some(trace_id.as_str()),
                 );
-                let _ = request.respond(response);
-                return Ok(());
             }
         };
 

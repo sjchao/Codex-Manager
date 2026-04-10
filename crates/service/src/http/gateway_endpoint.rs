@@ -11,8 +11,12 @@ use tiny_http::{Header, Request, Response};
 ///
 /// # 返回
 /// 无
-pub fn handle_gateway(request: Request) {
-    if let Err(err) = crate::gateway::handle_gateway_request(request) {
+pub fn handle_gateway(request: crate::http::backend_router::BackendRequest) {
+    if let Err(err) = crate::gateway::handle_gateway_request(
+        request.request,
+        request.prefetched_body,
+        request.prefetched_body_error,
+    ) {
         log::error!("gateway request error: {err}");
     }
 }

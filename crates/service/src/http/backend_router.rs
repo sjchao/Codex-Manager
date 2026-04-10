@@ -1,5 +1,21 @@
 use tiny_http::Request;
 
+pub(crate) struct BackendRequest {
+    pub(crate) request: Request,
+    pub(crate) prefetched_body: Option<Vec<u8>>,
+    pub(crate) prefetched_body_error: Option<(u16, String)>,
+}
+
+impl BackendRequest {
+    pub(crate) fn new(request: Request) -> Self {
+        Self {
+            request,
+            prefetched_body: None,
+            prefetched_body_error: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BackendRoute {
     Rpc,
@@ -43,12 +59,12 @@ pub(crate) fn resolve_backend_route(method: &str, path: &str) -> BackendRoute {
 ///
 /// # 返回
 /// 无
-pub(crate) fn handle_backend_request(request: Request) {
-    let route = resolve_backend_route(request.method().as_str(), request.url());
+pub(crate) fn handle_backend_request(request: BackendRequest) {
+    let route = resolve_backend_route(request.request.method().as_str(), request.request.url());
     match route {
-        BackendRoute::Rpc => crate::http::rpc_endpoint::handle_rpc(request),
-        BackendRoute::AuthCallback => crate::http::callback_endpoint::handle_callback(request),
-        BackendRoute::Metrics => crate::http::gateway_endpoint::handle_metrics(request),
+        BackendRoute::Rpc => crate::http::rpc_endpoint::handle_rpc(request.request),
+        BackendRoute::AuthCallback => crate::http::callback_endpoint::handle_callback(request.request),
+        BackendRoute::Metrics => crate::http::gateway_endpoint::handle_metrics(request.request),
         BackendRoute::Gateway => crate::http::gateway_endpoint::handle_gateway(request),
     }
 }

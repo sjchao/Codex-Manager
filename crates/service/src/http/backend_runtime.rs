@@ -6,8 +6,9 @@ use std::thread;
 use std::time::Duration;
 
 use crossbeam_channel::{bounded, Receiver, SendTimeoutError, Sender};
-use tiny_http::Request;
 use tiny_http::Server;
+
+use crate::http::backend_router::BackendRequest;
 
 const HTTP_WORKER_FACTOR: usize = 4;
 const HTTP_WORKER_MIN: usize = 8;
@@ -143,7 +144,11 @@ fn env_usize_or(name: &str, default: usize) -> usize {
 ///
 /// # 返回
 /// 无
-fn spawn_request_workers(worker_count: usize, rx: Receiver<Request>, is_stream_queue: bool) {
+fn spawn_request_workers(
+    worker_count: usize,
+    rx: Receiver<BackendRequest>,
+    is_stream_queue: bool,
+) {
     for _ in 0..worker_count {
         let worker_rx = rx.clone();
         let _ = thread::spawn(move || {
@@ -166,9 +171,9 @@ fn spawn_request_workers(worker_count: usize, rx: Receiver<Request>, is_stream_q
 ///
 /// # 返回
 /// 无
-fn handle_backend_request_safely(request: Request) {
-    let method = request.method().as_str().to_string();
-    let path = request.url().to_string();
+fn handle_backend_request_safely(request: BackendRequest) {
+    let method = request.request.method().as_str().to_string();
+    let path = request.request.url().to_string();
     if let Err(payload) = std::panic::catch_unwind(AssertUnwindSafe(|| {
         crate::http::backend_router::handle_backend_request(request);
     })) {
@@ -213,8 +218,9 @@ fn panic_payload_message(payload: &(dyn std::any::Any + Send)) -> String {
 ///
 /// # 返回
 /// 返回函数执行结果
-fn request_accept_header(request: &Request) -> Option<String> {
+fn request_accept_header(request: &BackendRequest) -> Option<String> {
     request
+        .request
         .headers()
         .iter()
         .find(|header| header.field.equiv("Accept"))
@@ -232,8 +238,83 @@ fn request_accept_header(request: &Request) -> Option<String> {
 ///
 /// # 返回
 /// 返回函数执行结果
-fn request_is_stream_like(request: &Request) -> bool {
+fn request_is_stream_like(request: &BackendRequest) -> bool {
     request_accept_header(request).is_some_and(|value| value.contains("text/event-stream"))
+}
+
+fn matches_exact_or_query(path: &str, endpoint: &str) -> bool {
+    path == endpoint
+        || path
+            .strip_prefix(endpoint)
+            .map(|suffix| suffix.starts_with('?'))
+            .unwrap_or(false)
+}
+
+fn should_prefetch_request_body(request: &BackendRequest) -> bool {
+    request.request.method().as_str() == "POST"
+        && matches_exact_or_query(request.request.url(), "/v1/responses")
+}
+
+fn prefetch_request_body(request: &mut tiny_http::Request) -> Result<Vec<u8>, (u16, String)> {
+    let max_body_bytes = crate::gateway::front_proxy_max_body_bytes();
+    let expected_content_length = request
+        .headers()
+        .iter()
+        .find(|header| header.field.equiv("Content-Length"))
+        .and_then(|header| header.value.as_str().trim().parse::<usize>().ok());
+    let path = request.url().to_string();
+    let reader = request.as_reader();
+    let mut body = Vec::new();
+    let mut chunk = [0_u8; 8192];
+
+    loop {
+        let read = match reader.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(read) => read,
+            Err(err) => {
+                log::warn!(
+                    "event=gateway_request_body_read_failed path={} bytes_read={} expected_content_length={} err={}",
+                    path,
+                    body.len(),
+                    expected_content_length
+                        .map(|value| value.to_string())
+                        .unwrap_or_else(|| "-".to_string()),
+                    err,
+                );
+                return Err((
+                    400,
+                    format!("request body read failed after {} bytes: {err}", body.len()),
+                ));
+            }
+        };
+        body.extend_from_slice(&chunk[..read]);
+        if body.len() > max_body_bytes {
+            return Err((
+                413,
+                format!("request body too large: content-length>{max_body_bytes}"),
+            ));
+        }
+    }
+
+    if let Some(expected_content_length) = expected_content_length {
+        if body.len() != expected_content_length {
+            log::warn!(
+                "event=gateway_request_body_truncated path={} bytes_read={} expected_content_length={}",
+                path,
+                body.len(),
+                expected_content_length,
+            );
+            return Err((
+                400,
+                format!(
+                    "request body truncated: expected {expected_content_length} bytes, got {}",
+                    body.len()
+                ),
+            ));
+        }
+    }
+
+    Ok(body)
 }
 
 /// 函数 `enqueue_request`
@@ -250,10 +331,10 @@ fn request_is_stream_like(request: &Request) -> bool {
 /// # 返回
 /// 返回函数执行结果
 fn enqueue_request(
-    request: Request,
-    normal_tx: &Sender<Request>,
-    stream_tx: &Sender<Request>,
-) -> Result<(), Request> {
+    request: BackendRequest,
+    normal_tx: &Sender<BackendRequest>,
+    stream_tx: &Sender<BackendRequest>,
+) -> Result<(), BackendRequest> {
     let prefer_stream = request_is_stream_like(&request);
     if prefer_stream {
         match send_with_timeout(
@@ -340,8 +421,8 @@ fn run_backend_server(server: Server) {
     let stream_worker_count = http_stream_worker_count();
     let queue_size = http_queue_size(worker_count);
     let stream_queue_size = http_stream_queue_size(stream_worker_count);
-    let (normal_tx, normal_rx) = bounded::<Request>(queue_size);
-    let (stream_tx, stream_rx) = bounded::<Request>(stream_queue_size);
+    let (normal_tx, normal_rx) = bounded::<BackendRequest>(queue_size);
+    let (stream_tx, stream_rx) = bounded::<BackendRequest>(stream_queue_size);
     crate::gateway::record_http_queue_capacity(queue_size, stream_queue_size);
     spawn_request_workers(worker_count, normal_rx, false);
     spawn_request_workers(stream_worker_count, stream_rx, true);
@@ -351,7 +432,14 @@ fn run_backend_server(server: Server) {
             let _ = request.respond(tiny_http::Response::from_string("shutdown"));
             break;
         }
-        if should_bypass_queue(request.url()) {
+        let mut request = BackendRequest::new(request);
+        if should_prefetch_request_body(&request) {
+            match prefetch_request_body(&mut request.request) {
+                Ok(body) => request.prefetched_body = Some(body),
+                Err(err) => request.prefetched_body_error = Some(err),
+            }
+        }
+        if should_bypass_queue(request.request.url()) {
             handle_backend_request_safely(request);
             continue;
         }
@@ -360,6 +448,7 @@ fn run_backend_server(server: Server) {
             Err(request) => {
                 crate::gateway::record_http_queue_enqueue_failure();
                 let _ = request
+                    .request
                     .respond(tiny_http::Response::from_string("server busy").with_status_code(503));
             }
         }
