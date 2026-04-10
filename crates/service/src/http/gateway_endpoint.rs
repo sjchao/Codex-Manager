@@ -16,6 +16,7 @@ pub fn handle_gateway(request: crate::http::backend_router::BackendRequest) {
         request.request,
         request.prefetched_body,
         request.prefetched_body_error,
+        request.queue_wait_ms,
     ) {
         log::error!("gateway request error: {err}");
     }

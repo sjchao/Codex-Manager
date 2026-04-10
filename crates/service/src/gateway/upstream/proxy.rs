@@ -79,6 +79,7 @@ pub(in super::super) fn proxy_validated_request(
     request: Request,
     validated: LocalValidationResult,
     debug: bool,
+    queue_wait_ms: Option<u128>,
 ) -> Result<(), String> {
     let LocalValidationResult {
         trace_id,
@@ -175,6 +176,7 @@ pub(in super::super) fn proxy_validated_request(
                             trace_id: Some(trace_id.as_str()),
                             original_path: Some(original_path.as_str()),
                             adapted_path: Some(path.as_str()),
+                            queue_wait_ms,
                             response_adapter: Some(super::super::ResponseAdapter::Passthrough),
                             effective_service_tier: effective_service_tier_for_log.as_deref(),
                             ..Default::default()
@@ -226,6 +228,7 @@ pub(in super::super) fn proxy_validated_request(
             aggregate_api_candidates,
             request_deadline,
             started_at,
+            queue_wait_ms,
         );
     }
 
@@ -250,6 +253,7 @@ pub(in super::super) fn proxy_validated_request(
             static_headers_json.as_deref(),
             request_deadline,
             started_at,
+            queue_wait_ms,
         );
     }
 
@@ -300,6 +304,7 @@ pub(in super::super) fn proxy_validated_request(
         reasoning_for_log.as_deref(),
         service_tier_for_log.as_deref(),
         effective_service_tier_for_log.as_deref(),
+        queue_wait_ms,
         setup.candidate_count,
         setup.account_max_inflight,
     );

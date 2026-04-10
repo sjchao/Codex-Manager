@@ -250,6 +250,15 @@ fn init_tracks_schema_migrations_and_is_idempotent() {
         )
         .expect("count 045 migration");
     assert_eq!(applied_045, 1);
+    let applied_046: i64 = storage
+        .conn
+        .query_row(
+            "SELECT COUNT(1) FROM schema_migrations WHERE version = '046_request_logs_queue_wait_ms'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count 046 migration");
+    assert_eq!(applied_046, 1);
 
     assert!(!storage
         .has_column("accounts", "note")
@@ -281,6 +290,9 @@ fn init_tracks_schema_migrations_and_is_idempotent() {
     assert!(storage
         .has_column("request_logs", "duration_ms")
         .expect("check request_logs.duration_ms"));
+    assert!(storage
+        .has_column("request_logs", "queue_wait_ms")
+        .expect("check request_logs.queue_wait_ms"));
     assert!(storage
         .has_column("request_logs", "initial_account_id")
         .expect("check request_logs.initial_account_id"));

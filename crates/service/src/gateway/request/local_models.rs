@@ -118,6 +118,7 @@ pub(super) fn maybe_respond_local_models(
     request_method: &str,
     model_for_log: Option<&str>,
     reasoning_for_log: Option<&str>,
+    queue_wait_ms: Option<u128>,
     storage: &codexmanager_core::storage::Storage,
 ) -> Result<Option<tiny_http::Request>, String> {
     let is_models_list = request_method.eq_ignore_ascii_case("GET")
@@ -150,6 +151,7 @@ pub(super) fn maybe_respond_local_models(
                     trace_id: Some(trace_id),
                     original_path: Some(original_path),
                     adapted_path: Some(path),
+                    queue_wait_ms,
                     response_adapter: Some(response_adapter),
                     ..Default::default()
                 },
@@ -215,6 +217,7 @@ pub(super) fn maybe_respond_local_models(
             trace_id: Some(trace_id),
             original_path: Some(original_path),
             adapted_path: Some(path),
+            queue_wait_ms,
             response_adapter: Some(response_adapter),
             ..Default::default()
         },

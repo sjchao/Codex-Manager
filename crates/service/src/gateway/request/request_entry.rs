@@ -9,6 +9,7 @@ fn respond_local_validation_error(
     trace_id: &str,
     request_method_for_log: &str,
     request_path_for_log: &str,
+    queue_wait_ms: Option<u128>,
     status_code: u16,
     message: String,
 ) -> Result<(), String> {
@@ -33,6 +34,7 @@ fn respond_local_validation_error(
                 trace_id: Some(trace_id),
                 original_path: Some(request_path_for_log),
                 adapted_path: Some(request_path_for_log),
+                queue_wait_ms,
                 response_adapter: None,
                 ..Default::default()
             },
@@ -70,6 +72,7 @@ pub(crate) fn handle_gateway_request(
     mut request: Request,
     prefetched_body: Option<Vec<u8>>,
     prefetched_body_error: Option<(u16, String)>,
+    queue_wait_ms: Option<u128>,
 ) -> Result<(), String> {
     // 处理代理请求（鉴权后转发到上游）
     let debug = super::DEFAULT_GATEWAY_DEBUG;
@@ -133,6 +136,7 @@ pub(crate) fn handle_gateway_request(
             trace_id.as_str(),
             request_method_for_log.as_str(),
             request_path_for_log.as_str(),
+            queue_wait_ms,
             status_code,
             message,
         );
@@ -151,6 +155,7 @@ pub(crate) fn handle_gateway_request(
                     trace_id.as_str(),
                     request_method_for_log.as_str(),
                     request_path_for_log.as_str(),
+                    queue_wait_ms,
                     err.status_code,
                     err.message,
                 );
@@ -171,6 +176,7 @@ pub(crate) fn handle_gateway_request(
             validated.request_method.as_str(),
             validated.model_for_log.as_deref(),
             validated.reasoning_for_log.as_deref(),
+            queue_wait_ms,
             &validated.storage,
         )? {
             Some(request) => request,
@@ -200,6 +206,7 @@ pub(crate) fn handle_gateway_request(
             validated.body.as_ref(),
             model_for_count_tokens.as_deref(),
             reasoning_for_count_tokens.as_deref(),
+            queue_wait_ms,
             &validated.storage,
         )? {
             Some(request) => request,
@@ -207,5 +214,5 @@ pub(crate) fn handle_gateway_request(
         }
     };
 
-    super::proxy_validated_request(request, validated, debug)
+    super::proxy_validated_request(request, validated, debug, queue_wait_ms)
 }

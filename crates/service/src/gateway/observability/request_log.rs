@@ -28,6 +28,7 @@ pub(crate) struct RequestLogTraceContext<'a> {
     pub request_type: Option<&'a str>,
     pub service_tier: Option<&'a str>,
     pub effective_service_tier: Option<&'a str>,
+    pub queue_wait_ms: Option<u128>,
     pub response_adapter: Option<super::ResponseAdapter>,
     pub aggregate_api_supplier_name: Option<&'a str>,
     pub aggregate_api_url: Option<&'a str>,
@@ -345,6 +346,7 @@ pub(crate) fn write_request_log_with_attempts(
     let total_tokens = normalize_token(usage.total_tokens);
     let reasoning_output_tokens = normalize_token(usage.reasoning_output_tokens);
     let duration_ms = normalize_duration_ms(duration_ms);
+    let queue_wait_ms = normalize_duration_ms(trace_context.queue_wait_ms);
     let created_at = now_ts();
     let estimated_cost_usd =
         estimate_cost_usd(model, input_tokens, cached_input_tokens, output_tokens);
@@ -435,6 +437,7 @@ pub(crate) fn write_request_log_with_attempts(
             aggregate_api_url: trace_context.aggregate_api_url.map(str::to_string),
             status_code: status_code.map(|v| i64::from(v)),
             duration_ms,
+            queue_wait_ms,
             input_tokens: None,
             cached_input_tokens: None,
             output_tokens: None,

@@ -841,6 +841,7 @@ pub(in super::super) fn proxy_aggregate_request(
     aggregate_api_candidates: Vec<AggregateApi>,
     request_deadline: Option<Instant>,
     started_at: Instant,
+    queue_wait_ms: Option<u128>,
 ) -> Result<(), String> {
     if aggregate_api_candidates.is_empty() {
         let message = "aggregate api not found".to_string();
@@ -944,6 +945,7 @@ pub(in super::super) fn proxy_aggregate_request(
                         trace_id: Some(trace_id),
                         original_path: Some(original_path),
                         adapted_path: Some(path),
+                        queue_wait_ms,
                         response_adapter: Some(response_adapter),
                         effective_service_tier: effective_service_tier_for_log,
                         aggregate_api_supplier_name: candidate_supplier_name.as_deref(),
@@ -1181,6 +1183,7 @@ pub(in super::super) fn proxy_aggregate_request(
                     trace_id: Some(trace_id),
                     original_path: Some(original_path),
                     adapted_path: Some(path),
+                    queue_wait_ms,
                     response_adapter: Some(response_adapter),
                     effective_service_tier: effective_service_tier_for_log,
                     aggregate_api_supplier_name: candidate_supplier_name.as_deref(),
@@ -1251,6 +1254,7 @@ pub(in super::super) fn proxy_aggregate_request(
             trace_id: Some(trace_id),
             original_path: Some(original_path),
             adapted_path: Some(path),
+            queue_wait_ms,
             response_adapter: Some(response_adapter),
             effective_service_tier: effective_service_tier_for_log,
             aggregate_api_supplier_name: last_attempt_supplier_name.as_deref(),

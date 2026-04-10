@@ -116,6 +116,7 @@ pub(in super::super) fn proxy_azure_request(
     static_headers_json: Option<&str>,
     request_deadline: Option<Instant>,
     started_at: Instant,
+    queue_wait_ms: Option<u128>,
 ) -> Result<(), String> {
     let Some(base) = upstream_base_url
         .map(str::trim)
@@ -137,6 +138,7 @@ pub(in super::super) fn proxy_azure_request(
                 trace_id: Some(trace_id),
                 original_path: Some(original_path),
                 adapted_path: Some(path),
+                queue_wait_ms,
                 response_adapter: Some(response_adapter),
                 effective_service_tier: effective_service_tier_for_log,
                 ..Default::default()
@@ -179,6 +181,7 @@ pub(in super::super) fn proxy_azure_request(
                     trace_id: Some(trace_id),
                     original_path: Some(original_path),
                     adapted_path: Some(path),
+                    queue_wait_ms,
                     response_adapter: Some(response_adapter),
                     effective_service_tier: effective_service_tier_for_log,
                     ..Default::default()
@@ -225,6 +228,7 @@ pub(in super::super) fn proxy_azure_request(
                         trace_id: Some(trace_id),
                         original_path: Some(original_path),
                         adapted_path: Some(path),
+                        queue_wait_ms,
                         response_adapter: Some(response_adapter),
                         effective_service_tier: effective_service_tier_for_log,
                         ..Default::default()
@@ -265,6 +269,7 @@ pub(in super::super) fn proxy_azure_request(
                         trace_id: Some(trace_id),
                         original_path: Some(original_path),
                         adapted_path: Some(path),
+                        queue_wait_ms,
                         response_adapter: Some(response_adapter),
                         effective_service_tier: effective_service_tier_for_log,
                         ..Default::default()
@@ -408,6 +413,7 @@ pub(in super::super) fn proxy_azure_request(
                             trace_id: Some(trace_id),
                             original_path: Some(original_path),
                             adapted_path: Some(path),
+                            queue_wait_ms,
                             response_adapter: Some(response_adapter),
                             effective_service_tier: effective_service_tier_for_log,
                             ..Default::default()
@@ -482,6 +488,7 @@ pub(in super::super) fn proxy_azure_request(
             trace_id: Some(trace_id),
             original_path: Some(original_path),
             adapted_path: Some(path),
+            queue_wait_ms,
             response_adapter: Some(response_adapter),
             effective_service_tier: effective_service_tier_for_log,
             ..Default::default()

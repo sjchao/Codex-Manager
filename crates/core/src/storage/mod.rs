@@ -127,6 +127,7 @@ pub struct RequestLog {
     pub aggregate_api_url: Option<String>,
     pub status_code: Option<i64>,
     pub duration_ms: Option<i64>,
+    pub queue_wait_ms: Option<i64>,
     pub input_tokens: Option<i64>,
     pub cached_input_tokens: Option<i64>,
     pub output_tokens: Option<i64>,
@@ -570,6 +571,11 @@ impl Storage {
             include_str!("../../migrations/045_aggregate_api_weight.sql"),
             |s| s.ensure_aggregate_apis_table(),
         )?;
+        self.apply_sql_or_compat_migration(
+            "046_request_logs_queue_wait_ms",
+            include_str!("../../migrations/046_request_logs_queue_wait_ms.sql"),
+            |s| s.ensure_request_log_queue_wait_column(),
+        )?;
         self.ensure_api_key_rotation_columns()?;
         self.ensure_aggregate_apis_table()?;
         self.ensure_aggregate_api_secrets_table()?;
@@ -578,6 +584,7 @@ impl Storage {
         self.ensure_request_log_request_type_and_service_tier_columns()?;
         self.ensure_request_log_effective_service_tier_column()?;
         self.ensure_request_log_aggregate_api_failure_chain_column()?;
+        self.ensure_request_log_queue_wait_column()?;
         Ok(())
     }
 

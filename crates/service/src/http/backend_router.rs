@@ -4,6 +4,8 @@ pub(crate) struct BackendRequest {
     pub(crate) request: Request,
     pub(crate) prefetched_body: Option<Vec<u8>>,
     pub(crate) prefetched_body_error: Option<(u16, String)>,
+    pub(crate) queue_wait_started_at: Option<std::time::Instant>,
+    pub(crate) queue_wait_ms: Option<u128>,
 }
 
 impl BackendRequest {
@@ -12,6 +14,22 @@ impl BackendRequest {
             request,
             prefetched_body: None,
             prefetched_body_error: None,
+            queue_wait_started_at: None,
+            queue_wait_ms: None,
+        }
+    }
+
+    pub(crate) fn mark_queue_wait_started(&mut self) {
+        if self.queue_wait_started_at.is_none() {
+            self.queue_wait_started_at = Some(std::time::Instant::now());
+        }
+    }
+
+    pub(crate) fn mark_queue_wait_finished(&mut self) {
+        if self.queue_wait_ms.is_none() {
+            self.queue_wait_ms = self
+                .queue_wait_started_at
+                .map(|started_at| started_at.elapsed().as_millis());
         }
     }
 }

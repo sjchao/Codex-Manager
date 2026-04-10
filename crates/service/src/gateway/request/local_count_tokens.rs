@@ -123,6 +123,7 @@ pub(super) fn maybe_respond_local_count_tokens(
     body: &[u8],
     model_for_log: Option<&str>,
     reasoning_for_log: Option<&str>,
+    queue_wait_ms: Option<u128>,
     storage: &codexmanager_core::storage::Storage,
 ) -> Result<Option<tiny_http::Request>, String> {
     let is_anthropic_count_tokens = protocol_type == PROTOCOL_ANTHROPIC_NATIVE
@@ -156,6 +157,7 @@ pub(super) fn maybe_respond_local_count_tokens(
                     trace_id: Some(trace_id),
                     original_path: Some(original_path),
                     adapted_path: Some(path),
+                    queue_wait_ms,
                     response_adapter: Some(response_adapter),
                     ..Default::default()
                 },
@@ -202,6 +204,7 @@ pub(super) fn maybe_respond_local_count_tokens(
                     trace_id: Some(trace_id),
                     original_path: Some(original_path),
                     adapted_path: Some(path),
+                    queue_wait_ms,
                     response_adapter: Some(response_adapter),
                     ..Default::default()
                 },

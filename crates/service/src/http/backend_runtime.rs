@@ -152,8 +152,9 @@ fn spawn_request_workers(
     for _ in 0..worker_count {
         let worker_rx = rx.clone();
         let _ = thread::spawn(move || {
-            while let Ok(request) = worker_rx.recv() {
+            while let Ok(mut request) = worker_rx.recv() {
                 crate::gateway::record_http_queue_dequeue(is_stream_queue);
+                request.mark_queue_wait_finished();
                 handle_backend_request_safely(request);
             }
         });
@@ -331,10 +332,11 @@ fn prefetch_request_body(request: &mut tiny_http::Request) -> Result<Vec<u8>, (u
 /// # 返回
 /// 返回函数执行结果
 fn enqueue_request(
-    request: BackendRequest,
+    mut request: BackendRequest,
     normal_tx: &Sender<BackendRequest>,
     stream_tx: &Sender<BackendRequest>,
 ) -> Result<(), BackendRequest> {
+    request.mark_queue_wait_started();
     let prefer_stream = request_is_stream_like(&request);
     if prefer_stream {
         match send_with_timeout(

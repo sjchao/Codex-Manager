@@ -1272,8 +1272,8 @@ pub(crate) fn log_failed_request(
 #[cfg(test)]
 mod tests {
     use super::{
-        clear_trace_error, has_error_text, log_failed_request, short_body_sha256, trace_has_error,
-        trace_safe_target_url,
+        clear_trace_error, has_error_text, log_failed_request, mark_trace_has_error,
+        short_body_sha256, trace_has_error, trace_safe_target_url,
     };
 
     /// 函数 `has_error_text_ignores_empty_and_dash`

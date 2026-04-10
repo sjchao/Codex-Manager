@@ -14,6 +14,7 @@ pub(in super::super) struct GatewayUpstreamExecutionContext<'a> {
     reasoning_for_log: Option<&'a str>,
     service_tier_for_log: Option<&'a str>,
     effective_service_tier_for_log: Option<&'a str>,
+    queue_wait_ms: Option<u128>,
     candidate_count: usize,
     account_max_inflight: usize,
 }
@@ -44,6 +45,7 @@ impl<'a> GatewayUpstreamExecutionContext<'a> {
         reasoning_for_log: Option<&'a str>,
         service_tier_for_log: Option<&'a str>,
         effective_service_tier_for_log: Option<&'a str>,
+        queue_wait_ms: Option<u128>,
         candidate_count: usize,
         account_max_inflight: usize,
     ) -> Self {
@@ -60,6 +62,7 @@ impl<'a> GatewayUpstreamExecutionContext<'a> {
             reasoning_for_log,
             service_tier_for_log,
             effective_service_tier_for_log,
+            queue_wait_ms,
             candidate_count,
             account_max_inflight,
         }
@@ -276,6 +279,7 @@ impl<'a> GatewayUpstreamExecutionContext<'a> {
                 request_type: Some("http"),
                 service_tier: self.service_tier_for_log,
                 effective_service_tier: self.effective_service_tier_for_log,
+                queue_wait_ms: self.queue_wait_ms,
                 ..Default::default()
             },
             Some(self.key_id),

@@ -119,6 +119,7 @@ fn insert_request_log_with_token_stat_is_visible_via_join() {
         aggregate_api_url: None,
         status_code: Some(200),
         duration_ms: Some(1234),
+        queue_wait_ms: Some(87),
         input_tokens: None,
         cached_input_tokens: None,
         output_tokens: None,
@@ -170,6 +171,7 @@ fn insert_request_log_with_token_stat_is_visible_via_join() {
         row.response_adapter.as_deref(),
         Some("OpenAIChatCompletionsJson")
     );
+    assert_eq!(row.queue_wait_ms, Some(87));
     assert_eq!(row.input_tokens, Some(10));
     assert_eq!(row.cached_input_tokens, Some(1));
     assert_eq!(row.output_tokens, Some(2));

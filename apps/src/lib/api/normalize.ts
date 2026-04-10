@@ -1065,6 +1065,9 @@ export function normalizeRequestLog(item: unknown): RequestLog | null {
       source.responseTimeMs ??
       source.response_time_ms
   );
+  const queueWaitMs = toNullableNumber(
+    source.queueWaitMs ?? source.queue_wait_ms
+  );
   const aggregateApiAttemptFailures = asArray(
     source.aggregateApiAttemptFailures ??
       source.aggregate_api_attempt_failures
@@ -1144,6 +1147,7 @@ export function normalizeRequestLog(item: unknown): RequestLog | null {
       source.estimatedCostUsd ?? source.estimated_cost_usd
     ),
     durationMs,
+    queueWaitMs,
     error: asString(source.error),
     createdAt,
   };

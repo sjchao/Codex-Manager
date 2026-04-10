@@ -1674,7 +1674,7 @@ function LogsPageContent() {
               </div>
             </CardHeader>
             <CardContent className="px-0">
-              <Table className="min-w-[1320px] table-fixed">
+              <Table className="min-w-[1430px] table-fixed">
             <TableHeader>
               <TableRow>
                 <TableHead className="h-12 w-[150px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
@@ -1694,6 +1694,9 @@ function LogsPageContent() {
                 </TableHead>
                 <TableHead className="w-[110px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
                   请求时长
+                </TableHead>
+                <TableHead className="w-[110px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+                  排队等待
                 </TableHead>
                 <TableHead className="w-[148px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
                   词元
@@ -1726,6 +1729,9 @@ function LogsPageContent() {
                       <Skeleton className="h-4 w-12" />
                     </TableCell>
                     <TableCell>
+                      <Skeleton className="h-4 w-12" />
+                    </TableCell>
+                    <TableCell>
                       <Skeleton className="h-4 w-20" />
                     </TableCell>
                     <TableCell>
@@ -1736,7 +1742,7 @@ function LogsPageContent() {
               ) : logs.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={8}
+                    colSpan={9}
                     className="h-52 px-4 text-center text-sm text-muted-foreground"
                   >
                     {!serviceStatus.connected
@@ -1776,6 +1782,9 @@ function LogsPageContent() {
                     </TableCell>
                     <TableCell className="px-4 py-3 font-mono text-primary">
                       {formatDuration(log.durationMs)}
+                    </TableCell>
+                    <TableCell className="px-4 py-3 font-mono text-muted-foreground">
+                      {formatDuration(log.queueWaitMs)}
                     </TableCell>
                     <TableCell className="px-4 py-3 align-top">
                       <div className="flex flex-col gap-0.5 text-[10px] text-muted-foreground">

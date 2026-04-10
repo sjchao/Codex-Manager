@@ -225,6 +225,7 @@ fn to_request_log_summary(item: RequestLog) -> RequestLogSummary {
         aggregate_api_url: normalize_upstream_url(item.aggregate_api_url.as_deref()),
         status_code: item.status_code,
         duration_ms: item.duration_ms,
+        queue_wait_ms: item.queue_wait_ms,
         input_tokens: item.input_tokens,
         cached_input_tokens: item.cached_input_tokens,
         output_tokens: item.output_tokens,
