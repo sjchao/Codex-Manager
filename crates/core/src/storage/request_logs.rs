@@ -158,31 +158,43 @@ impl Storage {
 
         // 中文注释：token 统计写入失败不应阻塞 request log 保留（例如 sqlite busy/锁竞争）。
         // 这里保持“单事务单提交”，但 stat 失败时仍 commit request log。
-        let token_stat_error = tx
-            .execute(
-                "INSERT INTO request_token_stats (
-                    request_log_id, key_id, account_id, model,
-                    input_tokens, cached_input_tokens, output_tokens, total_tokens, reasoning_output_tokens,
-                    estimated_cost_usd, created_at
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-                (
-                    request_log_id,
-                    &stat.key_id,
-                    &stat.account_id,
-                    &stat.model,
-                    stat.input_tokens,
-                    stat.cached_input_tokens,
-                    stat.output_tokens,
-                    stat.total_tokens,
-                    stat.reasoning_output_tokens,
-                    stat.estimated_cost_usd,
-                    stat.created_at,
-                ),
-            )
-            .err()
-            .map(|err| err.to_string());
+        let token_stat_error = match tx.execute(
+            "INSERT INTO request_token_stats (
+                request_log_id, key_id, account_id, model,
+                input_tokens, cached_input_tokens, output_tokens, total_tokens, reasoning_output_tokens,
+                estimated_cost_usd, created_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            (
+                request_log_id,
+                &stat.key_id,
+                &stat.account_id,
+                &stat.model,
+                stat.input_tokens,
+                stat.cached_input_tokens,
+                stat.output_tokens,
+                stat.total_tokens,
+                stat.reasoning_output_tokens,
+                stat.estimated_cost_usd,
+                stat.created_at,
+            ),
+        ) {
+            Ok(_) => match super::request_token_stats::upsert_request_token_daily_stats(&tx, stat) {
+                Ok(_) => None,
+                Err(err) => {
+                    let _ = tx.execute(
+                        "DELETE FROM request_token_stats WHERE request_log_id = ?1",
+                        [request_log_id],
+                    );
+                    Some(err.to_string())
+                }
+            },
+            Err(err) => Some(err.to_string()),
+        };
 
         tx.commit()?;
+        if token_stat_error.is_none() {
+            let _ = self.maintain_request_token_stats_if_due();
+        }
         Ok((request_log_id, token_stat_error))
     }
 
@@ -557,7 +569,11 @@ impl Storage {
     }
 
     pub(super) fn ensure_request_log_aggregate_api_failure_chain_column(&self) -> Result<()> {
-        self.ensure_column("request_logs", "aggregate_api_attempt_failures_json", "TEXT")?;
+        self.ensure_column(
+            "request_logs",
+            "aggregate_api_attempt_failures_json",
+            "TEXT",
+        )?;
         Ok(())
     }
 

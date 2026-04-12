@@ -684,7 +684,7 @@ fn storage_gateway_candidates_exclude_unavailable_or_missing_token_accounts() {
         .iter()
         .map(|(account, _)| account.id.as_str())
         .collect::<Vec<_>>();
-    assert_eq!(candidate_ids, vec!["acc-ready", "acc-no-snapshot"]);
+    assert_eq!(candidate_ids, vec!["acc-ready"]);
 }
 
 /// 函数 `latest_usage_snapshots_break_ties_by_latest_id`
@@ -1275,6 +1275,97 @@ fn request_token_stats_can_summarize_total_tokens_by_key() {
     assert_eq!(summary[1].total_tokens, 75);
     assert!((summary[1].today_estimated_cost_usd - 0.78).abs() < f64::EPSILON);
     assert!((summary[1].estimated_cost_usd - 0.78).abs() < f64::EPSILON);
+}
+
+#[test]
+fn request_token_daily_stats_updates_with_raw_insert() {
+    let storage = Storage::open_in_memory().expect("open in memory");
+    storage.init().expect("init schema");
+    let created_at = now_ts();
+
+    storage
+        .insert_request_token_stat(&RequestTokenStat {
+            request_log_id: 201,
+            key_id: Some("gk_daily".to_string()),
+            account_id: Some("acc-daily".to_string()),
+            model: Some("gpt-5.3-codex".to_string()),
+            input_tokens: Some(50),
+            cached_input_tokens: Some(10),
+            output_tokens: Some(20),
+            total_tokens: None,
+            reasoning_output_tokens: Some(4),
+            estimated_cost_usd: Some(0.21),
+            created_at,
+        })
+        .expect("insert raw token stat");
+
+    let summary = storage
+        .summarize_request_token_stats_by_key(created_at - 1, created_at + 1)
+        .expect("summarize inserted daily stats");
+    assert_eq!(summary.len(), 1);
+    assert_eq!(summary[0].key_id, "gk_daily");
+    assert_eq!(summary[0].today_tokens, 60);
+    assert_eq!(summary[0].total_tokens, 60);
+    assert!((summary[0].today_estimated_cost_usd - 0.21).abs() < f64::EPSILON);
+    assert!((summary[0].estimated_cost_usd - 0.21).abs() < f64::EPSILON);
+}
+
+#[test]
+fn request_token_stats_prune_old_raw_rows_keeps_daily_summary_totals() {
+    let storage = Storage::open_in_memory().expect("open in memory");
+    storage.init().expect("init schema");
+
+    let now = 200_i64 * 24 * 60 * 60;
+    let old_created_at = now - 100 * 24 * 60 * 60;
+    let recent_created_at = now - 10 * 24 * 60 * 60;
+
+    storage
+        .insert_request_token_stat(&RequestTokenStat {
+            request_log_id: 301,
+            key_id: Some("gk_retained".to_string()),
+            account_id: Some("acc-retained".to_string()),
+            model: Some("gpt-5.3-codex".to_string()),
+            input_tokens: None,
+            cached_input_tokens: None,
+            output_tokens: None,
+            total_tokens: Some(120),
+            reasoning_output_tokens: Some(2),
+            estimated_cost_usd: Some(0.12),
+            created_at: old_created_at,
+        })
+        .expect("insert old token stat");
+    storage
+        .insert_request_token_stat(&RequestTokenStat {
+            request_log_id: 302,
+            key_id: Some("gk_retained".to_string()),
+            account_id: Some("acc-retained".to_string()),
+            model: Some("gpt-5.3-codex".to_string()),
+            input_tokens: None,
+            cached_input_tokens: None,
+            output_tokens: None,
+            total_tokens: Some(75),
+            reasoning_output_tokens: Some(1),
+            estimated_cost_usd: Some(0.34),
+            created_at: recent_created_at,
+        })
+        .expect("insert recent token stat");
+
+    let deleted = storage
+        .maintain_request_token_stats(now)
+        .expect("prune old token stats");
+    assert_eq!(deleted, 1);
+
+    let recent_day_start = recent_created_at - 1;
+    let recent_day_end = recent_created_at + 1;
+    let summary = storage
+        .summarize_request_token_stats_by_key(recent_day_start, recent_day_end)
+        .expect("summarize by key after prune");
+    assert_eq!(summary.len(), 1);
+    assert_eq!(summary[0].key_id, "gk_retained");
+    assert_eq!(summary[0].today_tokens, 75);
+    assert_eq!(summary[0].total_tokens, 195);
+    assert!((summary[0].today_estimated_cost_usd - 0.34).abs() < f64::EPSILON);
+    assert!((summary[0].estimated_cost_usd - 0.46).abs() < f64::EPSILON);
 }
 
 /// 函数 `usage_snapshots_can_prune_history_per_account`

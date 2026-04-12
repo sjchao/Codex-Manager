@@ -259,6 +259,15 @@ fn init_tracks_schema_migrations_and_is_idempotent() {
         )
         .expect("count 046 migration");
     assert_eq!(applied_046, 1);
+    let applied_047: i64 = storage
+        .conn
+        .query_row(
+            "SELECT COUNT(1) FROM schema_migrations WHERE version = '047_request_token_daily_stats'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count 047 migration");
+    assert_eq!(applied_047, 1);
 
     assert!(!storage
         .has_column("accounts", "note")
@@ -752,9 +761,13 @@ fn conversation_bindings_migration_adds_indexes() {
 #[test]
 fn request_logs_compact_migration_drops_legacy_usage_columns_and_preserves_rows() {
     let storage = Storage::open_in_memory().expect("open in memory");
+    let created_at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock")
+        .as_secs() as i64;
     storage
         .conn
-        .execute_batch(
+        .execute_batch(&format!(
             "CREATE TABLE request_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 trace_id TEXT,
@@ -786,9 +799,9 @@ fn request_logs_compact_migration_drops_legacy_usage_columns_and_preserves_rows(
                 7, 'trc-legacy', 'gk_legacy', 'acc-legacy', '/v1/responses', '/v1/chat/completions',
                 '/v1/responses', 'POST', 'gpt-5.3-codex', 'high', 'OpenAIChatCompletionsJson',
                 'https://chatgpt.com/backend-api/codex/v1/responses', 200,
-                12, 5, 0.25, 3, 2, NULL, 1700000000
-            );",
-        )
+                12, 5, 0.25, 3, 2, NULL, {created_at}
+            );"
+        ))
         .expect("create legacy request_logs");
     storage
         .ensure_migrations_table()
@@ -858,4 +871,37 @@ fn request_logs_compact_migration_drops_legacy_usage_columns_and_preserves_rows(
     assert_eq!(token_row.2, Some(0.25));
     assert_eq!(token_row.3, Some(3));
     assert_eq!(token_row.4, Some(2));
+}
+
+#[test]
+fn request_token_daily_stats_migration_adds_indexes() {
+    let storage = Storage::open_in_memory().expect("open in memory");
+    storage.init().expect("init schema");
+
+    let key_day_index_sql: String = storage
+        .conn
+        .query_row(
+            "SELECT sql
+             FROM sqlite_master
+             WHERE type = 'index' AND name = 'idx_request_token_daily_stats_key_id_day_key'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("load key/day index definition");
+    assert!(key_day_index_sql.contains("request_token_daily_stats"));
+    assert!(key_day_index_sql.contains("key_id"));
+    assert!(key_day_index_sql.contains("day_key DESC"));
+
+    let day_index_sql: String = storage
+        .conn
+        .query_row(
+            "SELECT sql
+             FROM sqlite_master
+             WHERE type = 'index' AND name = 'idx_request_token_daily_stats_day_key'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("load day index definition");
+    assert!(day_index_sql.contains("request_token_daily_stats"));
+    assert!(day_index_sql.contains("day_key DESC"));
 }

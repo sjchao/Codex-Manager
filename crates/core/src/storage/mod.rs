@@ -576,15 +576,22 @@ impl Storage {
             include_str!("../../migrations/046_request_logs_queue_wait_ms.sql"),
             |s| s.ensure_request_log_queue_wait_column(),
         )?;
+        self.apply_sql_or_compat_migration(
+            "047_request_token_daily_stats",
+            include_str!("../../migrations/047_request_token_daily_stats.sql"),
+            |s| s.ensure_request_token_daily_stats_table(),
+        )?;
         self.ensure_api_key_rotation_columns()?;
         self.ensure_aggregate_apis_table()?;
         self.ensure_aggregate_api_secrets_table()?;
         self.ensure_request_token_stats_table()?;
+        self.ensure_request_token_daily_stats_table()?;
         self.ensure_gateway_error_logs_table()?;
         self.ensure_request_log_request_type_and_service_tier_columns()?;
         self.ensure_request_log_effective_service_tier_column()?;
         self.ensure_request_log_aggregate_api_failure_chain_column()?;
         self.ensure_request_log_queue_wait_column()?;
+        let _ = self.maintain_request_token_stats_if_due();
         Ok(())
     }
 
