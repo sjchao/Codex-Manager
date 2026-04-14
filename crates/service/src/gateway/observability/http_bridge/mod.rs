@@ -9,7 +9,7 @@ use aggregate::{
     inspect_sse_frame, inspect_sse_frame_for_protocol, is_response_completed_event_name,
     looks_like_sse_payload, merge_usage, parse_sse_frame_json, parse_usage_from_json,
     reload_output_text_from_env, usage_has_signal, SseTerminal,
-    UpstreamResponseBridgeResult, UpstreamResponseUsage,
+    UpstreamResponseBridgeOutcome, UpstreamResponseBridgeResult, UpstreamResponseUsage,
 };
 pub(crate) use aggregate::PassthroughSseProtocol;
 #[cfg(test)]
@@ -141,7 +141,7 @@ pub(super) fn respond_with_upstream(
     is_stream: bool,
     allow_failover_for_deactivation: bool,
     trace_id: Option<&str>,
-) -> Result<UpstreamResponseBridgeResult, String> {
+) -> Result<UpstreamResponseBridgeOutcome, String> {
     delivery::respond_with_upstream(
         request,
         upstream,

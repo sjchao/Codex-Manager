@@ -6,7 +6,8 @@ pub(super) use output_text::{
     append_output_text, append_output_text_raw, collect_output_text_from_event_fields,
     collect_response_output_text, extract_error_hint_from_body, extract_error_message_from_json,
     merge_usage, parse_usage_from_json, reload_from_env as reload_output_text_from_env,
-    usage_has_signal, UpstreamResponseBridgeResult, UpstreamResponseUsage,
+    usage_has_signal, UpstreamResponseBridgeOutcome, UpstreamResponseBridgeResult,
+    UpstreamResponseUsage,
 };
 #[cfg(test)]
 pub(super) use output_text::{output_text_limit_bytes, OUTPUT_TEXT_TRUNCATED_MARKER};

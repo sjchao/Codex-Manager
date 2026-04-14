@@ -14,7 +14,7 @@ use super::{
     push_trace_id_header, usage_has_signal, AnthropicSseReader, GeminiSseReader,
     OpenAIChatCompletionsSseReader, OpenAICompletionsSseReader, PassthroughSseCollector,
     PassthroughSseProtocol, PassthroughSseUsageReader, SseKeepAliveFrame,
-    UpstreamResponseBridgeResult, UpstreamResponseUsage,
+    UpstreamResponseBridgeOutcome, UpstreamResponseBridgeResult, UpstreamResponseUsage,
 };
 
 const REQUEST_ID_HEADER_CANDIDATES: &[&str] = &["x-request-id", "x-oai-request-id"];
@@ -158,7 +158,7 @@ fn should_suppress_deactivation_delivery(
 ) -> bool {
     allow_failover_for_deactivation
         && upstream_error_hint.is_some_and(|message| {
-            crate::account_status::deactivation_reason_from_message(message).is_some()
+            crate::account_status::should_failover_for_gateway_error(message, true)
         })
 }
 
@@ -600,6 +600,30 @@ fn with_bridge_debug_meta(
     result
 }
 
+fn suppress_bridge_delivery(
+    request: Request,
+    result: UpstreamResponseBridgeResult,
+    upstream_request_id: &Option<String>,
+    upstream_cf_ray: &Option<String>,
+    upstream_auth_error: &Option<String>,
+    upstream_identity_error_code: &Option<String>,
+    upstream_content_type: &Option<String>,
+    last_sse_event_type: Option<String>,
+) -> UpstreamResponseBridgeOutcome {
+    UpstreamResponseBridgeOutcome::Suppressed {
+        bridge: with_bridge_debug_meta(
+            result,
+            upstream_request_id,
+            upstream_cf_ray,
+            upstream_auth_error,
+            upstream_identity_error_code,
+            upstream_content_type,
+            last_sse_event_type,
+        ),
+        request,
+    }
+}
+
 /// 函数 `respond_invalid_compact_success_body`
 ///
 /// 作者: gaohongshun
@@ -760,7 +784,7 @@ pub(crate) fn respond_with_upstream(
     is_stream: bool,
     allow_failover_for_deactivation: bool,
     trace_id: Option<&str>,
-) -> Result<UpstreamResponseBridgeResult, String> {
+) -> Result<UpstreamResponseBridgeOutcome, String> {
     let keepalive_frame = resolve_stream_keepalive_frame(response_adapter, request_path);
     let passthrough_sse_protocol =
         passthrough_sse_protocol.unwrap_or(PassthroughSseProtocol::Generic);
@@ -829,7 +853,8 @@ pub(crate) fn respond_with_upstream(
                         upstream_error_hint.as_deref(),
                         allow_failover_for_deactivation,
                     ) {
-                        return Ok(with_bridge_debug_meta(
+                        return Ok(suppress_bridge_delivery(
+                            request,
                             UpstreamResponseBridgeResult {
                                 usage,
                                 stream_terminal_seen: true,
@@ -871,15 +896,17 @@ pub(crate) fn respond_with_upstream(
                         && is_compact_request
                         && !compact_success_body_is_valid(body.as_ref())
                     {
-                        return Ok(respond_invalid_compact_success_body(
-                            request,
-                            usage,
-                            body.as_ref(),
-                            upstream_request_id.as_deref(),
-                            upstream_cf_ray.as_deref(),
-                            upstream_auth_error.as_deref(),
-                            upstream_identity_error_code.as_deref(),
-                            trace_id,
+                        return Ok(UpstreamResponseBridgeOutcome::Delivered(
+                            respond_invalid_compact_success_body(
+                                request,
+                                usage,
+                                body.as_ref(),
+                                upstream_request_id.as_deref(),
+                                upstream_cf_ray.as_deref(),
+                                upstream_auth_error.as_deref(),
+                                upstream_identity_error_code.as_deref(),
+                                trace_id,
+                            ),
                         ));
                     }
                     if is_compact_request
@@ -891,24 +918,26 @@ pub(crate) fn respond_with_upstream(
                             upstream_identity_error_code.as_deref(),
                         )
                     {
-                        return Ok(respond_invalid_compact_non_success_body(
-                            request,
-                            status.0,
-                            usage,
-                            body.as_ref(),
-                            upstream_content_type.as_deref(),
-                            upstream_request_id.as_deref(),
-                            upstream_cf_ray.as_deref(),
-                            upstream_auth_error.as_deref(),
-                            upstream_identity_error_code.as_deref(),
-                            trace_id,
+                        return Ok(UpstreamResponseBridgeOutcome::Delivered(
+                            respond_invalid_compact_non_success_body(
+                                request,
+                                status.0,
+                                usage,
+                                body.as_ref(),
+                                upstream_content_type.as_deref(),
+                                upstream_request_id.as_deref(),
+                                upstream_cf_ray.as_deref(),
+                                upstream_auth_error.as_deref(),
+                                upstream_identity_error_code.as_deref(),
+                                trace_id,
+                            ),
                         ));
                     }
                     let len = Some(body.len());
                     let response =
                         Response::new(status, headers, std::io::Cursor::new(body), len, None);
                     let delivery_error = request.respond(response).err().map(|err| err.to_string());
-                    return Ok(with_bridge_debug_meta(
+                    return Ok(UpstreamResponseBridgeOutcome::Delivered(with_bridge_debug_meta(
                         UpstreamResponseBridgeResult {
                             usage,
                             stream_terminal_seen: true,
@@ -929,7 +958,7 @@ pub(crate) fn respond_with_upstream(
                         &upstream_identity_error_code,
                         &upstream_content_type,
                         None,
-                    ));
+                    )));
                 }
 
                 let (_, sse_usage) = collect_non_stream_json_from_sse_bytes(upstream_body.as_ref());
@@ -947,15 +976,17 @@ pub(crate) fn respond_with_upstream(
                     && is_compact_request
                     && !compact_success_body_is_valid(upstream_body.as_ref())
                 {
-                    return Ok(respond_invalid_compact_success_body(
-                        request,
-                        usage,
-                        upstream_body.as_ref(),
-                        upstream_request_id.as_deref(),
-                        upstream_cf_ray.as_deref(),
-                        upstream_auth_error.as_deref(),
-                        upstream_identity_error_code.as_deref(),
-                        trace_id,
+                    return Ok(UpstreamResponseBridgeOutcome::Delivered(
+                        respond_invalid_compact_success_body(
+                            request,
+                            usage,
+                            upstream_body.as_ref(),
+                            upstream_request_id.as_deref(),
+                            upstream_cf_ray.as_deref(),
+                            upstream_auth_error.as_deref(),
+                            upstream_identity_error_code.as_deref(),
+                            trace_id,
+                        ),
                     ));
                 }
                 if is_compact_request
@@ -967,17 +998,19 @@ pub(crate) fn respond_with_upstream(
                         upstream_identity_error_code.as_deref(),
                     )
                 {
-                    return Ok(respond_invalid_compact_non_success_body(
-                        request,
-                        status.0,
-                        usage,
-                        upstream_body.as_ref(),
-                        upstream_content_type.as_deref(),
-                        upstream_request_id.as_deref(),
-                        upstream_cf_ray.as_deref(),
-                        upstream_auth_error.as_deref(),
-                        upstream_identity_error_code.as_deref(),
-                        trace_id,
+                    return Ok(UpstreamResponseBridgeOutcome::Delivered(
+                        respond_invalid_compact_non_success_body(
+                            request,
+                            status.0,
+                            usage,
+                            upstream_body.as_ref(),
+                            upstream_content_type.as_deref(),
+                            upstream_request_id.as_deref(),
+                            upstream_cf_ray.as_deref(),
+                            upstream_auth_error.as_deref(),
+                            upstream_identity_error_code.as_deref(),
+                            trace_id,
+                        ),
                     ));
                 }
                 let upstream_error_hint = with_upstream_debug_suffix(
@@ -992,7 +1025,8 @@ pub(crate) fn respond_with_upstream(
                     upstream_error_hint.as_deref(),
                     allow_failover_for_deactivation,
                 ) {
-                    return Ok(with_bridge_debug_meta(
+                    return Ok(suppress_bridge_delivery(
+                        request,
                         UpstreamResponseBridgeResult {
                             usage,
                             stream_terminal_seen: true,
@@ -1024,7 +1058,7 @@ pub(crate) fn respond_with_upstream(
                     None,
                 );
                 let delivery_error = request.respond(response).err().map(|err| err.to_string());
-                return Ok(with_bridge_debug_meta(
+                return Ok(UpstreamResponseBridgeOutcome::Delivered(with_bridge_debug_meta(
                     UpstreamResponseBridgeResult {
                         usage,
                         stream_terminal_seen: true,
@@ -1045,7 +1079,7 @@ pub(crate) fn respond_with_upstream(
                     &upstream_identity_error_code,
                     &upstream_content_type,
                     None,
-                ));
+                )));
             }
             if is_stream && !is_sse && status.0 >= 400 {
                 let upstream_body = upstream
@@ -1076,7 +1110,7 @@ pub(crate) fn respond_with_upstream(
                     None,
                 );
                 let delivery_error = request.respond(response).err().map(|err| err.to_string());
-                return Ok(with_bridge_debug_meta(
+                return Ok(UpstreamResponseBridgeOutcome::Delivered(with_bridge_debug_meta(
                     UpstreamResponseBridgeResult {
                         usage,
                         stream_terminal_seen: true,
@@ -1097,7 +1131,7 @@ pub(crate) fn respond_with_upstream(
                     &upstream_identity_error_code,
                     &upstream_content_type,
                     None,
-                ));
+                )));
             }
             if is_sse || is_stream {
                 let usage_collector = Arc::new(Mutex::new(PassthroughSseCollector::default()));
@@ -1119,7 +1153,7 @@ pub(crate) fn respond_with_upstream(
                     .map(|guard| guard.clone())
                     .unwrap_or_default();
                 let last_sse_event_type = collector.last_event_type.clone();
-                return Ok(with_bridge_debug_meta(
+                return Ok(UpstreamResponseBridgeOutcome::Delivered(with_bridge_debug_meta(
                     UpstreamResponseBridgeResult {
                         usage: collector.usage,
                         stream_terminal_seen: collector.saw_terminal,
@@ -1147,12 +1181,12 @@ pub(crate) fn respond_with_upstream(
                     &upstream_identity_error_code,
                     &upstream_content_type,
                     last_sse_event_type,
-                ));
+                )));
             }
             let len = upstream.content_length().map(|v| v as usize);
             let response = Response::new(status, headers, upstream, len, None);
             let delivery_error = request.respond(response).err().map(|err| err.to_string());
-            Ok(with_bridge_debug_meta(
+            Ok(UpstreamResponseBridgeOutcome::Delivered(with_bridge_debug_meta(
                 UpstreamResponseBridgeResult {
                     usage: UpstreamResponseUsage::default(),
                     stream_terminal_seen: true,
@@ -1173,7 +1207,7 @@ pub(crate) fn respond_with_upstream(
                 &upstream_identity_error_code,
                 &upstream_content_type,
                 None,
-            ))
+            )))
         }
         ResponseAdapter::OpenAIChatCompletionsJson
         | ResponseAdapter::OpenAIChatCompletionsSse
@@ -1268,7 +1302,7 @@ pub(crate) fn respond_with_upstream(
                         collector.usage.output_tokens
                     );
                 }
-                return Ok(with_bridge_debug_meta(
+                return Ok(UpstreamResponseBridgeOutcome::Delivered(with_bridge_debug_meta(
                     UpstreamResponseBridgeResult {
                         usage: collector.usage,
                         stream_terminal_seen: collector.saw_terminal,
@@ -1289,7 +1323,7 @@ pub(crate) fn respond_with_upstream(
                     &upstream_identity_error_code,
                     &upstream_content_type,
                     last_sse_event_type,
-                ));
+                )));
             }
 
             let upstream_body = upstream
@@ -1367,7 +1401,8 @@ pub(crate) fn respond_with_upstream(
                 upstream_error_hint.as_deref(),
                 allow_failover_for_deactivation,
             ) {
-                return Ok(with_bridge_debug_meta(
+                return Ok(suppress_bridge_delivery(
+                    request,
                     UpstreamResponseBridgeResult {
                         usage,
                         stream_terminal_seen: true,
@@ -1393,7 +1428,7 @@ pub(crate) fn respond_with_upstream(
             let len = Some(body.len());
             let response = Response::new(status, headers, std::io::Cursor::new(body), len, None);
             let delivery_error = request.respond(response).err().map(|err| err.to_string());
-            Ok(with_bridge_debug_meta(
+            Ok(UpstreamResponseBridgeOutcome::Delivered(with_bridge_debug_meta(
                 UpstreamResponseBridgeResult {
                     usage,
                     stream_terminal_seen: true,
@@ -1414,7 +1449,7 @@ pub(crate) fn respond_with_upstream(
                 &upstream_identity_error_code,
                 &upstream_content_type,
                 None,
-            ))
+            )))
         }
         ResponseAdapter::AnthropicJson
         | ResponseAdapter::AnthropicSse
@@ -1465,7 +1500,7 @@ pub(crate) fn respond_with_upstream(
                     .lock()
                     .map(|guard| guard.clone())
                     .unwrap_or_default();
-                return Ok(with_bridge_debug_meta(
+                return Ok(UpstreamResponseBridgeOutcome::Delivered(with_bridge_debug_meta(
                     UpstreamResponseBridgeResult {
                         usage,
                         stream_terminal_seen: true,
@@ -1486,7 +1521,7 @@ pub(crate) fn respond_with_upstream(
                     &upstream_identity_error_code,
                     &upstream_content_type,
                     None,
-                ));
+                )));
             }
             if matches!(
                 response_adapter,
@@ -1531,7 +1566,7 @@ pub(crate) fn respond_with_upstream(
                     .map(|guard| guard.clone())
                     .unwrap_or_default();
                 let last_sse_event_type = collector.last_event_type.clone();
-                return Ok(with_bridge_debug_meta(
+                return Ok(UpstreamResponseBridgeOutcome::Delivered(with_bridge_debug_meta(
                     UpstreamResponseBridgeResult {
                         usage: collector.usage,
                         stream_terminal_seen: collector.saw_terminal,
@@ -1552,7 +1587,7 @@ pub(crate) fn respond_with_upstream(
                     &upstream_identity_error_code,
                     &upstream_content_type,
                     last_sse_event_type,
-                ));
+                )));
             }
 
             let upstream_body = upstream
@@ -1602,7 +1637,8 @@ pub(crate) fn respond_with_upstream(
                 upstream_error_hint.as_deref(),
                 allow_failover_for_deactivation,
             ) {
-                return Ok(with_bridge_debug_meta(
+                return Ok(suppress_bridge_delivery(
+                    request,
                     UpstreamResponseBridgeResult {
                         usage,
                         stream_terminal_seen: true,
@@ -1628,7 +1664,7 @@ pub(crate) fn respond_with_upstream(
             let len = Some(body.len());
             let response = Response::new(status, headers, std::io::Cursor::new(body), len, None);
             let delivery_error = request.respond(response).err().map(|err| err.to_string());
-            Ok(with_bridge_debug_meta(
+            Ok(UpstreamResponseBridgeOutcome::Delivered(with_bridge_debug_meta(
                 UpstreamResponseBridgeResult {
                     usage,
                     stream_terminal_seen: true,
@@ -1649,7 +1685,7 @@ pub(crate) fn respond_with_upstream(
                 &upstream_identity_error_code,
                 &upstream_content_type,
                 None,
-            ))
+            )))
         }
     }
 }

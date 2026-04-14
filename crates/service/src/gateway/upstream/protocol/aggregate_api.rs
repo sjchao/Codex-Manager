@@ -21,6 +21,17 @@ fn should_retry_same_aggregate_candidate(status_code: u16) -> bool {
     !matches!(status_code, 403 | 409)
 }
 
+fn should_failover_after_aggregate_bridge(
+    error: Option<&str>,
+    has_more_candidates: bool,
+    request_preserved: bool,
+) -> bool {
+    request_preserved
+        && error.is_some_and(|error| {
+            crate::account_status::should_failover_for_gateway_error(error, has_more_candidates)
+        })
+}
+
 fn push_aggregate_api_attempt_failure(
     failures: &mut Vec<AggregateApiAttemptFailure>,
     candidate: &AggregateApi,
@@ -1095,7 +1106,7 @@ pub(in super::super) fn proxy_aggregate_request(
             let inflight_guard = super::super::super::acquire_account_inflight(key_id);
             let passthrough_sse_protocol =
                 resolve_passthrough_sse_protocol(&candidate, path, response_adapter);
-            let bridge = super::super::super::respond_with_upstream(
+            let (bridge, failover_request) = super::super::super::respond_with_upstream(
                 request
                     .take()
                     .expect("request should be available before bridge"),
@@ -1107,9 +1118,10 @@ pub(in super::super) fn proxy_aggregate_request(
                 path,
                 None,
                 is_stream,
-                false,
+                candidate_idx + 1 < total_candidates,
                 Some(trace_id),
-            )?;
+            )?
+            .into_parts();
             let bridge_output_text_len = bridge
                 .usage
                 .output_text
@@ -1153,7 +1165,23 @@ pub(in super::super) fn proxy_aggregate_request(
             } else {
                 status_code
             };
+            let gateway_failover = should_failover_after_aggregate_bridge(
+                final_error.as_deref(),
+                candidate_idx + 1 < total_candidates,
+                failover_request.is_some(),
+            );
             let usage = bridge.usage;
+
+            last_attempt_url = Some(url.as_str().to_string());
+            last_attempt_supplier_name = candidate_supplier_name.clone();
+            last_attempt_error = final_error.clone();
+            last_failure_status = status_code;
+            if gateway_failover {
+                candidate_failure_status = Some(status_code);
+                candidate_failure_error = final_error.clone();
+                request = failover_request;
+                break;
+            }
 
             super::super::super::record_gateway_request_outcome(
                 path,
@@ -1498,7 +1526,7 @@ mod tests {
 
     use super::{
         build_upstream_url, effective_action_path, resolve_passthrough_sse_protocol,
-        should_retry_same_aggregate_candidate,
+        should_failover_after_aggregate_bridge, should_retry_same_aggregate_candidate,
     };
     use crate::gateway::{PassthroughSseProtocol, ResponseAdapter};
 
@@ -1578,6 +1606,25 @@ mod tests {
     #[test]
     fn aggregate_api_5xx_still_retries_same_candidate() {
         assert!(should_retry_same_aggregate_candidate(503));
+    }
+
+    #[test]
+    fn aggregate_bridge_failover_requires_preserved_request() {
+        assert!(should_failover_after_aggregate_bridge(
+            Some("workspace_deactivated"),
+            true,
+            true,
+        ));
+        assert!(!should_failover_after_aggregate_bridge(
+            Some("workspace_deactivated"),
+            true,
+            false,
+        ));
+        assert!(!should_failover_after_aggregate_bridge(
+            Some("workspace_deactivated"),
+            false,
+            true,
+        ));
     }
 
     /// 函数 `final_error_promotes_success_status_to_bad_gateway`

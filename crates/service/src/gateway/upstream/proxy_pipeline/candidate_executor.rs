@@ -260,11 +260,11 @@ pub(in super::super) fn execute_candidate_sequence(
                     last_attempt_error = Some(message);
                     continue;
                 }
-                let request = request
+                let current_request = request
                     .take()
                     .expect("request should be available before terminal response");
                 finalize_terminal_candidate(
-                    request,
+                    current_request,
                     context,
                     &account.id,
                     attempt_trace.last_attempt_url.as_deref(),
@@ -345,7 +345,7 @@ pub(in super::super) fn execute_candidate_sequence(
                         }
                     }
                 }
-                let request = request
+                let current_request = request
                     .take()
                     .expect("request should be available before terminal response");
                 let guard = inflight_guard
@@ -353,7 +353,7 @@ pub(in super::super) fn execute_candidate_sequence(
                     .expect("inflight guard should be available before terminal response");
                 let response_status = resp.status().as_u16();
                 match finalize_upstream_response(
-                    request,
+                    current_request,
                     resp,
                     guard,
                     context,
@@ -388,10 +388,11 @@ pub(in super::super) fn execute_candidate_sequence(
                         }
                         return Ok(CandidateExecutionResult::Handled);
                     }
-                    FinalizeUpstreamResponseOutcome::Failover => {
+                    FinalizeUpstreamResponseOutcome::Failover { request: next_request } => {
                         super::super::super::record_gateway_failover_attempt();
                         last_attempt_url = attempt_trace.last_attempt_url.take();
                         last_attempt_error = attempt_trace.last_attempt_error.take();
+                        request = Some(next_request);
                         continue;
                     }
                 }

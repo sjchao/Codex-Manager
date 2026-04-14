@@ -1,6 +1,7 @@
 use serde_json::{Map, Value};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::OnceLock;
+use tiny_http::Request;
 
 const OUTPUT_TEXT_LIMIT_BYTES_ENV: &str = "CODEXMANAGER_HTTP_BRIDGE_OUTPUT_TEXT_LIMIT_BYTES";
 const DEFAULT_OUTPUT_TEXT_LIMIT_BYTES: usize = 128 * 1024;
@@ -34,6 +35,23 @@ pub(crate) struct UpstreamResponseBridgeResult {
     pub upstream_identity_error_code: Option<String>,
     pub upstream_content_type: Option<String>,
     pub last_sse_event_type: Option<String>,
+}
+
+pub(crate) enum UpstreamResponseBridgeOutcome {
+    Delivered(UpstreamResponseBridgeResult),
+    Suppressed {
+        bridge: UpstreamResponseBridgeResult,
+        request: Request,
+    },
+}
+
+impl UpstreamResponseBridgeOutcome {
+    pub(crate) fn into_parts(self) -> (UpstreamResponseBridgeResult, Option<Request>) {
+        match self {
+            Self::Delivered(bridge) => (bridge, None),
+            Self::Suppressed { bridge, request } => (bridge, Some(request)),
+        }
+    }
 }
 
 impl UpstreamResponseBridgeResult {

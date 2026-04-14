@@ -444,7 +444,7 @@ pub(in super::super) fn proxy_azure_request(
         None
     };
     let inflight_guard = super::super::super::acquire_account_inflight(key_id);
-    let bridge = super::super::super::respond_with_upstream(
+    let (bridge, _) = super::super::super::respond_with_upstream(
         request,
         upstream,
         inflight_guard,
@@ -456,7 +456,8 @@ pub(in super::super) fn proxy_azure_request(
         is_stream,
         false,
         Some(trace_id),
-    )?;
+    )?
+    .into_parts();
     let bridge_ok = bridge.is_ok(is_stream);
     let bridge_error = bridge.error_message(is_stream);
     let usage = bridge.usage;

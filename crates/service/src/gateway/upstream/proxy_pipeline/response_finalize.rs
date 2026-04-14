@@ -5,7 +5,7 @@ use super::execution_context::GatewayUpstreamExecutionContext;
 
 pub(super) enum FinalizeUpstreamResponseOutcome {
     Handled,
-    Failover,
+    Failover { request: Request },
 }
 
 /// 函数 `respond_terminal`
@@ -157,7 +157,7 @@ pub(super) fn finalize_upstream_response(
     let status_code = response.status().as_u16();
     let mut final_error = None;
 
-    let bridge = super::super::super::respond_with_upstream(
+    let (bridge, failover_request) = super::super::super::respond_with_upstream(
         request,
         response,
         inflight_guard,
@@ -169,7 +169,8 @@ pub(super) fn finalize_upstream_response(
         client_is_stream,
         has_more_candidates,
         Some(trace_id),
-    )?;
+    )?
+    .into_parts();
     let bridge_output_text_len = bridge
         .usage
         .output_text
@@ -231,7 +232,7 @@ pub(super) fn finalize_upstream_response(
                 .unwrap_or_else(|| "upstream response incomplete".to_string()),
         );
     }
-    let gateway_failover = final_error.as_deref().is_some_and(|error| {
+    let gateway_failover = failover_request.is_some() && final_error.as_deref().is_some_and(|error| {
         crate::account_status::should_failover_for_gateway_error(error, has_more_candidates)
     });
     let usage_limit_failover = final_error
@@ -280,6 +281,11 @@ pub(super) fn finalize_upstream_response(
     }
 
     let usage = bridge.usage;
+    if gateway_failover {
+        return Ok(FinalizeUpstreamResponseOutcome::Failover {
+            request: failover_request.expect("failover request should be preserved"),
+        });
+    }
     context.log_final_result_with_model(
         Some(account_id),
         last_attempt_url,
@@ -296,8 +302,5 @@ pub(super) fn finalize_upstream_response(
         started_at.elapsed().as_millis(),
         attempted_account_ids,
     );
-    if gateway_failover {
-        return Ok(FinalizeUpstreamResponseOutcome::Failover);
-    }
     Ok(FinalizeUpstreamResponseOutcome::Handled)
 }
