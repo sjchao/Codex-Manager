@@ -155,6 +155,61 @@ fn storage_aggregate_api_weight_roundtrip() {
     assert_eq!(updated.weight, 500);
 }
 
+#[test]
+fn storage_aggregate_api_list_uses_created_at_as_tiebreaker() {
+    let storage = Storage::open_in_memory().expect("open in memory");
+    storage.init().expect("init schema");
+
+    storage
+        .insert_aggregate_api(&AggregateApi {
+            id: "agg-created-old".to_string(),
+            provider_type: "codex".to_string(),
+            supplier_name: Some("older-created".to_string()),
+            sort: 10,
+            weight: 100,
+            url: "https://aggregate.example.com/old".to_string(),
+            auth_type: "apikey".to_string(),
+            auth_params_json: None,
+            action: None,
+            status: "active".to_string(),
+            created_at: 100,
+            updated_at: 500,
+            last_test_at: None,
+            last_test_status: None,
+            last_test_error: None,
+        })
+        .expect("insert older aggregate api");
+
+    storage
+        .insert_aggregate_api(&AggregateApi {
+            id: "agg-created-new".to_string(),
+            provider_type: "codex".to_string(),
+            supplier_name: Some("newer-created".to_string()),
+            sort: 10,
+            weight: 100,
+            url: "https://aggregate.example.com/new".to_string(),
+            auth_type: "apikey".to_string(),
+            auth_params_json: None,
+            action: None,
+            status: "active".to_string(),
+            created_at: 200,
+            updated_at: 200,
+            last_test_at: None,
+            last_test_status: None,
+            last_test_error: None,
+        })
+        .expect("insert newer aggregate api");
+
+    let ids = storage
+        .list_aggregate_apis()
+        .expect("list aggregate apis")
+        .into_iter()
+        .map(|item| item.id)
+        .collect::<Vec<_>>();
+
+    assert_eq!(ids, vec!["agg-created-new".to_string(), "agg-created-old".to_string()]);
+}
+
 /// 函数 `token_upsert_keeps_refresh_schedule_columns`
 ///
 /// 作者: gaohongshun

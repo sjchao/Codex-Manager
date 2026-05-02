@@ -86,7 +86,7 @@ impl Storage {
     /// 返回函数执行结果
     pub fn list_aggregate_apis(&self) -> Result<Vec<AggregateApi>> {
         let mut stmt = self.conn.prepare(&format!(
-            "{AGGREGATE_API_SELECT_SQL} ORDER BY sort ASC, weight DESC, updated_at DESC"
+            "{AGGREGATE_API_SELECT_SQL} ORDER BY sort ASC, weight DESC, created_at DESC"
         ))?;
         let mut rows = stmt.query([])?;
         let mut out = Vec::new();
