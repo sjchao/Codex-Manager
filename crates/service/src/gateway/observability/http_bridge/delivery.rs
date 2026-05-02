@@ -784,6 +784,7 @@ pub(crate) fn respond_with_upstream(
     is_stream: bool,
     allow_failover_for_deactivation: bool,
     trace_id: Option<&str>,
+    request_started_at: std::time::Instant,
 ) -> Result<UpstreamResponseBridgeOutcome, String> {
     let keepalive_frame = resolve_stream_keepalive_frame(response_adapter, request_path);
     let passthrough_sse_protocol =
@@ -1143,6 +1144,7 @@ pub(crate) fn respond_with_upstream(
                         Arc::clone(&usage_collector),
                         keepalive_frame,
                         passthrough_sse_protocol,
+                        request_started_at,
                     ),
                     None,
                     None,
@@ -1267,6 +1269,7 @@ pub(crate) fn respond_with_upstream(
                                 upstream,
                                 Arc::clone(&usage_collector),
                                 tool_name_restore_map.cloned(),
+                                request_started_at,
                             ),
                             None,
                             None,
@@ -1276,7 +1279,11 @@ pub(crate) fn respond_with_upstream(
                         let response = Response::new(
                             status,
                             headers,
-                            OpenAICompletionsSseReader::new(upstream, Arc::clone(&usage_collector)),
+                            OpenAICompletionsSseReader::new(
+                                upstream,
+                                Arc::clone(&usage_collector),
+                                request_started_at,
+                            ),
                             None,
                             None,
                         );
@@ -1491,7 +1498,11 @@ pub(crate) fn respond_with_upstream(
                 let response = Response::new(
                     status,
                     headers,
-                    AnthropicSseReader::new(upstream, Arc::clone(&usage_collector)),
+                    AnthropicSseReader::new(
+                        upstream,
+                        Arc::clone(&usage_collector),
+                        request_started_at,
+                    ),
                     None,
                     None,
                 );
@@ -1554,6 +1565,7 @@ pub(crate) fn respond_with_upstream(
                         upstream,
                         Arc::clone(&usage_collector),
                         tool_name_restore_map.cloned(),
+                        request_started_at,
                         gemini_stream_output_mode,
                         response_adapter == ResponseAdapter::GeminiCliSse,
                     ),

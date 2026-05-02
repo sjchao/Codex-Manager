@@ -169,6 +169,7 @@ pub(super) fn finalize_upstream_response(
         client_is_stream,
         has_more_candidates,
         Some(trace_id),
+        started_at,
     )?
     .into_parts();
     let bridge_output_text_len = bridge
@@ -297,6 +298,7 @@ pub(super) fn finalize_upstream_response(
             output_tokens: usage.output_tokens,
             total_tokens: usage.total_tokens,
             reasoning_output_tokens: usage.reasoning_output_tokens,
+            first_response_ms: usage.first_response_ms,
         },
         final_error.as_deref(),
         started_at.elapsed().as_millis(),

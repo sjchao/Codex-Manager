@@ -14,7 +14,7 @@ use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 struct EnvGuard {
     key: &'static str,
@@ -410,7 +410,7 @@ fn anthropic_sse_reader_final_usage_contains_input_cache_and_output_tokens() {
         )],
     );
     let usage_collector = Arc::new(Mutex::new(super::UpstreamResponseUsage::default()));
-    let mut reader = super::AnthropicSseReader::new(response, usage_collector);
+    let mut reader = super::AnthropicSseReader::new(response, usage_collector, Instant::now());
     let mut out = String::new();
     reader
         .read_to_string(&mut out)
@@ -1099,7 +1099,12 @@ fn openai_chat_sse_reader_requires_terminal_event_before_success() {
     );
     let usage_collector = Arc::new(Mutex::new(PassthroughSseCollector::default()));
     let mut reader =
-        OpenAIChatCompletionsSseReader::new(upstream, Arc::clone(&usage_collector), None);
+        OpenAIChatCompletionsSseReader::new(
+            upstream,
+            Arc::clone(&usage_collector),
+            None,
+            Instant::now(),
+        );
     let mut mapped = String::new();
     reader
         .read_to_string(&mut mapped)
@@ -1135,7 +1140,11 @@ fn openai_completions_sse_reader_requires_terminal_event_before_success() {
         ),
     );
     let usage_collector = Arc::new(Mutex::new(PassthroughSseCollector::default()));
-    let mut reader = OpenAICompletionsSseReader::new(upstream, Arc::clone(&usage_collector));
+    let mut reader = OpenAICompletionsSseReader::new(
+        upstream,
+        Arc::clone(&usage_collector),
+        Instant::now(),
+    );
     let mut mapped = String::new();
     reader
         .read_to_string(&mut mapped)
@@ -1166,6 +1175,7 @@ fn gemini_sse_reader_waits_for_completed_full_arguments_before_emitting_tool_cal
         upstream,
         Arc::clone(&usage_collector),
         None,
+        Instant::now(),
         GeminiStreamOutputMode::Sse,
         false,
     );
@@ -1222,6 +1232,7 @@ fn gemini_sse_reader_does_not_treat_function_call_output_as_final_text() {
         upstream,
         Arc::clone(&usage_collector),
         None,
+        Instant::now(),
         GeminiStreamOutputMode::Sse,
         false,
     );
@@ -1281,6 +1292,7 @@ fn gemini_sse_reader_completed_message_output_still_emits_final_text() {
         upstream,
         Arc::clone(&usage_collector),
         None,
+        Instant::now(),
         GeminiStreamOutputMode::Sse,
         false,
     );
@@ -1336,6 +1348,7 @@ fn gemini_cli_sse_reader_wraps_chunks_in_response_field() {
         upstream,
         Arc::clone(&usage_collector),
         None,
+        Instant::now(),
         GeminiStreamOutputMode::Sse,
         true,
     );
@@ -1387,6 +1400,7 @@ fn gemini_cli_sse_reader_does_not_emit_comment_keepalive_frames() {
         upstream,
         Arc::clone(&usage_collector),
         None,
+        Instant::now(),
         GeminiStreamOutputMode::Sse,
         true,
     );
@@ -1408,6 +1422,7 @@ fn gemini_sse_reader_requires_response_completed_before_done() {
         upstream,
         Arc::clone(&usage_collector),
         None,
+        Instant::now(),
         GeminiStreamOutputMode::Sse,
         false,
     );
@@ -1437,6 +1452,7 @@ fn gemini_sse_reader_marks_incomplete_trailing_json_as_stream_error() {
         upstream,
         Arc::clone(&usage_collector),
         None,
+        Instant::now(),
         GeminiStreamOutputMode::Sse,
         false,
     );
@@ -1470,6 +1486,7 @@ fn gemini_raw_reader_outputs_plain_json_chunks() {
         upstream,
         Arc::clone(&usage_collector),
         None,
+        Instant::now(),
         GeminiStreamOutputMode::Raw,
         false,
     );
@@ -1491,6 +1508,7 @@ fn gemini_sse_reader_emits_structured_error_frame_for_incomplete_stream() {
         upstream,
         Arc::clone(&usage_collector),
         None,
+        Instant::now(),
         GeminiStreamOutputMode::Sse,
         false,
     );
@@ -1511,6 +1529,7 @@ fn gemini_raw_reader_emits_plain_json_error_for_incomplete_stream() {
         upstream,
         Arc::clone(&usage_collector),
         None,
+        Instant::now(),
         GeminiStreamOutputMode::Raw,
         true,
     );
@@ -1557,6 +1576,7 @@ fn passthrough_sse_reader_emits_keepalive_for_responses_stream() {
         Arc::clone(&usage_collector),
         SseKeepAliveFrame::OpenAIResponses,
         PassthroughSseProtocol::Generic,
+        Instant::now(),
     );
     let mut mapped = String::new();
     reader
@@ -1596,6 +1616,7 @@ fn passthrough_sse_reader_captures_raw_html_error_body() {
         Arc::clone(&usage_collector),
         SseKeepAliveFrame::OpenAIResponses,
         PassthroughSseProtocol::Generic,
+        Instant::now(),
     );
     let mut mapped = String::new();
     reader
@@ -1619,6 +1640,35 @@ fn passthrough_sse_reader_captures_raw_html_error_body() {
 }
 
 #[test]
+fn passthrough_sse_reader_records_first_response_ms() {
+    let upstream = open_mock_http_response(
+        "text/event-stream",
+        concat!(
+            "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_first_response_1\"}}\n\n",
+            "data: [DONE]\n\n"
+        ),
+    );
+    let usage_collector = Arc::new(Mutex::new(PassthroughSseCollector::default()));
+    let mut reader = PassthroughSseUsageReader::new(
+        upstream,
+        Arc::clone(&usage_collector),
+        SseKeepAliveFrame::OpenAIResponses,
+        PassthroughSseProtocol::Generic,
+        Instant::now(),
+    );
+    let mut mapped = String::new();
+    reader
+        .read_to_string(&mut mapped)
+        .expect("read passthrough first response sse");
+
+    let collector = usage_collector
+        .lock()
+        .expect("lock usage collector")
+        .clone();
+    assert!(collector.usage.first_response_ms.is_some());
+}
+
+#[test]
 fn passthrough_sse_reader_treats_message_stop_as_terminal_for_anthropic_native() {
     let (upstream, server) = open_streaming_mock_http_response(
         "text/event-stream",
@@ -1638,6 +1688,7 @@ fn passthrough_sse_reader_treats_message_stop_as_terminal_for_anthropic_native()
         Arc::clone(&usage_collector),
         SseKeepAliveFrame::Anthropic,
         PassthroughSseProtocol::AnthropicNative,
+        Instant::now(),
     );
     let mut mapped = String::new();
     reader
@@ -1684,7 +1735,12 @@ fn openai_chat_sse_reader_emits_keepalive_chunk_during_idle_gap() {
     );
     let usage_collector = Arc::new(Mutex::new(PassthroughSseCollector::default()));
     let mut reader =
-        OpenAIChatCompletionsSseReader::new(upstream, Arc::clone(&usage_collector), None);
+        OpenAIChatCompletionsSseReader::new(
+            upstream,
+            Arc::clone(&usage_collector),
+            None,
+            Instant::now(),
+        );
     let mut mapped = String::new();
     reader
         .read_to_string(&mut mapped)

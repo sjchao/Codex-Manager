@@ -3,7 +3,7 @@ use std::io::{BufRead, BufReader};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const DEFAULT_SSE_KEEPALIVE_INTERVAL_MS: u64 = 15_000;
 const ENV_SSE_KEEPALIVE_INTERVAL_MS: &str = "CODEXMANAGER_SSE_KEEPALIVE_INTERVAL_MS";
@@ -68,6 +68,10 @@ pub(crate) enum UpstreamSseFramePumpItem {
 
 pub(crate) struct UpstreamSseFramePump {
     rx: Receiver<UpstreamSseFramePumpItem>,
+}
+
+fn elapsed_ms_since(started_at: Instant) -> i64 {
+    started_at.elapsed().as_millis().min(i64::MAX as u128) as i64
 }
 
 impl UpstreamSseFramePump {
@@ -251,6 +255,28 @@ pub(super) fn mark_collector_terminal_success(
     if let Ok(mut collector) = usage_collector.lock() {
         collector.saw_terminal = true;
         collector.terminal_error = None;
+    }
+}
+
+pub(super) fn mark_first_response_ms(
+    usage_collector: &Arc<Mutex<PassthroughSseCollector>>,
+    started_at: Instant,
+) {
+    if let Ok(mut collector) = usage_collector.lock() {
+        if collector.usage.first_response_ms.is_none() {
+            collector.usage.first_response_ms = Some(elapsed_ms_since(started_at));
+        }
+    }
+}
+
+pub(super) fn mark_first_response_ms_on_usage(
+    usage_collector: &Arc<Mutex<UpstreamResponseUsage>>,
+    started_at: Instant,
+) {
+    if let Ok(mut usage) = usage_collector.lock() {
+        if usage.first_response_ms.is_none() {
+            usage.first_response_ms = Some(elapsed_ms_since(started_at));
+        }
     }
 }
 

@@ -1,14 +1,17 @@
 use super::{
     append_output_text, collect_output_text_from_event_fields, collect_response_output_text, json,
-    sse_keepalive_interval, Arc, Cursor, Map, Mutex, Read, SseKeepAliveFrame,
-    UpstreamResponseUsage, UpstreamSseFramePump, UpstreamSseFramePumpItem, Value,
+    mark_first_response_ms_on_usage, sse_keepalive_interval, Arc, Cursor, Map, Mutex, Read,
+    SseKeepAliveFrame, UpstreamResponseUsage, UpstreamSseFramePump, UpstreamSseFramePumpItem,
+    Value,
 };
+use std::time::Instant;
 
 pub(crate) struct AnthropicSseReader {
     upstream: UpstreamSseFramePump,
     out_cursor: Cursor<Vec<u8>>,
     state: AnthropicSseState,
     usage_collector: Arc<Mutex<UpstreamResponseUsage>>,
+    request_started_at: Instant,
 }
 
 #[derive(Default)]
@@ -43,12 +46,14 @@ impl AnthropicSseReader {
     pub(crate) fn new(
         upstream: reqwest::blocking::Response,
         usage_collector: Arc<Mutex<UpstreamResponseUsage>>,
+        request_started_at: Instant,
     ) -> Self {
         Self {
             upstream: UpstreamSseFramePump::new(upstream),
             out_cursor: Cursor::new(Vec::new()),
             state: AnthropicSseState::default(),
             usage_collector,
+            request_started_at,
         }
     }
 
@@ -67,6 +72,10 @@ impl AnthropicSseReader {
         loop {
             match self.upstream.recv_timeout(sse_keepalive_interval()) {
                 Ok(UpstreamSseFramePumpItem::Frame(frame)) => {
+                    mark_first_response_ms_on_usage(
+                        &self.usage_collector,
+                        self.request_started_at,
+                    );
                     let mapped = self.process_sse_frame(&frame);
                     if !mapped.is_empty() {
                         return Ok(mapped);

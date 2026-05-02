@@ -456,6 +456,7 @@ pub(in super::super) fn proxy_azure_request(
         is_stream,
         false,
         Some(trace_id),
+        started_at,
     )?
     .into_parts();
     let bridge_ok = bridge.is_ok(is_stream);
@@ -508,6 +509,7 @@ pub(in super::super) fn proxy_azure_request(
             output_tokens: usage.output_tokens,
             total_tokens: usage.total_tokens,
             reasoning_output_tokens: usage.reasoning_output_tokens,
+            first_response_ms: usage.first_response_ms,
         },
         final_error_text.as_deref(),
         Some(started_at.elapsed().as_millis()),

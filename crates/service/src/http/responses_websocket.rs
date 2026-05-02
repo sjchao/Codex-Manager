@@ -50,6 +50,7 @@ struct PendingWsRequestLog {
     service_tier: Option<String>,
     effective_service_tier: Option<String>,
     started_at: Instant,
+    first_response_ms: Option<i64>,
 }
 
 struct WsSessionError {
@@ -335,6 +336,9 @@ async fn run_responses_websocket_session(mut socket: WebSocket, context: WsReque
                 };
         match upstream_result {
                     Ok(UpstreamMessage::Text(text)) => {
+                        if let Some(pending) = pending_request.as_mut() {
+                            mark_ws_first_response(pending);
+                        }
                         if let Some(terminal) = inspect_ws_terminal_event(text.as_str()) {
                             if let Some(pending) = pending_request.take() {
                                 finalize_ws_request_log(
@@ -358,18 +362,27 @@ async fn run_responses_websocket_session(mut socket: WebSocket, context: WsReque
                         }
                     }
                     Ok(UpstreamMessage::Binary(bytes)) => {
+                        if let Some(pending) = pending_request.as_mut() {
+                            mark_ws_first_response(pending);
+                        }
                         if socket.send(Message::Binary(bytes)).await.is_err() {
                             let _ = upstream.stream.close(None).await;
                             break;
                         }
                     }
                     Ok(UpstreamMessage::Ping(payload)) => {
+                        if let Some(pending) = pending_request.as_mut() {
+                            mark_ws_first_response(pending);
+                        }
                         if socket.send(Message::Ping(payload)).await.is_err() {
                             let _ = upstream.stream.close(None).await;
                             break;
                         }
                     }
                     Ok(UpstreamMessage::Pong(payload)) => {
+                        if let Some(pending) = pending_request.as_mut() {
+                            mark_ws_first_response(pending);
+                        }
                         if socket.send(Message::Pong(payload)).await.is_err() {
                             let _ = upstream.stream.close(None).await;
                             break;
@@ -810,6 +823,15 @@ fn begin_ws_request_log(
         service_tier: prepared.service_tier.clone(),
         effective_service_tier: prepared.effective_service_tier.clone(),
         started_at: Instant::now(),
+        first_response_ms: None,
+    }
+}
+
+fn mark_ws_first_response(pending: &mut PendingWsRequestLog) {
+    if pending.first_response_ms.is_none() {
+        pending.first_response_ms = Some(
+            pending.started_at.elapsed().as_millis().min(i64::MAX as u128) as i64,
+        );
     }
 }
 
@@ -825,6 +847,10 @@ fn finalize_ws_request_log(
     let Some(storage) = open_storage() else {
         return;
     };
+    let mut usage = usage;
+    if usage.first_response_ms.is_none() {
+        usage.first_response_ms = pending.first_response_ms;
+    }
     crate::gateway::write_request_log(
         &storage,
         crate::gateway::RequestLogTraceContext {
@@ -944,6 +970,7 @@ fn parse_ws_usage(value: &Value) -> crate::gateway::RequestLogUsage {
                     .and_then(|map| map.get("reasoning_output_tokens"))
                     .and_then(Value::as_i64)
             }),
+        first_response_ms: None,
     }
 }
 

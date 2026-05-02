@@ -300,6 +300,9 @@ fn init_tracks_schema_migrations_and_is_idempotent() {
         .has_column("request_logs", "duration_ms")
         .expect("check request_logs.duration_ms"));
     assert!(storage
+        .has_column("request_logs", "first_response_ms")
+        .expect("check request_logs.first_response_ms"));
+    assert!(storage
         .has_column("request_logs", "queue_wait_ms")
         .expect("check request_logs.queue_wait_ms"));
     assert!(storage

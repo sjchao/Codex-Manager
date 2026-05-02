@@ -1065,6 +1065,14 @@ export function normalizeRequestLog(item: unknown): RequestLog | null {
       source.responseTimeMs ??
       source.response_time_ms
   );
+  const firstResponseMs = toNullableNumber(
+    source.firstResponseMs ??
+      source.first_response_ms ??
+      source.firstTokenMs ??
+      source.first_token_ms ??
+      source.ttftMs ??
+      source.ttft_ms
+  );
   const queueWaitMs = toNullableNumber(
     source.queueWaitMs ?? source.queue_wait_ms
   );
@@ -1147,6 +1155,7 @@ export function normalizeRequestLog(item: unknown): RequestLog | null {
       source.estimatedCostUsd ?? source.estimated_cost_usd
     ),
     durationMs,
+    firstResponseMs,
     queueWaitMs,
     error: asString(source.error),
     createdAt,

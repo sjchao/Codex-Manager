@@ -176,6 +176,7 @@ fn request_log_summary_serialization_includes_trace_route_fields() {
         aggregate_api_url: Some("https://api.example.com/v1".to_string()),
         status_code: Some(502),
         duration_ms: Some(1450),
+        first_response_ms: Some(340),
         queue_wait_ms: Some(180),
         input_tokens: Some(10),
         cached_input_tokens: Some(0),
@@ -203,6 +204,7 @@ fn request_log_summary_serialization_includes_trace_route_fields() {
         "requestPath",
         "upstreamUrl",
         "durationMs",
+        "firstResponseMs",
         "queueWaitMs",
     ] {
         assert!(obj.contains_key(key), "missing key: {key}");
@@ -274,6 +276,7 @@ fn request_log_list_result_serialization_includes_pagination_fields() {
             aggregate_api_url: Some("https://api.example.com/v1".to_string()),
             status_code: Some(200),
             duration_ms: Some(1200),
+            first_response_ms: Some(260),
             queue_wait_ms: Some(95),
             input_tokens: Some(10),
             cached_input_tokens: Some(1),

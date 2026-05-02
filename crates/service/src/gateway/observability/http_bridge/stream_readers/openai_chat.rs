@@ -4,18 +4,20 @@ use super::{
     convert_openai_chat_stream_chunk_with_tool_name_restore_map,
     extract_openai_completed_output_text, extract_sse_frame_payload, inspect_sse_frame,
     is_response_completed_event_name, map_chunk_has_chat_text, mark_collector_terminal_success,
-    merge_usage, normalize_chat_chunk_delta_role, parse_sse_frame_json,
+    mark_first_response_ms, merge_usage, normalize_chat_chunk_delta_role, parse_sse_frame_json,
     should_skip_chat_live_text_event, sse_keepalive_interval, stream_reader_disconnected_message,
     update_openai_stream_meta, upstream_hint_or_stream_incomplete_message, Arc, Cursor, Mutex,
     OpenAIStreamMeta, PassthroughSseCollector, Read, SseKeepAliveFrame, SseTerminal,
     ToolNameRestoreMap, UpstreamSseFramePump, UpstreamSseFramePumpItem, Value,
 };
+use std::time::Instant;
 
 pub(crate) struct OpenAIChatCompletionsSseReader {
     upstream: UpstreamSseFramePump,
     out_cursor: Cursor<Vec<u8>>,
     usage_collector: Arc<Mutex<PassthroughSseCollector>>,
     tool_name_restore_map: Option<ToolNameRestoreMap>,
+    request_started_at: Instant,
     stream_meta: OpenAIStreamMeta,
     emitted_text_delta: bool,
     emitted_assistant_role: bool,
@@ -38,12 +40,14 @@ impl OpenAIChatCompletionsSseReader {
         upstream: reqwest::blocking::Response,
         usage_collector: Arc<Mutex<PassthroughSseCollector>>,
         tool_name_restore_map: Option<ToolNameRestoreMap>,
+        request_started_at: Instant,
     ) -> Self {
         Self {
             upstream: UpstreamSseFramePump::new(upstream),
             out_cursor: Cursor::new(Vec::new()),
             usage_collector,
             tool_name_restore_map,
+            request_started_at,
             stream_meta: OpenAIStreamMeta::default(),
             emitted_text_delta: false,
             emitted_assistant_role: false,
@@ -209,6 +213,7 @@ impl OpenAIChatCompletionsSseReader {
         loop {
             match self.upstream.recv_timeout(sse_keepalive_interval()) {
                 Ok(UpstreamSseFramePumpItem::Frame(frame)) => {
+                    mark_first_response_ms(&self.usage_collector, self.request_started_at);
                     self.update_usage_from_frame(&frame);
                     let mapped = self.map_frame_to_chat_completions_sse(&frame);
                     if !mapped.is_empty() {

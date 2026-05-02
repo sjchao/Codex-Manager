@@ -1,11 +1,12 @@
 use super::{
-    classify_upstream_stream_read_error, inspect_sse_frame_for_protocol, merge_usage,
-    sse_keepalive_interval, stream_reader_disconnected_message,
+    classify_upstream_stream_read_error, inspect_sse_frame_for_protocol, mark_first_response_ms,
+    merge_usage, sse_keepalive_interval, stream_reader_disconnected_message,
     upstream_hint_or_stream_incomplete_message, Arc, Cursor, Mutex, PassthroughSseCollector,
     PassthroughSseProtocol, Read, SseKeepAliveFrame, SseTerminal, UpstreamSseFramePump,
     UpstreamSseFramePumpItem,
 };
 use crate::gateway::http_bridge::extract_error_hint_from_body;
+use std::time::Instant;
 
 pub(crate) struct PassthroughSseUsageReader {
     upstream: UpstreamSseFramePump,
@@ -13,6 +14,7 @@ pub(crate) struct PassthroughSseUsageReader {
     usage_collector: Arc<Mutex<PassthroughSseCollector>>,
     keepalive_frame: SseKeepAliveFrame,
     protocol: PassthroughSseProtocol,
+    request_started_at: Instant,
     finished: bool,
 }
 
@@ -33,6 +35,7 @@ impl PassthroughSseUsageReader {
         usage_collector: Arc<Mutex<PassthroughSseCollector>>,
         keepalive_frame: SseKeepAliveFrame,
         protocol: PassthroughSseProtocol,
+        request_started_at: Instant,
     ) -> Self {
         Self {
             upstream: UpstreamSseFramePump::new(upstream),
@@ -40,6 +43,7 @@ impl PassthroughSseUsageReader {
             usage_collector,
             keepalive_frame,
             protocol,
+            request_started_at,
             finished: false,
         }
     }
@@ -108,6 +112,7 @@ impl PassthroughSseUsageReader {
     fn next_chunk(&mut self) -> std::io::Result<Vec<u8>> {
         match self.upstream.recv_timeout(sse_keepalive_interval()) {
             Ok(UpstreamSseFramePumpItem::Frame(frame)) => {
+                mark_first_response_ms(&self.usage_collector, self.request_started_at);
                 self.update_usage_from_frame(&frame);
                 Ok(frame.concat().into_bytes())
             }

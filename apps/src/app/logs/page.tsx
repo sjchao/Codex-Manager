@@ -1674,7 +1674,7 @@ function LogsPageContent() {
               </div>
             </CardHeader>
             <CardContent className="px-0">
-              <Table className="min-w-[1430px] table-fixed">
+              <Table className="min-w-[1450px] table-fixed">
             <TableHeader>
               <TableRow>
                 <TableHead className="h-12 w-[150px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
@@ -1692,8 +1692,8 @@ function LogsPageContent() {
                 <TableHead className="w-[92px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
                   状态
                 </TableHead>
-                <TableHead className="w-[110px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                  请求时长
+                <TableHead className="w-[128px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+                  用时 / 首响
                 </TableHead>
                 <TableHead className="w-[110px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
                   排队等待
@@ -1780,8 +1780,14 @@ function LogsPageContent() {
                     <TableCell className="px-4 py-3 align-top">
                       {getStatusBadge(resolveDisplayedStatusCode(log))}
                     </TableCell>
-                    <TableCell className="px-4 py-3 font-mono text-primary">
-                      {formatDuration(log.durationMs)}
+                    <TableCell className="px-4 py-3 align-top font-mono">
+                      <span
+                        className="text-xs text-primary"
+                        title="首响表示从请求开始到首个上游响应片段的耗时"
+                      >
+                        {formatDuration(log.durationMs)}/
+                        {formatDuration(log.firstResponseMs)}
+                      </span>
                     </TableCell>
                     <TableCell className="px-4 py-3 font-mono text-muted-foreground">
                       {formatDuration(log.queueWaitMs)}

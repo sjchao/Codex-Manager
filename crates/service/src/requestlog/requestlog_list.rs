@@ -225,6 +225,7 @@ fn to_request_log_summary(item: RequestLog) -> RequestLogSummary {
         aggregate_api_url: normalize_upstream_url(item.aggregate_api_url.as_deref()),
         status_code: item.status_code,
         duration_ms: item.duration_ms,
+        first_response_ms: item.first_response_ms,
         queue_wait_ms: item.queue_wait_ms,
         input_tokens: item.input_tokens,
         cached_input_tokens: item.cached_input_tokens,
@@ -243,6 +244,7 @@ mod tests {
         normalize_optional_text, normalize_status_filter, normalize_upstream_url,
         RequestLogListParams, DEFAULT_REQUEST_LOG_PAGE_SIZE,
     };
+    use codexmanager_core::storage::RequestLog;
 
     /// 函数 `normalize_upstream_url_keeps_official_domains`
     ///
@@ -329,6 +331,21 @@ mod tests {
             normalize_upstream_url(Some(" https://api.openai.com/v1/responses ")).as_deref(),
             Some("https://api.openai.com/v1/responses")
         );
+    }
+
+    #[test]
+    fn to_request_log_summary_preserves_first_response_ms() {
+        let summary = super::to_request_log_summary(RequestLog {
+            request_path: "/v1/responses".to_string(),
+            method: "POST".to_string(),
+            duration_ms: Some(2345),
+            first_response_ms: Some(340),
+            created_at: 1,
+            ..Default::default()
+        });
+
+        assert_eq!(summary.duration_ms, Some(2345));
+        assert_eq!(summary.first_response_ms, Some(340));
     }
 
     /// 函数 `request_log_list_params_default_to_first_page_with_twenty_items`

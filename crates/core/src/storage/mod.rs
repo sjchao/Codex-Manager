@@ -127,6 +127,7 @@ pub struct RequestLog {
     pub aggregate_api_url: Option<String>,
     pub status_code: Option<i64>,
     pub duration_ms: Option<i64>,
+    pub first_response_ms: Option<i64>,
     pub queue_wait_ms: Option<i64>,
     pub input_tokens: Option<i64>,
     pub cached_input_tokens: Option<i64>,
@@ -581,6 +582,11 @@ impl Storage {
             include_str!("../../migrations/047_request_token_daily_stats.sql"),
             |s| s.ensure_request_token_daily_stats_table(),
         )?;
+        self.apply_sql_or_compat_migration(
+            "048_request_logs_first_response_ms",
+            include_str!("../../migrations/048_request_logs_first_response_ms.sql"),
+            |s| s.ensure_request_log_first_response_column(),
+        )?;
         self.ensure_api_key_rotation_columns()?;
         self.ensure_aggregate_apis_table()?;
         self.ensure_aggregate_api_secrets_table()?;
@@ -591,6 +597,7 @@ impl Storage {
         self.ensure_request_log_effective_service_tier_column()?;
         self.ensure_request_log_aggregate_api_failure_chain_column()?;
         self.ensure_request_log_queue_wait_column()?;
+        self.ensure_request_log_first_response_column()?;
         let _ = self.maintain_request_token_stats_if_due();
         Ok(())
     }

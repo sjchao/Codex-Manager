@@ -66,8 +66,8 @@ impl Storage {
             "INSERT INTO request_logs (
                 trace_id, key_id, account_id, initial_account_id, attempted_account_ids_json, initial_aggregate_api_id, attempted_aggregate_api_ids_json, aggregate_api_attempt_failures_json,
                 request_path, original_path, adapted_path,
-                method, request_type, model, reasoning_effort, service_tier, effective_service_tier, response_adapter, upstream_url, aggregate_api_supplier_name, aggregate_api_url, status_code, duration_ms, queue_wait_ms, error, created_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)",
+                method, request_type, model, reasoning_effort, service_tier, effective_service_tier, response_adapter, upstream_url, aggregate_api_supplier_name, aggregate_api_url, status_code, duration_ms, first_response_ms, queue_wait_ms, error, created_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27)",
             params![
                 &log.trace_id,
                 &log.key_id,
@@ -92,6 +92,7 @@ impl Storage {
                 &log.aggregate_api_url,
                 log.status_code,
                 log.duration_ms,
+                log.first_response_ms,
                 log.queue_wait_ms,
                 &log.error,
                 log.created_at,
@@ -123,8 +124,8 @@ impl Storage {
             "INSERT INTO request_logs (
                 trace_id, key_id, account_id, initial_account_id, attempted_account_ids_json, initial_aggregate_api_id, attempted_aggregate_api_ids_json, aggregate_api_attempt_failures_json,
                 request_path, original_path, adapted_path,
-                method, request_type, model, reasoning_effort, service_tier, effective_service_tier, response_adapter, upstream_url, aggregate_api_supplier_name, aggregate_api_url, status_code, duration_ms, queue_wait_ms, error, created_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)",
+                method, request_type, model, reasoning_effort, service_tier, effective_service_tier, response_adapter, upstream_url, aggregate_api_supplier_name, aggregate_api_url, status_code, duration_ms, first_response_ms, queue_wait_ms, error, created_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27)",
             params![
                 &log.trace_id,
                 &log.key_id,
@@ -149,6 +150,7 @@ impl Storage {
                 &log.aggregate_api_url,
                 log.status_code,
                 log.duration_ms,
+                log.first_response_ms,
                 log.queue_wait_ms,
                 &log.error,
                 log.created_at,
@@ -244,7 +246,7 @@ impl Storage {
             "SELECT
                 r.trace_id, r.key_id, r.account_id, r.initial_account_id, r.attempted_account_ids_json, r.initial_aggregate_api_id, r.attempted_aggregate_api_ids_json, r.aggregate_api_attempt_failures_json,
                 r.request_path, r.original_path, r.adapted_path,
-                r.method, r.request_type, r.model, r.reasoning_effort, r.service_tier, r.effective_service_tier, r.response_adapter, r.upstream_url, r.aggregate_api_supplier_name, r.aggregate_api_url, r.status_code, r.duration_ms, r.queue_wait_ms,
+                r.method, r.request_type, r.model, r.reasoning_effort, r.service_tier, r.effective_service_tier, r.response_adapter, r.upstream_url, r.aggregate_api_supplier_name, r.aggregate_api_url, r.status_code, r.duration_ms, r.first_response_ms, r.queue_wait_ms,
                 t.input_tokens, t.cached_input_tokens, t.output_tokens, t.total_tokens, t.reasoning_output_tokens, t.estimated_cost_usd,
                 r.error, r.created_at
              FROM request_logs r
@@ -429,6 +431,7 @@ impl Storage {
                 aggregate_api_url TEXT,
                 status_code INTEGER,
                 duration_ms INTEGER,
+                first_response_ms INTEGER,
                 queue_wait_ms INTEGER,
                 error TEXT,
                 created_at INTEGER NOT NULL
@@ -593,6 +596,11 @@ impl Storage {
         Ok(())
     }
 
+    pub(super) fn ensure_request_log_first_response_column(&self) -> Result<()> {
+        self.ensure_column("request_logs", "first_response_ms", "INTEGER")?;
+        Ok(())
+    }
+
     pub(super) fn ensure_request_log_queue_wait_column(&self) -> Result<()> {
         self.ensure_column("request_logs", "queue_wait_ms", "INTEGER")?;
         Ok(())
@@ -671,6 +679,7 @@ impl Storage {
                 aggregate_api_url TEXT,
                 status_code INTEGER,
                 duration_ms INTEGER,
+                first_response_ms INTEGER,
                 queue_wait_ms INTEGER,
                 error TEXT,
                 created_at INTEGER NOT NULL
@@ -678,11 +687,11 @@ impl Storage {
              INSERT INTO request_logs (
                 id, trace_id, key_id, account_id, initial_account_id, attempted_account_ids_json, initial_aggregate_api_id, attempted_aggregate_api_ids_json,
                 request_path, original_path, adapted_path,
-                method, request_type, model, reasoning_effort, service_tier, effective_service_tier, response_adapter, upstream_url, aggregate_api_supplier_name, aggregate_api_url, status_code, duration_ms, queue_wait_ms, error, created_at
+                method, request_type, model, reasoning_effort, service_tier, effective_service_tier, response_adapter, upstream_url, aggregate_api_supplier_name, aggregate_api_url, status_code, duration_ms, first_response_ms, queue_wait_ms, error, created_at
              )
              SELECT
                 id, trace_id, key_id, account_id, NULL, NULL, NULL, NULL, request_path, original_path, adapted_path,
-                method, NULL, model, reasoning_effort, NULL, NULL, response_adapter, upstream_url, NULL, NULL, status_code, NULL, NULL, error, created_at
+                method, NULL, model, reasoning_effort, NULL, NULL, response_adapter, upstream_url, NULL, NULL, status_code, NULL, NULL, NULL, error, created_at
              FROM request_logs_legacy_028;
              DROP TABLE request_logs_legacy_028;",
         )?;
@@ -729,15 +738,16 @@ fn map_request_log_row(row: &Row<'_>) -> Result<RequestLog> {
         aggregate_api_url: row.get(20)?,
         status_code: row.get(21)?,
         duration_ms: row.get(22)?,
-        queue_wait_ms: row.get(23)?,
-        input_tokens: row.get(24)?,
-        cached_input_tokens: row.get(25)?,
-        output_tokens: row.get(26)?,
-        total_tokens: row.get(27)?,
-        reasoning_output_tokens: row.get(28)?,
-        estimated_cost_usd: row.get(29)?,
-        error: row.get(30)?,
-        created_at: row.get(31)?,
+        first_response_ms: row.get(23)?,
+        queue_wait_ms: row.get(24)?,
+        input_tokens: row.get(25)?,
+        cached_input_tokens: row.get(26)?,
+        output_tokens: row.get(27)?,
+        total_tokens: row.get(28)?,
+        reasoning_output_tokens: row.get(29)?,
+        estimated_cost_usd: row.get(30)?,
+        error: row.get(31)?,
+        created_at: row.get(32)?,
     })
 }
 

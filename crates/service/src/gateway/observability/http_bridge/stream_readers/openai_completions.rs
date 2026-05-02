@@ -3,18 +3,20 @@ use super::{
     classify_upstream_stream_read_error, collector_output_text_trimmed,
     convert_openai_completions_stream_chunk, extract_openai_completed_output_text,
     extract_sse_frame_payload, inspect_sse_frame, is_response_completed_event_name,
-    map_chunk_has_completion_text, mark_collector_terminal_success, merge_usage,
-    parse_sse_frame_json, should_skip_completion_live_text_event, sse_keepalive_interval,
+    map_chunk_has_completion_text, mark_collector_terminal_success, mark_first_response_ms,
+    merge_usage, parse_sse_frame_json, should_skip_completion_live_text_event, sse_keepalive_interval,
     stream_reader_disconnected_message, update_openai_stream_meta,
     upstream_hint_or_stream_incomplete_message, Arc, Cursor, Mutex, OpenAIStreamMeta,
     PassthroughSseCollector, Read, SseKeepAliveFrame, SseTerminal, UpstreamSseFramePump,
     UpstreamSseFramePumpItem, Value,
 };
+use std::time::Instant;
 
 pub(crate) struct OpenAICompletionsSseReader {
     upstream: UpstreamSseFramePump,
     out_cursor: Cursor<Vec<u8>>,
     usage_collector: Arc<Mutex<PassthroughSseCollector>>,
+    request_started_at: Instant,
     stream_meta: OpenAIStreamMeta,
     emitted_text_delta: bool,
     finished: bool,
@@ -35,11 +37,13 @@ impl OpenAICompletionsSseReader {
     pub(crate) fn new(
         upstream: reqwest::blocking::Response,
         usage_collector: Arc<Mutex<PassthroughSseCollector>>,
+        request_started_at: Instant,
     ) -> Self {
         Self {
             upstream: UpstreamSseFramePump::new(upstream),
             out_cursor: Cursor::new(Vec::new()),
             usage_collector,
+            request_started_at,
             stream_meta: OpenAIStreamMeta::default(),
             emitted_text_delta: false,
             finished: false,
@@ -195,6 +199,7 @@ impl OpenAICompletionsSseReader {
         loop {
             match self.upstream.recv_timeout(sse_keepalive_interval()) {
                 Ok(UpstreamSseFramePumpItem::Frame(frame)) => {
+                    mark_first_response_ms(&self.usage_collector, self.request_started_at);
                     self.update_usage_from_frame(&frame);
                     let mapped = self.map_frame_to_completions_sse(&frame);
                     if !mapped.is_empty() {

@@ -33,7 +33,8 @@ mod passthrough;
 pub(crate) use anthropic::AnthropicSseReader;
 use common::{
     classify_upstream_stream_read_error, collector_output_text_trimmed,
-    mark_collector_terminal_success, sse_keepalive_interval, stream_reader_disconnected_message,
+    mark_collector_terminal_success, mark_first_response_ms, mark_first_response_ms_on_usage,
+    sse_keepalive_interval, stream_reader_disconnected_message,
     upstream_hint_or_stream_incomplete_message,
 };
 pub(crate) use common::{

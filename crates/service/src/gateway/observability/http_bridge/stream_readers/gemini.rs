@@ -1,12 +1,13 @@
 use super::{
     append_output_text, classify_upstream_stream_read_error, collect_output_text_from_event_fields,
-    json, mark_collector_terminal_success, sse_keepalive_interval,
+    json, mark_collector_terminal_success, mark_first_response_ms, sse_keepalive_interval,
     stream_reader_disconnected_message, upstream_hint_or_stream_incomplete_message, Arc, Cursor,
     Map, Mutex, PassthroughSseCollector, Read, ToolNameRestoreMap, UpstreamSseFramePump,
     UpstreamSseFramePumpItem, Value,
 };
 use crate::gateway::{build_gemini_error_body, GeminiStreamOutputMode};
 use std::collections::BTreeMap;
+use std::time::Instant;
 
 pub(crate) struct GeminiSseReader {
     upstream: UpstreamSseFramePump,
@@ -14,6 +15,7 @@ pub(crate) struct GeminiSseReader {
     state: GeminiSseState,
     usage_collector: Arc<Mutex<PassthroughSseCollector>>,
     tool_name_restore_map: Option<ToolNameRestoreMap>,
+    request_started_at: Instant,
     output_mode: GeminiStreamOutputMode,
     wrap_response_envelope: bool,
 }
@@ -46,6 +48,7 @@ impl GeminiSseReader {
         upstream: reqwest::blocking::Response,
         usage_collector: Arc<Mutex<PassthroughSseCollector>>,
         tool_name_restore_map: Option<ToolNameRestoreMap>,
+        request_started_at: Instant,
         output_mode: GeminiStreamOutputMode,
         wrap_response_envelope: bool,
     ) -> Self {
@@ -55,6 +58,7 @@ impl GeminiSseReader {
             state: GeminiSseState::default(),
             usage_collector,
             tool_name_restore_map,
+            request_started_at,
             output_mode,
             wrap_response_envelope,
         }
@@ -64,6 +68,7 @@ impl GeminiSseReader {
         loop {
             match self.upstream.recv_timeout(sse_keepalive_interval()) {
                 Ok(UpstreamSseFramePumpItem::Frame(frame)) => {
+                    mark_first_response_ms(&self.usage_collector, self.request_started_at);
                     let mapped = self.process_sse_frame(&frame);
                     if !mapped.is_empty() {
                         return Ok(mapped);
