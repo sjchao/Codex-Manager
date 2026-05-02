@@ -243,10 +243,16 @@ fn normalize_action_override(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::mpsc;
+    use std::thread;
+    use std::time::Duration;
+
     use codexmanager_core::storage::AggregateApi;
+    use tiny_http::{Header, Response, Server, StatusCode};
 
     use super::{
-        action_path_or_default, normalize_action_override, DEFAULT_AGGREGATE_API_WEIGHT,
+        action_path_or_default, normalize_action_override, probe_codex_endpoint,
+        DEFAULT_AGGREGATE_API_WEIGHT,
     };
 
     fn aggregate_api_with_action(action: Option<&str>) -> AggregateApi {
@@ -287,6 +293,184 @@ mod tests {
         let api = aggregate_api_with_action(Some(""));
         let path = action_path_or_default(&api, "/v1/messages?beta=true");
         assert_eq!(path, "/v1/messages?beta=true");
+    }
+
+    #[test]
+    fn codex_probe_uses_action_chat_completions_path_for_real_request() {
+        let server = Server::http("127.0.0.1:0").expect("start mock aggregate api server");
+        let addr = format!("http://{}", server.server_addr());
+        let (tx, rx) = mpsc::channel();
+        let handle = thread::spawn(move || {
+            let mut request = server
+                .recv_timeout(Duration::from_secs(3))
+                .expect("receive request")
+                .expect("request present");
+            let path = request.url().to_string();
+            let mut body = String::new();
+            request
+                .as_reader()
+                .read_to_string(&mut body)
+                .expect("read request body");
+            tx.send((path, body)).expect("record request");
+            let response = Response::from_string(
+                r#"{"id":"chatcmpl-test","choices":[{"message":{"role":"assistant","content":"ok"}}]}"#,
+            )
+            .with_status_code(StatusCode(200))
+            .with_header(
+                Header::from_bytes("Content-Type", "application/json")
+                    .expect("content-type header"),
+            );
+            request.respond(response).expect("respond request");
+        });
+
+        let mut api = aggregate_api_with_action(Some("/v1/chat/completions"));
+        api.provider_type = "codex".to_string();
+        api.url = addr;
+        let client = reqwest::blocking::Client::new();
+
+        let status = probe_codex_endpoint(&client, &api, "test-secret").expect("probe success");
+        let (path, body) = rx.recv_timeout(Duration::from_secs(3)).expect("recorded request");
+
+        handle.join().expect("join server");
+
+        assert_eq!(status, 200);
+        assert_eq!(path, "/v1/chat/completions");
+        let payload: serde_json::Value = serde_json::from_str(body.as_str()).expect("json body");
+        assert_eq!(payload.get("model").and_then(|value| value.as_str()), Some("gpt-5.4"));
+        assert_eq!(
+            payload
+                .get("messages")
+                .and_then(|value| value.as_array())
+                .and_then(|items| items.first())
+                .and_then(|item| item.get("role"))
+                .and_then(|value| value.as_str()),
+            Some("user")
+        );
+        assert_eq!(
+            payload
+                .get("messages")
+                .and_then(|value| value.as_array())
+                .and_then(|items| items.first())
+                .and_then(|item| item.get("content"))
+                .and_then(|value| value.as_str()),
+            Some("hi")
+        );
+    }
+
+    #[test]
+    fn codex_probe_surfaces_upstream_error_message() {
+        let server = Server::http("127.0.0.1:0").expect("start mock aggregate api server");
+        let addr = format!("http://{}", server.server_addr());
+        let handle = thread::spawn(move || {
+            let request = server
+                .recv_timeout(Duration::from_secs(3))
+                .expect("receive request")
+                .expect("request present");
+            let response = Response::from_string(
+                r#"{"error":{"message":"invalid_api_key from upstream"}}"#,
+            )
+            .with_status_code(StatusCode(403))
+            .with_header(
+                Header::from_bytes("Content-Type", "application/json")
+                    .expect("content-type header"),
+            );
+            request.respond(response).expect("respond request");
+        });
+
+        let mut api = aggregate_api_with_action(Some("/v1/chat/completions"));
+        api.provider_type = "codex".to_string();
+        api.url = addr;
+        let client = reqwest::blocking::Client::new();
+
+        let error = probe_codex_endpoint(&client, &api, "test-secret").expect_err("probe failure");
+
+        handle.join().expect("join server");
+
+        assert!(error.contains("http_status=403"), "error = {error}");
+        assert!(
+            error.contains("invalid_api_key from upstream"),
+            "error = {error}"
+        );
+    }
+
+    #[test]
+    fn codex_probe_falls_back_to_models_endpoint_after_gpt_5_4_failure() {
+        let server = Server::http("127.0.0.1:0").expect("start mock aggregate api server");
+        let addr = format!("http://{}", server.server_addr());
+        let (tx, rx) = mpsc::channel();
+        let handle = thread::spawn(move || {
+            for index in 0..3 {
+                let mut request = server
+                    .recv_timeout(Duration::from_secs(3))
+                    .expect("receive request")
+                    .expect("request present");
+                let path = request.url().to_string();
+                let mut body = String::new();
+                request
+                    .as_reader()
+                    .read_to_string(&mut body)
+                    .expect("read request body");
+                tx.send((path.clone(), body.clone())).expect("record request");
+                let response = if path == "/v1/models" {
+                    Response::from_string(
+                        r#"{"data":[{"id":"working-model","type":"model"}]}"#,
+                    )
+                    .with_status_code(StatusCode(200))
+                    .with_header(
+                        Header::from_bytes("Content-Type", "application/json")
+                            .expect("content-type header"),
+                    )
+                } else if index == 0 {
+                    Response::from_string(
+                        r#"{"error":{"message":"Service temporarily unavailable","type":"api_error"}}"#,
+                    )
+                    .with_status_code(StatusCode(503))
+                    .with_header(
+                        Header::from_bytes("Content-Type", "application/json")
+                            .expect("content-type header"),
+                    )
+                } else {
+                    Response::from_string(
+                        r#"{"id":"chatcmpl-test","choices":[{"message":{"role":"assistant","content":"ok"}}]}"#,
+                    )
+                    .with_status_code(StatusCode(200))
+                    .with_header(
+                        Header::from_bytes("Content-Type", "application/json")
+                            .expect("content-type header"),
+                    )
+                };
+                request.respond(response).expect("respond request");
+            }
+        });
+
+        let mut api = aggregate_api_with_action(None);
+        api.provider_type = "codex".to_string();
+        api.url = addr;
+        let client = reqwest::blocking::Client::new();
+
+        let status = probe_codex_endpoint(&client, &api, "test-secret").expect("probe success");
+        let first = rx.recv_timeout(Duration::from_secs(3)).expect("first request");
+        let second = rx.recv_timeout(Duration::from_secs(3)).expect("second request");
+        let third = rx.recv_timeout(Duration::from_secs(3)).expect("third request");
+
+        handle.join().expect("join server");
+
+        assert_eq!(status, 200);
+        assert_eq!(first.0, "/v1/chat/completions");
+        assert_eq!(second.0, "/v1/models");
+        assert_eq!(third.0, "/v1/chat/completions");
+        let payload: serde_json::Value =
+            serde_json::from_str(first.1.as_str()).expect("json body");
+        assert_eq!(
+            payload.get("model").and_then(|value| value.as_str()),
+            Some("gpt-5.4")
+        );
+        let retry_payload: serde_json::Value =
+            serde_json::from_str(third.1.as_str()).expect("json body");
+        assert_eq!(
+            retry_payload.get("model").and_then(|value| value.as_str()),
+            Some("working-model")
+        );
     }
 }
 
@@ -504,15 +688,31 @@ fn provider_default_url(provider_type: &str) -> &'static str {
 /// # 返回
 /// 返回函数执行结果
 fn normalize_probe_url(base_url: &str, suffix: &str) -> String {
-    let base = base_url.trim().trim_end_matches('/');
-    if suffix.trim().is_empty() {
-        return base.to_string();
+    let base = base_url.trim();
+    let trimmed_suffix = suffix.trim();
+    if trimmed_suffix.is_empty() {
+        return base.trim_end_matches('/').to_string();
     }
-    if base.ends_with("/v1") {
-        format!("{base}{suffix}")
+
+    let mut url = match reqwest::Url::parse(base) {
+        Ok(value) => value,
+        Err(_) => return format!("{}{}", base.trim_end_matches('/'), trimmed_suffix),
+    };
+    let (path_part, query_part) = trimmed_suffix
+        .split_once('?')
+        .map_or((trimmed_suffix, None), |(path, query)| (path, Some(query)));
+    let suffix = path_part.trim_start_matches('/');
+    let base_path = url.path().trim_end_matches('/').to_string();
+    let combined_path = if base_path.is_empty() || base_path == "/" {
+        format!("/{}", suffix)
+    } else if suffix.is_empty() {
+        base_path
     } else {
-        format!("{base}/v1{suffix}")
-    }
+        format!("{base_path}/{suffix}")
+    };
+    url.set_path(combined_path.as_str());
+    url.set_query(query_part);
+    url.to_string()
 }
 
 /// 函数 `read_first_chunk`
@@ -534,6 +734,112 @@ fn read_first_chunk(mut response: reqwest::blocking::Response) -> Result<(), Str
     } else {
         Err("No response data received".to_string())
     }
+}
+
+fn normalize_probe_error_text(value: &str) -> Option<String> {
+    let normalized = value
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let trimmed = normalized.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let truncated = if trimmed.chars().count() > 320 {
+        format!("{}...", trimmed.chars().take(320).collect::<String>())
+    } else {
+        trimmed.to_string()
+    };
+    Some(truncated)
+}
+
+fn extract_probe_json_error_message(value: &serde_json::Value) -> Option<String> {
+    let candidates = [
+        value.get("message").and_then(|item| item.as_str()),
+        value.get("detail").and_then(|item| item.as_str()),
+        value.get("msg").and_then(|item| item.as_str()),
+        value.get("error")
+            .and_then(|item| item.get("message"))
+            .and_then(|item| item.as_str()),
+        value.get("error")
+            .and_then(|item| item.get("detail"))
+            .and_then(|item| item.as_str()),
+        value.get("error")
+            .and_then(|item| item.get("msg"))
+            .and_then(|item| item.as_str()),
+        value.get("errors")
+            .and_then(|item| item.as_array())
+            .and_then(|items| items.first())
+            .and_then(|item| item.get("message"))
+            .and_then(|item| item.as_str()),
+        value.get("error").and_then(|item| item.as_str()),
+    ];
+
+    for candidate in candidates {
+        if let Some(message) = candidate.and_then(normalize_probe_error_text) {
+            return Some(message);
+        }
+    }
+    None
+}
+
+fn format_probe_http_error(
+    response: reqwest::blocking::Response,
+    prefix: &str,
+    status_code: i64,
+) -> String {
+    let body = match response.bytes() {
+        Ok(bytes) => bytes,
+        Err(_) => return format!("{prefix} http_status={status_code}"),
+    };
+    if body.is_empty() {
+        return format!("{prefix} http_status={status_code}");
+    }
+
+    if let Ok(value) = serde_json::from_slice::<serde_json::Value>(body.as_ref()) {
+        if let Some(message) = extract_probe_json_error_message(&value) {
+            return format!("{prefix} http_status={status_code}; upstream={message}");
+        }
+    }
+
+    let raw = String::from_utf8_lossy(body.as_ref());
+    if let Some(message) = normalize_probe_error_text(raw.as_ref()) {
+        return format!("{prefix} http_status={status_code}; upstream={message}");
+    }
+
+    format!("{prefix} http_status={status_code}")
+}
+
+fn parse_probe_http_status(error: &str) -> Option<i64> {
+    let marker = "http_status=";
+    let start = error.find(marker)? + marker.len();
+    let digits = error[start..]
+        .chars()
+        .take_while(|ch| ch.is_ascii_digit())
+        .collect::<String>();
+    digits.parse::<i64>().ok()
+}
+
+fn should_retry_codex_probe_with_models(error: &str) -> bool {
+    matches!(parse_probe_http_status(error), Some(408) | Some(500..=599))
+}
+
+fn parse_codex_models_response(value: &serde_json::Value) -> Vec<String> {
+    value
+        .get("data")
+        .and_then(|item| item.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.get("id").and_then(|id| id.as_str()))
+                .map(str::trim)
+                .filter(|id| !id.is_empty())
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
 }
 
 /// 函数 `build_claude_probe_body`
@@ -570,40 +876,26 @@ fn build_claude_probe_body() -> serde_json::Value {
 ///
 /// # 返回
 /// 返回函数执行结果
-fn build_codex_probe_body() -> serde_json::Value {
-    json!({
-        "model": "gpt-5.1-codex",
-        "input": [{
-            "role": "user",
-            "content": [{
-                "type": "text",
-                "text": "Who are you?"
-            }]
-        }],
-        "stream": true
-    })
-}
-
-/// 函数 `append_client_version_query`
-///
-/// 作者: gaohongshun
-///
-/// 时间: 2026-04-02
-///
-/// # 参数
-/// - url: 参数 url
-///
-/// # 返回
-/// 返回函数执行结果
-fn append_client_version_query(url: &str) -> String {
-    if url.contains("client_version=") {
-        return url.to_string();
+fn build_codex_probe_body(model: &str, probe_path: &str) -> serde_json::Value {
+    if probe_path.to_ascii_lowercase().contains("chat/completions") {
+        json!({
+            "model": model,
+            "messages": [{"role":"user","content":"hi"}],
+            "stream": false
+        })
+    } else {
+        json!({
+            "model": model,
+            "input": [{
+                "role": "user",
+                "content": [{
+                    "type": "text",
+                    "text": "hi"
+                }]
+            }],
+            "stream": false
+        })
     }
-    let separator = if url.contains('?') { '&' } else { '?' };
-    format!(
-        "{url}{separator}client_version={}",
-        gateway::current_codex_user_agent_version()
-    )
 }
 
 /// 函数 `probe_codex_only_for_provider`
@@ -643,27 +935,12 @@ fn add_codex_probe_headers(
         .header("accept-encoding", "identity"))
 }
 
-/// 函数 `probe_codex_models_endpoint`
-///
-/// 作者: gaohongshun
-///
-/// 时间: 2026-04-02
-///
-/// # 参数
-/// - client: 参数 client
-/// - base_url: 参数 base_url
-/// - secret: 参数 secret
-///
-/// # 返回
-/// 返回函数执行结果
 fn probe_codex_models_endpoint(
     client: &reqwest::blocking::Client,
     api: &AggregateApi,
     secret: &str,
-) -> Result<i64, String> {
-    let probe_path = action_path_or_default(api, "/models");
-    let base_url = normalize_probe_url(api.url.as_str(), probe_path.as_str());
-    let url = append_client_version_query(base_url.as_str());
+) -> Result<Vec<String>, String> {
+    let url = normalize_probe_url(api.url.as_str(), "/v1/models");
     let builder = client.get(url.as_str());
     let (builder, updated_url) = apply_probe_auth(builder, url.clone(), api, secret)?;
     let builder = if updated_url != url {
@@ -679,12 +956,31 @@ fn probe_codex_models_endpoint(
 
     let status_code = response.status().as_u16() as i64;
     if !response.status().is_success() {
-        return Err(format!("codex models probe http_status={status_code}"));
+        return Err(format_probe_http_error(response, "codex models probe", status_code));
     }
-    read_first_chunk(response)?;
-    Ok(status_code)
+    let payload = response
+        .json::<serde_json::Value>()
+        .map_err(|err| err.to_string())?;
+    let models = parse_codex_models_response(&payload);
+    if models.is_empty() {
+        return Err("codex models probe returned empty model list".to_string());
+    }
+    Ok(models)
 }
 
+/// 函数 `probe_codex_models_endpoint`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-02
+///
+/// # 参数
+/// - client: 参数 client
+/// - base_url: 参数 base_url
+/// - secret: 参数 secret
+///
+/// # 返回
+/// 返回函数执行结果
 /// 函数 `probe_codex_responses_endpoint`
 ///
 /// 作者: gaohongshun
@@ -698,23 +994,24 @@ fn probe_codex_models_endpoint(
 ///
 /// # 返回
 /// 返回函数执行结果
-fn probe_codex_responses_endpoint(
+fn probe_codex_real_endpoint(
     client: &reqwest::blocking::Client,
     api: &AggregateApi,
     secret: &str,
+    model: &str,
 ) -> Result<i64, String> {
     let action_hint = api
         .action
         .as_deref()
         .map(str::trim)
-        .unwrap_or("/responses")
+        .unwrap_or("/v1/chat/completions")
         .to_ascii_lowercase();
     let default_path = if action_hint.contains("chat/completions") {
-        "/chat/completions"
+        "/v1/chat/completions"
     } else if action_hint.contains("responses") {
-        "/responses"
+        "/v1/responses"
     } else {
-        "/responses"
+        "/v1/chat/completions"
     };
     let probe_path = action_path_or_default(api, default_path);
     let url = normalize_probe_url(api.url.as_str(), probe_path.as_str());
@@ -727,15 +1024,7 @@ fn probe_codex_responses_endpoint(
     } else {
         builder
     };
-    let request_body = if probe_path.to_ascii_lowercase().contains("chat/completions") {
-        json!({
-            "model": "gpt-4o-mini",
-            "messages": [{"role":"user","content":"hi"}],
-            "stream": false
-        })
-    } else {
-        build_codex_probe_body()
-    };
+    let request_body = build_codex_probe_body(model, probe_path.as_str());
     let response = add_codex_probe_headers(builder)?
         .header("content-type", "application/json")
         .header("accept", "text/event-stream")
@@ -745,7 +1034,7 @@ fn probe_codex_responses_endpoint(
 
     let status_code = response.status().as_u16() as i64;
     if !response.status().is_success() {
-        return Err(format!("codex probe http_status={status_code}"));
+        return Err(format_probe_http_error(response, "codex probe", status_code));
     }
     read_first_chunk(response)?;
     Ok(status_code)
@@ -769,23 +1058,29 @@ fn probe_codex_endpoint(
     api: &AggregateApi,
     secret: &str,
 ) -> Result<i64, String> {
-    let models_result = probe_codex_models_endpoint(client, api, secret);
-    if let Ok(code) = models_result {
+    let initial_result = probe_codex_real_endpoint(client, api, secret, "gpt-5.4");
+    if let Ok(code) = initial_result {
         return Ok(code);
     }
 
-    let models_err = models_result
+    let initial_error = initial_result
         .err()
-        .unwrap_or_else(|| "codex models probe failed".to_string());
-    let responses_result = probe_codex_responses_endpoint(client, api, secret);
-    if let Ok(code) = responses_result {
-        return Ok(code);
+        .unwrap_or_else(|| "codex real model probe failed".to_string());
+    if !should_retry_codex_probe_with_models(initial_error.as_str()) {
+        return Err(initial_error);
     }
 
-    let responses_err = responses_result
-        .err()
-        .unwrap_or_else(|| "codex responses probe failed".to_string());
-    Err(format!("{models_err}; {responses_err}"))
+    let models = match probe_codex_models_endpoint(client, api, secret) {
+        Ok(items) => items,
+        Err(models_error) => return Err(format!("{initial_error}; {models_error}")),
+    };
+    for model in models.iter().filter(|model| model.as_str() != "gpt-5.4").take(3) {
+        if let Ok(code) = probe_codex_real_endpoint(client, api, secret, model.as_str()) {
+            return Ok(code);
+        }
+    }
+
+    Err(initial_error)
 }
 
 /// 函数 `probe_claude_endpoint`
@@ -806,7 +1101,7 @@ fn probe_claude_endpoint(
     api: &AggregateApi,
     secret: &str,
 ) -> Result<i64, String> {
-    let probe_path = action_path_or_default(api, "/messages?beta=true");
+    let probe_path = action_path_or_default(api, "/v1/messages?beta=true");
     let url = normalize_probe_url(api.url.as_str(), probe_path.as_str());
     let builder = client.post(url.as_str());
     let (builder, updated_url) = apply_probe_auth(builder, url.clone(), api, secret)?;
@@ -834,7 +1129,7 @@ fn probe_claude_endpoint(
 
     let status_code = response.status().as_u16() as i64;
     if !response.status().is_success() {
-        return Err(format!("claude probe http_status={status_code}"));
+        return Err(format_probe_http_error(response, "claude probe", status_code));
     }
     read_first_chunk(response)?;
     Ok(status_code)

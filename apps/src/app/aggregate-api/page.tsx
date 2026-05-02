@@ -56,7 +56,11 @@ import { useDesktopPageActive } from "@/hooks/useDesktopPageActive";
 import { useDeferredDesktopActivation } from "@/hooks/useDeferredDesktopActivation";
 import { usePageTransitionReady } from "@/hooks/usePageTransitionReady";
 import { useRuntimeCapabilities } from "@/hooks/useRuntimeCapabilities";
-import { AggregateApi, AggregateApiSecretResult } from "@/types";
+import {
+  AggregateApi,
+  AggregateApiSecretResult,
+  AggregateApiTestResult,
+} from "@/types";
 
 const AGGREGATE_API_PROVIDER_LABELS: Record<string, string> = {
   codex: "Codex",
@@ -86,7 +90,7 @@ function getTestBadge(api: AggregateApi) {
   if (api.lastTestStatus === "success") {
     return (
       <Badge className="border-green-500/20 bg-green-500/10 text-green-500">
-        已连通
+        成功
       </Badge>
     );
   }
@@ -98,6 +102,13 @@ function getTestBadge(api: AggregateApi) {
     );
   }
   return <Badge variant="secondary">未测试</Badge>;
+}
+
+function formatLatencyText(latencyMs: number | null | undefined) {
+  if (typeof latencyMs !== "number" || !Number.isFinite(latencyMs) || latencyMs < 0) {
+    return null;
+  }
+  return `${Math.round(latencyMs)} ms`;
 }
 
 export default function AggregateApiPage() {
@@ -113,6 +124,9 @@ export default function AggregateApiPage() {
   const [providerFilter, setProviderFilter] = useState("all");
   const [revealedSecrets, setRevealedSecrets] = useState<
     Record<string, AggregateApiSecretResult>
+  >({});
+  const [latestTestResults, setLatestTestResults] = useState<
+    Record<string, AggregateApiTestResult>
   >({});
   const [loadingSecretId, setLoadingSecretId] = useState<string | null>(null);
   const [testingApiId, setTestingApiId] = useState<string | null>(null);
@@ -167,8 +181,22 @@ export default function AggregateApiPage() {
    * 返回函数执行结果
    */
   const renderTestStatus = (api: AggregateApi) => {
-    const badge = getTestBadge(api);
-    if (api.lastTestStatus !== "failed" || !api.lastTestError) {
+    const latestResult = latestTestResults[api.id];
+    const effectiveStatus =
+      latestResult?.ok === true
+        ? "success"
+        : latestResult?.ok === false
+          ? "failed"
+          : api.lastTestStatus;
+    const effectiveError =
+      latestResult?.ok === false
+        ? latestResult.message || api.lastTestError
+        : api.lastTestError;
+    const badge = getTestBadge({
+      ...api,
+      lastTestStatus: effectiveStatus ?? null,
+    });
+    if (effectiveStatus !== "failed" || !effectiveError) {
       return badge;
     }
 
@@ -178,7 +206,7 @@ export default function AggregateApiPage() {
           {badge}
         </TooltipTrigger>
         <TooltipContent className="max-w-sm whitespace-pre-wrap break-words">
-          {api.lastTestError}
+          {effectiveError}
         </TooltipContent>
       </Tooltip>
     );
@@ -191,12 +219,23 @@ export default function AggregateApiPage() {
       setTestingApiId(apiId);
     },
     onSuccess: async (result) => {
+      setLatestTestResults((current) => ({
+        ...current,
+        [result.id]: result,
+      }));
+      const latencyText = formatLatencyText(result.latencyMs);
       if (result.ok) {
-        toast.success("连通性测试成功");
+        toast.success(
+          latencyText
+            ? `真实模型测试成功，耗时 ${latencyText}`
+            : "真实模型测试成功",
+        );
         return;
       }
       toast.error(
-        `连通性测试失败: ${
+        `真实模型测试失败${
+          latencyText ? `（耗时 ${latencyText}）` : ""
+        }: ${
           result.message || result.statusCode || "未返回具体错误信息"
         }`,
       );
@@ -554,12 +593,29 @@ export default function AggregateApiPage() {
                 ) : (
                   filteredAggregateApis.map((api) => {
                     const revealed = revealedSecrets[api.id];
+                    const latestResult = latestTestResults[api.id];
                     const isEnabled =
                       String(api.status || "").trim().toLowerCase() !== "disabled";
                     const createdTimeText = formatTsFromSeconds(
                       api.createdAt,
                       "未知时间",
                     );
+                    const testedAtText = latestResult?.testedAt
+                      ? formatTsFromSeconds(latestResult.testedAt, "未知时间")
+                      : api.lastTestAt
+                        ? formatTsFromSeconds(api.lastTestAt, "未知时间")
+                        : null;
+                    const latencyText = formatLatencyText(latestResult?.latencyMs);
+                    const effectiveStatus =
+                      latestResult?.ok === true
+                        ? "success"
+                        : latestResult?.ok === false
+                          ? "failed"
+                          : api.lastTestStatus;
+                    const effectiveError =
+                      latestResult?.ok === false
+                        ? latestResult.message || api.lastTestError
+                        : api.lastTestError;
 
                     return (
                       <TableRow key={api.id} className="group">
@@ -733,23 +789,28 @@ export default function AggregateApiPage() {
                               </Button>
                             </div>
                           </div>
-                          {api.lastTestAt ? (
+                          {testedAtText ? (
                             <p className="mt-1 text-[10px] text-muted-foreground">
-                              {formatTsFromSeconds(api.lastTestAt, "未知时间")}
+                              {testedAtText}
                             </p>
                           ) : null}
-                          {api.lastTestStatus === "failed" && api.lastTestError ? (
+                          {latencyText ? (
+                            <p className="text-[10px] text-muted-foreground">
+                              耗时 {latencyText}
+                            </p>
+                          ) : null}
+                          {effectiveStatus === "failed" && effectiveError ? (
                             <Tooltip>
                               <TooltipTrigger
                                 render={<div />}
                                 className="mt-1 block max-w-full cursor-help text-left"
                               >
                                 <p className="max-w-[220px] truncate text-[10px] text-red-500/90">
-                                  {api.lastTestError}
+                                  {effectiveError}
                                 </p>
                               </TooltipTrigger>
                               <TooltipContent className="max-w-sm whitespace-pre-wrap break-words">
-                                {api.lastTestError}
+                                {effectiveError}
                               </TooltipContent>
                             </Tooltip>
                           ) : null}
