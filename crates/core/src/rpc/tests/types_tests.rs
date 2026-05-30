@@ -1,6 +1,6 @@
 use super::{
     AccountListParams, AccountListResult, AccountSummary, AggregateApiSummary,
-    ApiKeyUsageStatSummary,
+    ApiKeySummary, ApiKeyUsageStatSummary,
     RequestLogAggregateApiAttemptFailure, RequestLogFilterSummaryResult,
     RequestLogListParams, RequestLogListResult, RequestLogSummary,
 };
@@ -134,6 +134,33 @@ fn aggregate_api_summary_serialization_includes_weight() {
     let value = serde_json::to_value(summary).expect("serialize aggregate api summary");
     let obj = value.as_object().expect("aggregate api summary object");
     assert_eq!(obj.get("weight"), Some(&serde_json::Value::from(250)));
+}
+
+#[test]
+fn api_key_summary_serialization_uses_group_name_camel_case() {
+    let summary = ApiKeySummary {
+        id: "gk_1".to_string(),
+        name: Some("主密钥".to_string()),
+        group_name: Some("生产".to_string()),
+        model_slug: Some("gpt-5".to_string()),
+        reasoning_effort: Some("high".to_string()),
+        service_tier: Some("fast".to_string()),
+        rotation_strategy: "account_rotation".to_string(),
+        aggregate_api_id: None,
+        aggregate_api_url: None,
+        client_type: "codex".to_string(),
+        protocol_type: "openai_compat".to_string(),
+        auth_scheme: "authorization_bearer".to_string(),
+        upstream_base_url: None,
+        static_headers_json: None,
+        status: "active".to_string(),
+        created_at: 1,
+        last_used_at: None,
+    };
+
+    let value = serde_json::to_value(summary).expect("serialize api key summary");
+    let obj = value.as_object().expect("api key summary object");
+    assert_eq!(obj.get("groupName"), Some(&serde_json::Value::from("生产")));
 }
 
 /// 函数 `request_log_summary_serialization_includes_trace_route_fields`

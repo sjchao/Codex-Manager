@@ -24,6 +24,7 @@ pub(crate) fn read_api_keys() -> Result<Vec<ApiKeySummary>, String> {
         .map(|key| ApiKeySummary {
             id: key.id,
             name: key.name,
+            group_name: key.group_name,
             model_slug: key.model_slug,
             reasoning_effort: key.reasoning_effort,
             service_tier: key.service_tier,

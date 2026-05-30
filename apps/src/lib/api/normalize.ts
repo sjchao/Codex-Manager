@@ -490,10 +490,13 @@ export function normalizeApiKey(item: unknown): ApiKey | null {
   const source = asObject(item);
   const id = asString(source.id);
   if (!id) return null;
+  const groupName = asString(source.groupName ?? source.group_name);
 
   return {
     id,
     name: asString(source.name) || "未命名",
+    group: groupName,
+    groupName,
     model: asString(source.modelSlug ?? source.model_slug),
     modelSlug: asString(source.modelSlug ?? source.model_slug),
     reasoningEffort: asString(source.reasoningEffort ?? source.reasoning_effort),

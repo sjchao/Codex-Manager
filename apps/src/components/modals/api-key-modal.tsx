@@ -82,6 +82,7 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
   const serviceStatus = useAppStore((state) => state.serviceStatus);
   const { canAccessManagementRpc } = useRuntimeCapabilities();
   const [name, setName] = useState("");
+  const [groupName, setGroupName] = useState("");
   const [protocolType, setProtocolType] = useState("openai_compat");
   const [modelSlug, setModelSlug] = useState("");
   const [reasoningEffort, setReasoningEffort] = useState("");
@@ -114,6 +115,7 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
 
     if (!apiKey) {
       setName("");
+      setGroupName("");
       setProtocolType("openai_compat");
       setModelSlug("");
       setReasoningEffort("");
@@ -127,6 +129,7 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
     }
 
     setName(apiKey.name || "");
+    setGroupName(apiKey.groupName || "");
     setProtocolType(
       apiKey.protocol === "azure_openai" ? "azure_openai" : "openai_compat",
     );
@@ -187,6 +190,7 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
 
       const params = {
         name: name || null,
+        groupName: groupName || null,
         modelSlug: !modelSlug || modelSlug === "auto" ? null : modelSlug,
         reasoningEffort:
           !reasoningEffort || reasoningEffort === "auto"
@@ -284,6 +288,16 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
                 value={name}
                 disabled={!isServiceReady}
                 onChange={(e) => setName(e.target.value)}
+              />
+            </div>
+            <div className="grid gap-2 content-start">
+              <Label htmlFor="group-name">分组 (可选)</Label>
+              <Input
+                id="group-name"
+                placeholder="例如：生产 / 测试"
+                value={groupName}
+                disabled={!isServiceReady}
+                onChange={(e) => setGroupName(e.target.value)}
               />
             </div>
             <div className="grid gap-2 content-start">

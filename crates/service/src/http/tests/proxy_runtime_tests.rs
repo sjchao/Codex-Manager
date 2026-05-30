@@ -219,6 +219,7 @@ fn insert_api_key_record(
         .insert_api_key(&ApiKey {
             id: "gk_proxy_runtime_ws".to_string(),
             name: Some("proxy-runtime-ws".to_string()),
+            group_name: None,
             model_slug: Some("gpt-5.4-mini".to_string()),
             reasoning_effort: Some("high".to_string()),
             service_tier: Some("fast".to_string()),

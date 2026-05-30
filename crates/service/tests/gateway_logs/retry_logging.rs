@@ -79,6 +79,7 @@ fn gateway_stateless_retry_strips_encrypted_content_on_invalid_encrypted_content
         .insert_api_key(&ApiKey {
             id: "gk_retry_strip_encrypted_content".to_string(),
             name: Some("retry-strip-encrypted-content".to_string()),
+            group_name: None,
             model_slug: Some("gpt-5.3-codex".to_string()),
             reasoning_effort: None,
             service_tier: None,
@@ -230,6 +231,7 @@ fn gateway_request_log_keeps_only_final_result_for_multi_attempt_flow() {
         .insert_api_key(&ApiKey {
             id: "gk_final_result_only".to_string(),
             name: Some("final-result-only".to_string()),
+            group_name: None,
             model_slug: Some("gpt-5.3-codex".to_string()),
             reasoning_effort: Some("high".to_string()),
             service_tier: None,
@@ -375,6 +377,7 @@ fn gateway_error_logging_writes_only_trace_log_file() {
         .insert_api_key(&ApiKey {
             id: "gk_single_log_error".to_string(),
             name: Some("single-log-error".to_string()),
+            group_name: None,
             model_slug: Some("gpt-5.4".to_string()),
             reasoning_effort: Some("high".to_string()),
             service_tier: None,

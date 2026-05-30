@@ -21,6 +21,8 @@ pub(crate) fn update_api_key_model(
     key_id: &str,
     name: Option<String>,
     has_name: bool,
+    group_name: Option<String>,
+    has_group_name: bool,
     model_slug: Option<String>,
     reasoning_effort: Option<String>,
     service_tier: Option<String>,
@@ -41,6 +43,15 @@ pub(crate) fn update_api_key_model(
             .filter(|value| !value.is_empty());
         storage
             .update_api_key_name(key_id, normalized_name)
+            .map_err(|e| e.to_string())?;
+    }
+    if has_group_name {
+        let normalized_group_name = group_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        storage
+            .update_api_key_group_name(key_id, normalized_group_name)
             .map_err(|e| e.to_string())?;
     }
     let normalized = model_slug

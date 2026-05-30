@@ -25,6 +25,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
         ),
         "apikey/create" => {
             let name = super::string_param(req, "name");
+            let group_name = super::string_param(req, "groupName");
             let model_slug = super::string_param(req, "modelSlug");
             let reasoning_effort = super::string_param(req, "reasoningEffort");
             let service_tier = super::string_param(req, "serviceTier");
@@ -35,6 +36,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
             let aggregate_api_id = super::string_param(req, "aggregateApiId");
             super::value_or_error(apikey_create::create_api_key(
                 name,
+                group_name,
                 model_slug,
                 reasoning_effort,
                 service_tier,
@@ -65,7 +67,14 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 .and_then(|value| value.as_object())
                 .map(|params| params.contains_key("name"))
                 .unwrap_or(false);
+            let has_group_name = req
+                .params
+                .as_ref()
+                .and_then(|value| value.as_object())
+                .map(|params| params.contains_key("groupName"))
+                .unwrap_or(false);
             let name = super::string_param(req, "name");
+            let group_name = super::string_param(req, "groupName");
             let model_slug = super::string_param(req, "modelSlug");
             let reasoning_effort = super::string_param(req, "reasoningEffort");
             let service_tier = super::string_param(req, "serviceTier");
@@ -78,6 +87,8 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 key_id,
                 name,
                 has_name,
+                group_name,
+                has_group_name,
                 model_slug,
                 reasoning_effort,
                 service_tier,

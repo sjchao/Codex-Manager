@@ -73,6 +73,7 @@ fn gateway_openai_chat_completions_stabilizes_prompt_cache_key_without_conversat
         .insert_api_key(&ApiKey {
             id: "gk_openai_chat_sticky_anchor".to_string(),
             name: Some("openai-chat-sticky-anchor".to_string()),
+            group_name: None,
             model_slug: Some("gpt-5.4-mini".to_string()),
             reasoning_effort: Some("high".to_string()),
             service_tier: None,
@@ -235,6 +236,7 @@ fn gateway_openai_chat_completions_logs_anthropic_style_cached_tokens() {
         .insert_api_key(&ApiKey {
             id: "gk_openai_chat_cache".to_string(),
             name: Some("openai-chat-cache".to_string()),
+            group_name: None,
             model_slug: Some("gpt-5.3-codex".to_string()),
             reasoning_effort: Some("high".to_string()),
             service_tier: None,
@@ -382,6 +384,7 @@ fn gateway_openai_stream_logs_cached_and_reasoning_tokens() {
         .insert_api_key(&ApiKey {
             id: "gk_openai_stream_usage".to_string(),
             name: Some("openai-stream-usage".to_string()),
+            group_name: None,
             model_slug: Some("gpt-5.3-codex".to_string()),
             reasoning_effort: Some("high".to_string()),
             service_tier: None,
@@ -517,6 +520,7 @@ fn gateway_openai_api_base_suppresses_cookie_and_account_headers() {
         .insert_api_key(&ApiKey {
             id: "gk_openai_api_base".to_string(),
             name: Some("openai-api-base".to_string()),
+            group_name: None,
             model_slug: Some("gpt-5.3-codex".to_string()),
             reasoning_effort: Some("high".to_string()),
             service_tier: None,
@@ -631,6 +635,7 @@ fn gateway_openai_stream_usage_with_plain_content_type() {
         .insert_api_key(&ApiKey {
             id: "gk_openai_stream_plain_ct".to_string(),
             name: Some("openai-stream-plain-ct".to_string()),
+            group_name: None,
             model_slug: Some("gpt-5.3-codex".to_string()),
             reasoning_effort: Some("high".to_string()),
             service_tier: None,
@@ -760,6 +765,7 @@ fn gateway_openai_non_stream_sse_with_plain_content_type_is_collapsed_to_json() 
         .insert_api_key(&ApiKey {
             id: "gk_openai_non_stream_plain_ct".to_string(),
             name: Some("openai-non-stream-plain-ct".to_string()),
+            group_name: None,
             model_slug: Some("gpt-5.3-codex".to_string()),
             reasoning_effort: Some("high".to_string()),
             service_tier: None,
@@ -876,6 +882,7 @@ fn gateway_openai_non_stream_without_usage_keeps_tokens_null() {
         .insert_api_key(&ApiKey {
             id: "gk_openai_no_usage".to_string(),
             name: Some("openai-no-usage".to_string()),
+            group_name: None,
             model_slug: Some("gpt-5.3-codex".to_string()),
             reasoning_effort: Some("high".to_string()),
             service_tier: None,
@@ -1017,6 +1024,7 @@ fn gateway_openai_compact_route_aligns_with_codex_remote_compact_request() {
         .insert_api_key(&ApiKey {
             id: "gk_openai_compact".to_string(),
             name: Some("openai-compact".to_string()),
+            group_name: None,
             model_slug: Some("gpt-5.3-codex".to_string()),
             reasoning_effort: Some("high".to_string()),
             service_tier: None,
@@ -1194,6 +1202,7 @@ fn gateway_openai_compact_invalid_success_body_is_mapped_to_502() {
         .insert_api_key(&ApiKey {
             id: "gk_openai_compact_bad".to_string(),
             name: Some("openai-compact-bad".to_string()),
+            group_name: None,
             model_slug: Some("gpt-5.3-codex".to_string()),
             reasoning_effort: Some("high".to_string()),
             service_tier: None,
@@ -1355,6 +1364,7 @@ fn gateway_openai_compact_uses_conversation_id_as_session_anchor() {
         .insert_api_key(&ApiKey {
             id: "gk_openai_compact_conversation_anchor".to_string(),
             name: Some("openai-compact-conversation-anchor".to_string()),
+            group_name: None,
             model_slug: Some("gpt-5.3-codex".to_string()),
             reasoning_effort: Some("high".to_string()),
             service_tier: None,
@@ -1485,6 +1495,7 @@ fn gateway_openai_compact_html_non_success_is_mapped_to_structured_403() {
         .insert_api_key(&ApiKey {
             id: "gk_openai_compact_html".to_string(),
             name: Some("openai-compact-html".to_string()),
+            group_name: None,
             model_slug: Some("gpt-5.3-codex".to_string()),
             reasoning_effort: Some("high".to_string()),
             service_tier: None,
@@ -1660,6 +1671,7 @@ fn gateway_openai_html_non_success_logs_debug_ids_for_responses() {
         .insert_api_key(&ApiKey {
             id: "gk_openai_html_non_success".to_string(),
             name: Some("openai-html-non-success".to_string()),
+            group_name: None,
             model_slug: Some("gpt-5.3-codex".to_string()),
             reasoning_effort: Some("high".to_string()),
             service_tier: None,
@@ -1767,6 +1779,7 @@ fn gateway_models_returns_cached_without_upstream() {
         .insert_api_key(&ApiKey {
             id: "gk_models_cache".to_string(),
             name: Some("models-cache".to_string()),
+            group_name: None,
             model_slug: None,
             reasoning_effort: None,
             service_tier: None,
@@ -2084,6 +2097,7 @@ fn gateway_chatgpt_primary_preserves_turn_state_headers_without_openai_fallback(
         .insert_api_key(&ApiKey {
             id: "gk_chatgpt_primary_turn_state".to_string(),
             name: Some("chatgpt-primary-turn-state".to_string()),
+            group_name: None,
             model_slug: Some("gpt-5.3-codex".to_string()),
             reasoning_effort: None,
             service_tier: None,
@@ -2219,6 +2233,7 @@ fn gateway_openai_chat_completions_stay_on_chatgpt_codex_base() {
         .insert_api_key(&ApiKey {
             id: "gk_openai_chat_chatgpt_base".to_string(),
             name: Some("openai-chat-chatgpt-base".to_string()),
+            group_name: None,
             model_slug: Some("gpt-5.4-mini".to_string()),
             reasoning_effort: Some("high".to_string()),
             service_tier: None,
@@ -2333,6 +2348,7 @@ fn gateway_chatgpt_primary_drops_turn_state_without_thread_anchor() {
         .insert_api_key(&ApiKey {
             id: "gk_chatgpt_primary_turn_state_no_anchor".to_string(),
             name: Some("chatgpt-primary-turn-state-no-anchor".to_string()),
+            group_name: None,
             model_slug: Some("gpt-5.3-codex".to_string()),
             reasoning_effort: None,
             service_tier: None,
@@ -2448,6 +2464,7 @@ fn gateway_chatgpt_primary_uses_prompt_cache_anchor_for_session_without_inventin
         .insert_api_key(&ApiKey {
             id: "gk_chatgpt_primary_prompt_cache_anchor".to_string(),
             name: Some("chatgpt-primary-prompt-cache-anchor".to_string()),
+            group_name: None,
             model_slug: Some("gpt-5.3-codex".to_string()),
             reasoning_effort: None,
             service_tier: None,
@@ -2600,6 +2617,7 @@ fn gateway_unauthorized_refreshes_access_token_and_retries_once() {
         .insert_api_key(&ApiKey {
             id: "gk_openai_unauthorized_refresh".to_string(),
             name: Some("openai-unauthorized-refresh".to_string()),
+            group_name: None,
             model_slug: Some("gpt-5.3-codex".to_string()),
             reasoning_effort: None,
             service_tier: None,
@@ -2775,6 +2793,7 @@ fn gateway_invalid_refresh_token_marks_first_account_unavailable_and_fails_over(
         .insert_api_key(&ApiKey {
             id: "gk_openai_invalid_refresh_failover".to_string(),
             name: Some("openai-invalid-refresh-failover".to_string()),
+            group_name: None,
             model_slug: Some("gpt-5.3-codex".to_string()),
             reasoning_effort: None,
             service_tier: None,

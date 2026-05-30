@@ -351,6 +351,7 @@ pub struct UsageAggregateSummaryResult {
 pub struct ApiKeySummary {
     pub id: String,
     pub name: Option<String>,
+    pub group_name: Option<String>,
     pub model_slug: Option<String>,
     pub reasoning_effort: Option<String>,
     pub service_tier: Option<String>,

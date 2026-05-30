@@ -203,6 +203,7 @@ pub struct ApiKeyTokenUsageSummary {
 pub struct ApiKey {
     pub id: String,
     pub name: Option<String>,
+    pub group_name: Option<String>,
     pub model_slug: Option<String>,
     pub reasoning_effort: Option<String>,
     pub service_tier: Option<String>,
@@ -587,7 +588,13 @@ impl Storage {
             include_str!("../../migrations/048_request_logs_first_response_ms.sql"),
             |s| s.ensure_request_log_first_response_column(),
         )?;
+        self.apply_sql_or_compat_migration(
+            "049_api_keys_group_name",
+            include_str!("../../migrations/049_api_keys_group_name.sql"),
+            |s| s.ensure_api_key_group_name_column(),
+        )?;
         self.ensure_api_key_rotation_columns()?;
+        self.ensure_api_key_group_name_column()?;
         self.ensure_aggregate_apis_table()?;
         self.ensure_aggregate_api_secrets_table()?;
         self.ensure_request_token_stats_table()?;

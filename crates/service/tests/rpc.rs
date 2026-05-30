@@ -1930,6 +1930,7 @@ fn rpc_apikey_update_model_updates_name_with_chinese() {
         .insert_api_key(&codexmanager_core::storage::ApiKey {
             id: "gk-update-name".to_string(),
             name: Some("old-name".to_string()),
+            group_name: Some("旧分组".to_string()),
             model_slug: Some("gpt-5.4".to_string()),
             reasoning_effort: Some("medium".to_string()),
             service_tier: None,
@@ -1955,6 +1956,7 @@ fn rpc_apikey_update_model_updates_name_with_chinese() {
         params: Some(serde_json::json!({
             "id": "gk-update-name",
             "name": "中文名称",
+            "groupName": "生产组",
             "modelSlug": "gpt-5.4",
             "reasoningEffort": "medium"
         })),
@@ -1997,6 +1999,10 @@ fn rpc_apikey_update_model_updates_name_with_chinese() {
     assert_eq!(
         updated.get("name").and_then(|value| value.as_str()),
         Some("中文名称")
+    );
+    assert_eq!(
+        updated.get("groupName").and_then(|value| value.as_str()),
+        Some("生产组")
     );
 }
 

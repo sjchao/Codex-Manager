@@ -79,6 +79,8 @@ export interface UsageAggregateSummary {
 export interface ApiKey {
   id: string;
   name: string;
+  group: string;
+  groupName: string;
   model: string;
   modelSlug: string;
   reasoningEffort: string;

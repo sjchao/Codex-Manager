@@ -36,6 +36,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useApiKeys } from "@/hooks/useApiKeys";
 import { useDesktopPageActive } from "@/hooks/useDesktopPageActive";
 import { useDeferredDesktopActivation } from "@/hooks/useDeferredDesktopActivation";
@@ -44,6 +45,11 @@ import { accountClient } from "@/lib/api/account-client";
 import { useAppStore } from "@/lib/store/useAppStore";
 import { copyTextToClipboard } from "@/lib/utils/clipboard";
 import { formatCompactNumber } from "@/lib/utils/usage";
+import {
+  ALL_API_KEY_GROUP_VALUE,
+  buildApiKeyGroupOptions,
+  filterApiKeysByGroup,
+} from "./grouping";
 
 const ROTATION_STRATEGY_LABELS: Record<string, string> = {
   account_rotation: "账号轮转",
@@ -196,6 +202,7 @@ export default function ApiKeysPage() {
   const [apiKeyModalOpen, setApiKeyModalOpen] = useState(false);
   const [editingKeyId, setEditingKeyId] = useState<string | null>(null);
   const [deleteKeyId, setDeleteKeyId] = useState<string | null>(null);
+  const [selectedGroup, setSelectedGroup] = useState(ALL_API_KEY_GROUP_VALUE);
   const [usageDayKey, setUsageDayKey] = useState(() =>
     formatLocalUsageDayKey(new Date())
   );
@@ -259,6 +266,17 @@ export default function ApiKeysPage() {
     () => apiKeys.find((item) => item.id === editingKeyId) || null,
     [apiKeys, editingKeyId]
   );
+  const groupOptions = useMemo(() => buildApiKeyGroupOptions(apiKeys), [apiKeys]);
+  const filteredApiKeys = useMemo(
+    () => filterApiKeysByGroup(apiKeys, selectedGroup),
+    [apiKeys, selectedGroup]
+  );
+
+  useEffect(() => {
+    if (!groupOptions.some((item) => item.value === selectedGroup)) {
+      setSelectedGroup(ALL_API_KEY_GROUP_VALUE);
+    }
+  }, [groupOptions, selectedGroup]);
   const { data: usageOverview, isPending: isUsageOverviewLoading } = useQuery({
     queryKey: ["apikey-usage-overview", serviceAddr || null, usageDayKey],
     queryFn: async () => {
@@ -509,6 +527,21 @@ export default function ApiKeysPage() {
         )}
       </div>
 
+      <Tabs value={selectedGroup} onValueChange={setSelectedGroup} className="w-full">
+        <TabsList className="glass-card flex h-11 w-full justify-start overflow-x-auto rounded-xl border-none p-1 no-scrollbar lg:w-fit">
+          {groupOptions.map((group) => (
+            <TabsTrigger
+              key={group.value}
+              value={group.value}
+              className="shrink-0 gap-2 px-5"
+            >
+              {group.label}
+              <span className="text-xs text-muted-foreground">{group.count}</span>
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
+
       <Card className="glass-card overflow-hidden border-none py-0 shadow-xl backdrop-blur-md">
         <CardContent className="p-0">
           <Table>
@@ -516,6 +549,7 @@ export default function ApiKeysPage() {
               <TableRow>
                 <TableHead>密钥 / ID</TableHead>
                 <TableHead>名称</TableHead>
+                <TableHead>分组</TableHead>
                 <TableHead>协议</TableHead>
                 <TableHead>轮转策略</TableHead>
                 <TableHead>绑定模型</TableHead>
@@ -532,23 +566,28 @@ export default function ApiKeysPage() {
                       <TableCell><Skeleton className="h-4 w-24" /></TableCell>
                       <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                       <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                      <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                       <TableCell><Skeleton className="h-4 w-28" /></TableCell>
                       <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                       <TableCell><Skeleton className="h-6 w-16 rounded-full" /></TableCell>
                       <TableCell className="text-center"><Skeleton className="mx-auto h-8 w-8" /></TableCell>
                     </TableRow>
                 ))
-              ) : apiKeys.length === 0 ? (
+              ) : filteredApiKeys.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="h-48 text-center">
+                  <TableCell colSpan={9} className="h-48 text-center">
                     <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground">
                       <Plus className="h-8 w-8 opacity-20" />
-                      <p>暂无平台密钥，点击右上角创建</p>
+                      <p>
+                        {apiKeys.length === 0
+                          ? "暂无平台密钥，点击右上角创建"
+                          : "当前分组下暂无平台密钥"}
+                      </p>
                     </div>
                   </TableCell>
                 </TableRow>
               ) : (
-                apiKeys.map((key) => {
+                filteredApiKeys.map((key) => {
                   const revealed = revealedSecrets[key.id];
                   const isEnabled = String(key.status).toLowerCase() !== "disabled";
 
@@ -591,6 +630,9 @@ export default function ApiKeysPage() {
                         </div>
                       </TableCell>
                       <TableCell className="text-sm font-semibold">{key.name || "未命名"}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {key.groupName || "未分组"}
+                      </TableCell>
                       <TableCell>
                         <Badge variant="outline" className="bg-accent/20 text-[10px] font-normal capitalize">
                           {key.protocol.replace(/_/g, " ")}

@@ -74,6 +74,7 @@ fn gateway_claude_protocol_stabilizes_prompt_cache_key_without_conversation_id()
         .insert_api_key(&ApiKey {
             id: "gk_claude_sticky_anchor".to_string(),
             name: Some("claude-sticky-anchor".to_string()),
+            group_name: None,
             model_slug: Some("gpt-5.4-mini".to_string()),
             reasoning_effort: Some("high".to_string()),
             service_tier: None,
@@ -236,6 +237,7 @@ fn gateway_claude_messages_stay_on_chatgpt_codex_base() {
         .insert_api_key(&ApiKey {
             id: "gk_claude_chatgpt_base".to_string(),
             name: Some("claude-chatgpt-base".to_string()),
+            group_name: None,
             model_slug: Some("gpt-5.4-mini".to_string()),
             reasoning_effort: Some("high".to_string()),
             service_tier: None,
@@ -356,6 +358,7 @@ fn gateway_claude_protocol_end_to_end_uses_codex_headers() {
         .insert_api_key(&ApiKey {
             id: "gk_claude_e2e".to_string(),
             name: Some("claude-e2e".to_string()),
+            group_name: None,
             model_slug: None,
             reasoning_effort: None,
             service_tier: None,
@@ -589,6 +592,7 @@ fn gateway_claude_failover_cross_workspace_strips_session_affinity_headers() {
         .insert_api_key(&ApiKey {
             id: "gk_strip_cross_workspace".to_string(),
             name: Some("strip-cross-workspace".to_string()),
+            group_name: None,
             model_slug: Some("gpt-5.3-codex".to_string()),
             reasoning_effort: Some("high".to_string()),
             service_tier: None,
@@ -781,6 +785,7 @@ fn gateway_claude_failover_same_workspace_preserves_session_affinity_headers() {
         .insert_api_key(&ApiKey {
             id: "gk_strip_same_workspace".to_string(),
             name: Some("strip-same-workspace".to_string()),
+            group_name: None,
             model_slug: Some("gpt-5.3-codex".to_string()),
             reasoning_effort: Some("high".to_string()),
             service_tier: None,

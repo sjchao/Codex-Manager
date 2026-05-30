@@ -91,6 +91,7 @@ interface ChatgptAuthTokensLoginPayload {
 
 interface ApiKeyPayload {
   name?: string | null;
+  groupName?: string | null;
   modelSlug?: string | null;
   reasoningEffort?: string | null;
   serviceTier?: string | null;
@@ -541,6 +542,7 @@ export const accountClient = {
       "service_apikey_create",
       withAddr({
         name: params.name || null,
+        groupName: params.groupName || null,
         modelSlug: params.modelSlug || null,
         reasoningEffort: params.reasoningEffort || null,
         serviceTier: params.serviceTier || null,
@@ -565,6 +567,7 @@ export const accountClient = {
       withAddr({
         keyId,
         name: params.name || null,
+        groupName: params.groupName || null,
         modelSlug: params.modelSlug || null,
         reasoningEffort: params.reasoningEffort || null,
         serviceTier: params.serviceTier || null,

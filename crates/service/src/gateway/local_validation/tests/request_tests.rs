@@ -29,6 +29,7 @@ fn sample_api_key(
     ApiKey {
         id: "gk_test".to_string(),
         name: Some("test".to_string()),
+        group_name: None,
         model_slug: model_slug.map(|value| value.to_string()),
         reasoning_effort: reasoning.map(|value| value.to_string()),
         service_tier: service_tier.map(|value| value.to_string()),

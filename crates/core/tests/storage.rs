@@ -1506,6 +1506,7 @@ fn storage_api_keys_include_profile_fields() {
         .insert_api_key(&ApiKey {
             id: "key-1".to_string(),
             name: Some("main".to_string()),
+            group_name: Some("生产".to_string()),
             model_slug: Some("claude-sonnet-4".to_string()),
             reasoning_effort: Some("medium".to_string()),
             service_tier: Some("fast".to_string()),
@@ -1535,6 +1536,7 @@ fn storage_api_keys_include_profile_fields() {
     assert_eq!(key.auth_scheme, "x_api_key");
     assert_eq!(key.model_slug.as_deref(), Some("claude-sonnet-4"));
     assert_eq!(key.service_tier.as_deref(), Some("fast"));
+    assert_eq!(key.group_name.as_deref(), Some("生产"));
 }
 
 /// 函数 `storage_can_roundtrip_api_key_secret`
@@ -1557,6 +1559,7 @@ fn storage_can_roundtrip_api_key_secret() {
         .insert_api_key(&ApiKey {
             id: "key-secret-1".to_string(),
             name: Some("secret".to_string()),
+            group_name: None,
             model_slug: None,
             reasoning_effort: None,
             service_tier: None,

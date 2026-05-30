@@ -24,6 +24,7 @@ use crate::storage_helpers::{
 /// 返回函数执行结果
 pub(crate) fn create_api_key(
     name: Option<String>,
+    group_name: Option<String>,
     model_slug: Option<String>,
     reasoning_effort: Option<String>,
     service_tier: Option<String>,
@@ -55,6 +56,11 @@ pub(crate) fn create_api_key(
     let record = ApiKey {
         id: key_id.clone(),
         name,
+        group_name: group_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
         model_slug,
         reasoning_effort: normalize_reasoning_effort_owned(reasoning_effort),
         service_tier: normalize_service_tier_owned(service_tier)?,

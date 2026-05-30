@@ -5,6 +5,7 @@ use super::{now_ts, ApiKey, Storage};
 const API_KEY_SELECT_SQL: &str = "SELECT
     k.id,
     k.name,
+    k.group_name,
     COALESCE(p.default_model, k.model_slug) AS model_slug,
     COALESCE(p.reasoning_effort, k.reasoning_effort) AS reasoning_effort,
     p.service_tier,
@@ -39,10 +40,11 @@ impl Storage {
     /// 返回函数执行结果
     pub fn insert_api_key(&self, key: &ApiKey) -> Result<()> {
         self.conn.execute(
-            "INSERT OR REPLACE INTO api_keys (id, name, model_slug, reasoning_effort, key_hash, status, created_at, last_used_at, rotation_strategy, aggregate_api_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            "INSERT OR REPLACE INTO api_keys (id, name, group_name, model_slug, reasoning_effort, key_hash, status, created_at, last_used_at, rotation_strategy, aggregate_api_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             (
                 &key.id,
                 &key.name,
+                &key.group_name,
                 &key.model_slug,
                 &key.reasoning_effort,
                 &key.key_hash,
@@ -243,6 +245,27 @@ impl Storage {
         self.conn.execute(
             "UPDATE api_keys SET name = ?1 WHERE id = ?2",
             (name, key_id),
+        )?;
+        Ok(())
+    }
+
+    /// 函数 `update_api_key_group_name`
+    ///
+    /// 作者: gaohongshun
+    ///
+    /// 时间: 2026-05-30
+    ///
+    /// # 参数
+    /// - self: 参数 self
+    /// - key_id: 参数 key_id
+    /// - group_name: 参数 group_name
+    ///
+    /// # 返回
+    /// 返回函数执行结果
+    pub fn update_api_key_group_name(&self, key_id: &str, group_name: Option<&str>) -> Result<()> {
+        self.conn.execute(
+            "UPDATE api_keys SET group_name = ?1 WHERE id = ?2",
+            (group_name, key_id),
         )?;
         Ok(())
     }
@@ -536,6 +559,22 @@ impl Storage {
         Ok(())
     }
 
+    /// 函数 `ensure_api_key_group_name_column`
+    ///
+    /// 作者: gaohongshun
+    ///
+    /// 时间: 2026-05-30
+    ///
+    /// # 参数
+    /// - super: 参数 super
+    ///
+    /// # 返回
+    /// 返回函数执行结果
+    pub(super) fn ensure_api_key_group_name_column(&self) -> Result<()> {
+        self.ensure_column("api_keys", "group_name", "TEXT")?;
+        Ok(())
+    }
+
     /// 函数 `ensure_api_key_profiles_table`
     ///
     /// 作者: gaohongshun
@@ -675,20 +714,21 @@ fn map_api_key_row(row: &Row<'_>) -> Result<ApiKey> {
     Ok(ApiKey {
         id: row.get(0)?,
         name: row.get(1)?,
-        model_slug: row.get(2)?,
-        reasoning_effort: row.get(3)?,
-        service_tier: row.get(4)?,
-        rotation_strategy: row.get(5)?,
-        aggregate_api_id: row.get(6)?,
-        aggregate_api_url: row.get(7)?,
-        client_type: row.get(8)?,
-        protocol_type: row.get(9)?,
-        auth_scheme: row.get(10)?,
-        upstream_base_url: row.get(11)?,
-        static_headers_json: row.get(12)?,
-        key_hash: row.get(13)?,
-        status: row.get(14)?,
-        created_at: row.get(15)?,
-        last_used_at: row.get(16)?,
+        group_name: row.get(2)?,
+        model_slug: row.get(3)?,
+        reasoning_effort: row.get(4)?,
+        service_tier: row.get(5)?,
+        rotation_strategy: row.get(6)?,
+        aggregate_api_id: row.get(7)?,
+        aggregate_api_url: row.get(8)?,
+        client_type: row.get(9)?,
+        protocol_type: row.get(10)?,
+        auth_scheme: row.get(11)?,
+        upstream_base_url: row.get(12)?,
+        static_headers_json: row.get(13)?,
+        key_hash: row.get(14)?,
+        status: row.get(15)?,
+        created_at: row.get(16)?,
+        last_used_at: row.get(17)?,
     })
 }
