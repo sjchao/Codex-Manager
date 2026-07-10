@@ -607,6 +607,9 @@ export default function SettingsPage() {
   const [gatewayOriginatorDraft, setGatewayOriginatorDraft] = useState<
     string | null
   >(null);
+  const [aggregateApiTestModelDraft, setAggregateApiTestModelDraft] = useState<
+    string | null
+  >(null);
   const [gatewayUserAgentVersionDraft, setGatewayUserAgentVersionDraft] =
     useState<string | null>(null);
   const [modelForwardRulesDraft, setModelForwardRulesDraft] =
@@ -675,6 +678,9 @@ export default function SettingsPage() {
     enabled: isSnapshotQueryEnabled && isPageActive,
   });
   const snapshot = fetchedSnapshot ?? storedSettings;
+  const aggregateApiTestModelInput =
+    aggregateApiTestModelDraft ??
+    (snapshot?.aggregateApiTestModel || "gpt-5.6-terra");
   const modelForwardRulesInput =
     modelForwardRulesDraft ?? (snapshot?.modelForwardRules || "");
   usePageTransitionReady(
@@ -1855,6 +1861,38 @@ export default function SettingsPage() {
                 <p className="text-[10px] text-muted-foreground">
                   设为“跟随请求”时，不会额外改写 free / 7天单窗口账号的模型；
                   只有你选了具体模型后，命中这些账号时才会统一改写为该模型。
+                </p>
+              </div>
+
+              <div className="grid gap-2">
+                <Label>聚合 API 测试默认模型</Label>
+                <Input
+                  className="h-10 max-w-md font-mono"
+                  placeholder="gpt-5.6-terra"
+                  value={aggregateApiTestModelInput}
+                  onChange={(event) =>
+                    setAggregateApiTestModelDraft(event.target.value)
+                  }
+                  onBlur={() => {
+                    if (aggregateApiTestModelDraft == null) return;
+                    if (
+                      aggregateApiTestModelInput ===
+                      (snapshot.aggregateApiTestModel || "gpt-5.6-terra")
+                    ) {
+                      setAggregateApiTestModelDraft(null);
+                      return;
+                    }
+                    void updateSettings
+                      .mutateAsync({
+                        aggregateApiTestModel: aggregateApiTestModelInput,
+                      })
+                      .then(() => setAggregateApiTestModelDraft(null))
+                      .catch(() => undefined);
+                  }}
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  后台点击聚合 API 连通性测试时，会先使用这个模型发起真实请求；
+                  留空会恢复默认值 <code>gpt-5.6-terra</code>。
                 </p>
               </div>
 

@@ -3,8 +3,9 @@ use crate::usage_refresh;
 use serde::Deserialize;
 
 use super::{
-    normalize_optional_text, save_persisted_app_setting, save_persisted_bool_setting,
-    APP_SETTING_GATEWAY_ACCOUNT_MAX_INFLIGHT_KEY, APP_SETTING_GATEWAY_BACKGROUND_TASKS_KEY,
+    get_persisted_app_setting, normalize_optional_text, save_persisted_app_setting,
+    save_persisted_bool_setting, APP_SETTING_GATEWAY_ACCOUNT_MAX_INFLIGHT_KEY,
+    APP_SETTING_GATEWAY_AGGREGATE_API_TEST_MODEL_KEY, APP_SETTING_GATEWAY_BACKGROUND_TASKS_KEY,
     APP_SETTING_GATEWAY_FREE_ACCOUNT_MAX_MODEL_KEY, APP_SETTING_GATEWAY_MODEL_FORWARD_RULES_KEY,
     APP_SETTING_GATEWAY_ORIGINATOR_KEY, APP_SETTING_GATEWAY_REQUEST_COMPRESSION_ENABLED_KEY,
     APP_SETTING_GATEWAY_RESIDENCY_REQUIREMENT_KEY, APP_SETTING_GATEWAY_ROUTE_STRATEGY_KEY,
@@ -26,6 +27,24 @@ pub struct BackgroundTasksInput {
     pub http_worker_min: Option<usize>,
     pub http_stream_worker_factor: Option<usize>,
     pub http_stream_worker_min: Option<usize>,
+}
+
+const DEFAULT_GATEWAY_AGGREGATE_API_TEST_MODEL: &str = "gpt-5.6-terra";
+
+/// 函数 `normalize_gateway_aggregate_api_test_model`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-07-10
+///
+/// # 参数
+/// - raw: 参数 raw
+///
+/// # 返回
+/// 返回函数执行结果
+fn normalize_gateway_aggregate_api_test_model(raw: Option<&str>) -> String {
+    normalize_optional_text(raw)
+        .unwrap_or_else(|| DEFAULT_GATEWAY_AGGREGATE_API_TEST_MODEL.to_string())
 }
 
 impl BackgroundTasksInput {
@@ -107,6 +126,43 @@ pub fn set_gateway_free_account_max_model(model: &str) -> Result<String, String>
 /// 返回函数执行结果
 pub fn current_gateway_free_account_max_model() -> String {
     gateway::current_free_account_max_model()
+}
+
+/// 函数 `set_gateway_aggregate_api_test_model`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-07-10
+///
+/// # 参数
+/// - model: 参数 model
+///
+/// # 返回
+/// 返回函数执行结果
+pub fn set_gateway_aggregate_api_test_model(model: &str) -> Result<String, String> {
+    let applied = normalize_gateway_aggregate_api_test_model(Some(model));
+    save_persisted_app_setting(
+        APP_SETTING_GATEWAY_AGGREGATE_API_TEST_MODEL_KEY,
+        Some(&applied),
+    )?;
+    Ok(applied)
+}
+
+/// 函数 `current_gateway_aggregate_api_test_model`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-07-10
+///
+/// # 参数
+/// 无
+///
+/// # 返回
+/// 返回函数执行结果
+pub fn current_gateway_aggregate_api_test_model() -> String {
+    normalize_gateway_aggregate_api_test_model(
+        get_persisted_app_setting(APP_SETTING_GATEWAY_AGGREGATE_API_TEST_MODEL_KEY).as_deref(),
+    )
 }
 
 /// 函数 `set_gateway_model_forward_rules`

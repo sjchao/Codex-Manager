@@ -1430,6 +1430,9 @@ export function normalizeAppSettings(payload: unknown): AppSettings {
     freeAccountMaxModelOptions: asArray(source.freeAccountMaxModelOptions).map((item) =>
       asString(item)
     ),
+    aggregateApiTestModel:
+      asString(source.aggregateApiTestModel ?? source.aggregate_api_test_model) ||
+      "gpt-5.6-terra",
     modelForwardRules: asString(source.modelForwardRules ?? source.model_forward_rules),
     accountMaxInflight: asInteger(source.accountMaxInflight, 1, 0),
     gatewayOriginator: asString(source.gatewayOriginator) || "codex_cli_rs",

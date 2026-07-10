@@ -69,6 +69,7 @@ fn reset_runtime_defaults() {
     let _ = codexmanager_service::app_settings_set(Some(&json!({
         "routeStrategy": "balanced",
         "freeAccountMaxModel": "gpt-5.2",
+        "aggregateApiTestModel": "gpt-5.6-terra",
         "modelForwardRules": "",
         "gatewayOriginator": "codex_cli_rs",
         "gatewayUserAgentVersion": "0.101.0",
@@ -304,6 +305,7 @@ fn app_settings_set_persists_snapshot_and_password_hash() {
             "serviceListenMode": "all_interfaces",
             "routeStrategy": "rr",
             "freeAccountMaxModel": "gpt-5.3-codex",
+            "aggregateApiTestModel": "gpt-5.4",
             "modelForwardRules": "spark*=gpt-5.4-mini",
             "gatewayOriginator": "codex_cli_rs_test",
             "gatewayUserAgentVersion": "0.101.2",
@@ -388,6 +390,12 @@ fn app_settings_set_persists_snapshot_and_password_hash() {
         );
         assert_eq!(
             snapshot
+                .get("aggregateApiTestModel")
+                .and_then(|value| value.as_str()),
+            Some("gpt-5.4")
+        );
+        assert_eq!(
+            snapshot
                 .get("modelForwardRules")
                 .and_then(|value| value.as_str()),
             Some("spark*=gpt-5.4-mini")
@@ -445,6 +453,14 @@ fn app_settings_set_persists_snapshot_and_password_hash() {
         );
         assert_eq!(
             storage
+                .get_app_setting(
+                    codexmanager_service::APP_SETTING_GATEWAY_AGGREGATE_API_TEST_MODEL_KEY
+                )
+                .expect("read aggregate api test model"),
+            Some("gpt-5.4".to_string())
+        );
+        assert_eq!(
+            storage
                 .get_app_setting(codexmanager_service::APP_SETTING_GATEWAY_MODEL_FORWARD_RULES_KEY)
                 .expect("read model forward rules"),
             Some("spark*=gpt-5.4-mini".to_string())
@@ -491,6 +507,38 @@ fn app_settings_set_persists_snapshot_and_password_hash() {
         assert!(stored_password
             .as_deref()
             .is_some_and(|value| value.starts_with("sha256$")));
+    });
+}
+
+/// 函数 `app_settings_get_defaults_aggregate_api_test_model`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-07-10
+///
+/// # 参数
+/// 无
+///
+/// # 返回
+/// 无
+#[test]
+fn app_settings_get_defaults_aggregate_api_test_model() {
+    with_temp_db(|db_path| {
+        let storage = Storage::open(db_path).expect("open storage");
+        storage
+            .delete_app_setting(
+                codexmanager_service::APP_SETTING_GATEWAY_AGGREGATE_API_TEST_MODEL_KEY,
+            )
+            .expect("delete aggregate api test model");
+        drop(storage);
+
+        let snapshot = codexmanager_service::app_settings_get().expect("get app settings");
+        assert_eq!(
+            snapshot
+                .get("aggregateApiTestModel")
+                .and_then(|value| value.as_str()),
+            Some("gpt-5.6-terra")
+        );
     });
 }
 

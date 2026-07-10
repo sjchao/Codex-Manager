@@ -8,6 +8,7 @@ use serde_json::json;
 use std::io::Read;
 use std::time::Instant;
 
+use crate::app_settings::current_gateway_aggregate_api_test_model;
 use crate::apikey_profile::normalize_upstream_base_url;
 use crate::gateway;
 use crate::storage_helpers::{generate_aggregate_api_id, open_storage};
@@ -243,9 +244,10 @@ fn normalize_action_override(
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
     use std::sync::mpsc;
     use std::thread;
-    use std::time::Duration;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     use codexmanager_core::storage::AggregateApi;
     use tiny_http::{Header, Response, Server, StatusCode};
@@ -254,6 +256,14 @@ mod tests {
         action_path_or_default, normalize_action_override, probe_codex_endpoint,
         DEFAULT_AGGREGATE_API_WEIGHT,
     };
+
+    fn unique_temp_db_path() -> PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        std::env::temp_dir().join(format!("codexmanager-aggregate-api-test-{unique}.db"))
+    }
 
     fn aggregate_api_with_action(action: Option<&str>) -> AggregateApi {
         AggregateApi {
@@ -277,6 +287,7 @@ mod tests {
 
     #[test]
     fn action_override_disabled_stays_none() {
+        let _guard = crate::test_env_guard();
         let value =
             normalize_action_override(Some(false), Some("/v1/messages".to_string())).unwrap();
         assert_eq!(value, Some(None));
@@ -284,12 +295,14 @@ mod tests {
 
     #[test]
     fn action_override_enabled_and_empty_preserves_empty_string() {
+        let _guard = crate::test_env_guard();
         let value = normalize_action_override(Some(true), Some("   ".to_string())).unwrap();
         assert_eq!(value, Some(Some(String::new())));
     }
 
     #[test]
     fn empty_action_uses_default_path() {
+        let _guard = crate::test_env_guard();
         let api = aggregate_api_with_action(Some(""));
         let path = action_path_or_default(&api, "/v1/messages?beta=true");
         assert_eq!(path, "/v1/messages?beta=true");
@@ -297,6 +310,7 @@ mod tests {
 
     #[test]
     fn codex_probe_uses_action_chat_completions_path_for_real_request() {
+        let _guard = crate::test_env_guard();
         let server = Server::http("127.0.0.1:0").expect("start mock aggregate api server");
         let addr = format!("http://{}", server.server_addr());
         let (tx, rx) = mpsc::channel();
@@ -361,7 +375,69 @@ mod tests {
     }
 
     #[test]
+    fn codex_probe_uses_configured_default_model() {
+        let _guard = crate::test_env_guard();
+        let db_path = unique_temp_db_path();
+        let previous_db_path = std::env::var("CODEXMANAGER_DB_PATH").ok();
+        std::env::set_var("CODEXMANAGER_DB_PATH", &db_path);
+        crate::app_settings::set_gateway_aggregate_api_test_model("gpt-5.4")
+            .expect("save aggregate api test model");
+
+        let server = Server::http("127.0.0.1:0").expect("start mock aggregate api server");
+        let addr = format!("http://{}", server.server_addr());
+        let (tx, rx) = mpsc::channel();
+        let handle = thread::spawn(move || {
+            let mut request = server
+                .recv_timeout(Duration::from_secs(3))
+                .expect("receive request")
+                .expect("request present");
+            let path = request.url().to_string();
+            let mut body = String::new();
+            request
+                .as_reader()
+                .read_to_string(&mut body)
+                .expect("read request body");
+            tx.send((path, body)).expect("record request");
+            let response = Response::from_string(
+                r#"{"id":"chatcmpl-test","choices":[{"message":{"role":"assistant","content":"ok"}}]}"#,
+            )
+            .with_status_code(StatusCode(200))
+            .with_header(
+                Header::from_bytes("Content-Type", "application/json")
+                    .expect("content-type header"),
+            );
+            request.respond(response).expect("respond request");
+        });
+
+        let mut api = aggregate_api_with_action(Some("/v1/chat/completions"));
+        api.provider_type = "codex".to_string();
+        api.url = addr;
+        let client = reqwest::blocking::Client::new();
+
+        let status = probe_codex_endpoint(&client, &api, "test-secret").expect("probe success");
+        let (path, body) = rx.recv_timeout(Duration::from_secs(3)).expect("recorded request");
+
+        handle.join().expect("join server");
+
+        assert_eq!(status, 200);
+        assert_eq!(path, "/v1/chat/completions");
+        let payload: serde_json::Value = serde_json::from_str(body.as_str()).expect("json body");
+        assert_eq!(
+            payload.get("model").and_then(|value| value.as_str()),
+            Some("gpt-5.4")
+        );
+
+        if let Some(value) = previous_db_path {
+            std::env::set_var("CODEXMANAGER_DB_PATH", value);
+        } else {
+            std::env::remove_var("CODEXMANAGER_DB_PATH");
+        }
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
     fn codex_probe_surfaces_upstream_error_message() {
+        let _guard = crate::test_env_guard();
         let server = Server::http("127.0.0.1:0").expect("start mock aggregate api server");
         let addr = format!("http://{}", server.server_addr());
         let handle = thread::spawn(move || {
@@ -398,6 +474,7 @@ mod tests {
 
     #[test]
     fn codex_probe_falls_back_to_models_endpoint_after_gpt_5_6_terra_failure() {
+        let _guard = crate::test_env_guard();
         let server = Server::http("127.0.0.1:0").expect("start mock aggregate api server");
         let addr = format!("http://{}", server.server_addr());
         let (tx, rx) = mpsc::channel();
@@ -1061,7 +1138,8 @@ fn probe_codex_endpoint(
     api: &AggregateApi,
     secret: &str,
 ) -> Result<i64, String> {
-    let initial_result = probe_codex_real_endpoint(client, api, secret, "gpt-5.6-terra");
+    let default_model = current_gateway_aggregate_api_test_model();
+    let initial_result = probe_codex_real_endpoint(client, api, secret, default_model.as_str());
     if let Ok(code) = initial_result {
         return Ok(code);
     }
@@ -1079,7 +1157,7 @@ fn probe_codex_endpoint(
     };
     for model in models
         .iter()
-        .filter(|model| model.as_str() != "gpt-5.6-terra")
+        .filter(|model| model.as_str() != default_model.as_str())
         .take(3)
     {
         if let Ok(code) = probe_codex_real_endpoint(client, api, secret, model.as_str()) {
