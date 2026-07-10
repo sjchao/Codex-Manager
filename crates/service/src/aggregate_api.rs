@@ -336,7 +336,10 @@ mod tests {
         assert_eq!(status, 200);
         assert_eq!(path, "/v1/chat/completions");
         let payload: serde_json::Value = serde_json::from_str(body.as_str()).expect("json body");
-        assert_eq!(payload.get("model").and_then(|value| value.as_str()), Some("gpt-5.4"));
+        assert_eq!(
+            payload.get("model").and_then(|value| value.as_str()),
+            Some("gpt-5.6-terra")
+        );
         assert_eq!(
             payload
                 .get("messages")
@@ -394,7 +397,7 @@ mod tests {
     }
 
     #[test]
-    fn codex_probe_falls_back_to_models_endpoint_after_gpt_5_4_failure() {
+    fn codex_probe_falls_back_to_models_endpoint_after_gpt_5_6_terra_failure() {
         let server = Server::http("127.0.0.1:0").expect("start mock aggregate api server");
         let addr = format!("http://{}", server.server_addr());
         let (tx, rx) = mpsc::channel();
@@ -463,7 +466,7 @@ mod tests {
             serde_json::from_str(first.1.as_str()).expect("json body");
         assert_eq!(
             payload.get("model").and_then(|value| value.as_str()),
-            Some("gpt-5.4")
+            Some("gpt-5.6-terra")
         );
         let retry_payload: serde_json::Value =
             serde_json::from_str(third.1.as_str()).expect("json body");
@@ -1058,7 +1061,7 @@ fn probe_codex_endpoint(
     api: &AggregateApi,
     secret: &str,
 ) -> Result<i64, String> {
-    let initial_result = probe_codex_real_endpoint(client, api, secret, "gpt-5.4");
+    let initial_result = probe_codex_real_endpoint(client, api, secret, "gpt-5.6-terra");
     if let Ok(code) = initial_result {
         return Ok(code);
     }
@@ -1074,7 +1077,11 @@ fn probe_codex_endpoint(
         Ok(items) => items,
         Err(models_error) => return Err(format!("{initial_error}; {models_error}")),
     };
-    for model in models.iter().filter(|model| model.as_str() != "gpt-5.4").take(3) {
+    for model in models
+        .iter()
+        .filter(|model| model.as_str() != "gpt-5.6-terra")
+        .take(3)
+    {
         if let Ok(code) = probe_codex_real_endpoint(client, api, secret, model.as_str()) {
             return Ok(code);
         }
