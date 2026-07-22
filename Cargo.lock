@@ -254,6 +254,7 @@ dependencies = [
  "tiny_http",
  "tokio",
  "tokio-tungstenite",
+ "tower-http",
  "url",
  "urlencoding",
  "webbrowser",

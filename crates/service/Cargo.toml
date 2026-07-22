@@ -14,6 +14,7 @@ sha2 = "0.10"
 tiny_http = "0.12"
 axum = { version = "0.8", features = ["ws"] }
 tokio = { version = "1", features = ["rt-multi-thread", "net", "time"] }
+tower-http = { version = "0.6", features = ["cors"] }
 futures-util = "0.3"
 tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
 rustls = { version = "0.23", features = ["ring"] }

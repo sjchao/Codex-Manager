@@ -6,6 +6,7 @@ use axum::Router;
 use reqwest::Client;
 use std::io;
 use std::net::SocketAddr;
+use tower_http::cors::{Any, CorsLayer};
 
 use crate::http::proxy_bridge::run_proxy_server;
 use crate::http::proxy_request::{
@@ -275,6 +276,12 @@ fn build_front_proxy_app(state: ProxyState) -> Router {
         .route("/rpc", post(crate::http::rpc_endpoint::handle_rpc_http))
         .route("/v1/responses", any(responses_handler))
         .fallback(any(proxy_handler))
+        .layer(
+            CorsLayer::new()
+                .allow_origin(Any)
+                .allow_methods(Any)
+                .allow_headers(Any),
+        )
         .with_state(state)
 }
 

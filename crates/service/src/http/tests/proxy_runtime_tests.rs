@@ -2,6 +2,8 @@ use super::{build_backend_base_url, build_local_backend_client, proxy_handler, P
 use axum::body::{to_bytes, Body};
 use axum::extract::{ConnectInfo, State};
 use axum::http::{Request as HttpRequest, StatusCode};
+use axum::routing::any;
+use axum::Router;
 use codexmanager_core::storage::{Account, ApiKey, Storage, Token, UsageSnapshotRecord};
 use futures_util::{SinkExt, StreamExt};
 use reqwest::Client;
@@ -290,12 +292,150 @@ async fn start_front_proxy_test_server(
     let app = super::build_front_proxy_app(state);
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
     let handle = tokio::spawn(async move {
-        let server = axum::serve(listener, app).with_graceful_shutdown(async move {
+        let server = axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .with_graceful_shutdown(async move {
             let _ = shutdown_rx.await;
         });
         server.await.expect("serve front proxy");
     });
     (addr.to_string(), shutdown_tx, handle)
+}
+
+async fn start_mock_backend_server(
+    status: StatusCode,
+) -> (String, oneshot::Sender<()>, tokio::task::JoinHandle<()>) {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind mock backend listener");
+    let addr = listener.local_addr().expect("mock backend address");
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let app = Router::new().fallback(any(move || async move { (status, "mock response") }));
+    let handle = tokio::spawn(async move {
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async move {
+                let _ = shutdown_rx.await;
+            })
+            .await
+            .expect("serve mock backend");
+    });
+    (addr.to_string(), shutdown_tx, handle)
+}
+
+async fn prepare_gateway_runtime_config() {
+    tokio::task::spawn_blocking(|| {
+        crate::gateway::reload_runtime_config_from_env();
+        let _ = crate::gateway::front_proxy_max_body_bytes();
+    })
+    .await
+    .expect("reload gateway runtime config");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn front_proxy_allows_cross_origin_preflight_and_proxied_responses() {
+    prepare_gateway_runtime_config().await;
+    let (backend_addr, backend_shutdown, backend_handle) =
+        start_mock_backend_server(StatusCode::OK).await;
+    let state = ProxyState {
+        backend_base_url: format!("http://{backend_addr}"),
+        listen_port: "48760".to_string(),
+        client: Client::new(),
+    };
+    let (front_addr, front_shutdown, front_handle) = start_front_proxy_test_server(state).await;
+    let origin = "https://example.test";
+    let client = Client::new();
+
+    let preflight = client
+        .request(
+            reqwest::Method::OPTIONS,
+            format!("http://{front_addr}/v1/chat/completions"),
+        )
+        .header("Origin", origin)
+        .header("Access-Control-Request-Method", "POST")
+        .header(
+            "Access-Control-Request-Headers",
+            "authorization, content-type, x-client-request-id",
+        )
+        .send()
+        .await
+        .expect("send preflight");
+    assert_eq!(preflight.status(), StatusCode::OK);
+    assert_eq!(
+        preflight
+            .headers()
+            .get("access-control-allow-origin")
+            .and_then(|value| value.to_str().ok()),
+        Some("*")
+    );
+    assert_eq!(
+        preflight
+            .headers()
+            .get("access-control-allow-methods")
+            .and_then(|value| value.to_str().ok()),
+        Some("*")
+    );
+    assert_eq!(
+        preflight
+            .headers()
+            .get("access-control-allow-headers")
+            .and_then(|value| value.to_str().ok()),
+        Some("*")
+    );
+    assert!(preflight
+        .headers()
+        .get("access-control-allow-credentials")
+        .is_none());
+
+    let response = client
+        .get(format!("http://{front_addr}/v1/models"))
+        .header("Origin", origin)
+        .send()
+        .await
+        .expect("send proxied request");
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get("access-control-allow-origin")
+            .and_then(|value| value.to_str().ok()),
+        Some("*")
+    );
+
+    let _ = front_shutdown.send(());
+    front_handle.await.expect("join front proxy");
+    let _ = backend_shutdown.send(());
+    backend_handle.await.expect("join mock backend");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn front_proxy_adds_cors_headers_to_proxy_errors() {
+    prepare_gateway_runtime_config().await;
+    let state = ProxyState {
+        backend_base_url: "http://127.0.0.1:1".to_string(),
+        listen_port: "48760".to_string(),
+        client: Client::new(),
+    };
+    let (front_addr, shutdown_tx, server_handle) = start_front_proxy_test_server(state).await;
+
+    let response = Client::new()
+        .get(format!("http://{front_addr}/health"))
+        .header("Origin", "https://example.test")
+        .send()
+        .await
+        .expect("send proxy error request");
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    assert_eq!(
+        response
+            .headers()
+            .get("access-control-allow-origin")
+            .and_then(|value| value.to_str().ok()),
+        Some("*")
+    );
+
+    let _ = shutdown_tx.send(());
+    server_handle.await.expect("join front proxy");
 }
 
 #[derive(Debug)]
