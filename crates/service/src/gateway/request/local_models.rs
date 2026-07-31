@@ -1,7 +1,14 @@
 use codexmanager_core::rpc::types::ModelOption;
 use codexmanager_core::storage::now_ts;
 use serde_json::json;
+use std::collections::HashSet;
 use tiny_http::Response;
+
+use crate::aggregate_api::{
+    AGGREGATE_API_PROVIDER_CLAUDE, AGGREGATE_API_PROVIDER_CODEX,
+    AGGREGATE_API_STATUS_ACTIVE,
+};
+use crate::apikey_profile::{PROTOCOL_ANTHROPIC_NATIVE, ROTATION_AGGREGATE_API};
 
 const MODEL_CACHE_SCOPE_DEFAULT: &str = "default";
 const MODELS_OWNED_BY: &str = "openai";
@@ -96,6 +103,52 @@ fn fallback_model_options(model_for_log: Option<&str>) -> Vec<ModelOption> {
     }]
 }
 
+fn aggregate_api_provider_type(value: &str) -> &'static str {
+    match value.trim().to_ascii_lowercase().replace('-', "_").as_str() {
+        "claude" | "anthropic" | "anthropic_native" | "claude_code" => {
+            AGGREGATE_API_PROVIDER_CLAUDE
+        }
+        _ => AGGREGATE_API_PROVIDER_CODEX,
+    }
+}
+
+fn aggregate_api_model_options(
+    storage: &codexmanager_core::storage::Storage,
+    protocol_type: &str,
+) -> Vec<ModelOption> {
+    let provider_type = if protocol_type == PROTOCOL_ANTHROPIC_NATIVE {
+        AGGREGATE_API_PROVIDER_CLAUDE
+    } else {
+        AGGREGATE_API_PROVIDER_CODEX
+    };
+    let mut seen = HashSet::new();
+    let mut items = Vec::new();
+    let apis = match storage.list_aggregate_apis() {
+        Ok(apis) => apis,
+        Err(err) => {
+            log::warn!("aggregate api model list read failed: {}", err);
+            return items;
+        }
+    };
+    for api in apis {
+        if !api.status.eq_ignore_ascii_case(AGGREGATE_API_STATUS_ACTIVE)
+            || aggregate_api_provider_type(api.provider_type.as_str()) != provider_type
+        {
+            continue;
+        }
+        for model in api.supported_models {
+            let slug = model.trim();
+            if !slug.is_empty() && seen.insert(slug.to_ascii_lowercase()) {
+                items.push(ModelOption {
+                    slug: slug.to_string(),
+                    display_name: slug.to_string(),
+                });
+            }
+        }
+    }
+    items
+}
+
 /// 函数 `maybe_respond_local_models`
 ///
 /// 作者: gaohongshun
@@ -116,6 +169,7 @@ pub(super) fn maybe_respond_local_models(
     path: &str,
     response_adapter: super::ResponseAdapter,
     request_method: &str,
+    rotation_strategy: &str,
     model_for_log: Option<&str>,
     reasoning_for_log: Option<&str>,
     queue_wait_ms: Option<u128>,
@@ -128,53 +182,59 @@ pub(super) fn maybe_respond_local_models(
     }
 
     let mut fallback_reason: Option<String> = None;
-    let cached_items = match storage.get_model_options_cache(MODEL_CACHE_SCOPE_DEFAULT) {
-        Ok(Some(record)) => {
-            serde_json::from_str::<Vec<ModelOption>>(&record.items_json).unwrap_or_default()
-        }
-        Ok(None) => Vec::new(),
-        Err(err) => {
-            let message = format!("model options cache read failed: {err}");
-            super::trace_log::log_attempt_result(trace_id, "-", None, 503, Some(message.as_str()));
-            super::trace_log::log_request_final(
-                trace_id,
-                503,
-                None,
-                None,
-                Some(message.as_str()),
-                0,
-            );
-            super::record_gateway_request_outcome(path, 503, Some(protocol_type));
-            super::write_request_log(
-                storage,
-                super::request_log::RequestLogTraceContext {
-                    trace_id: Some(trace_id),
-                    original_path: Some(original_path),
-                    adapted_path: Some(path),
-                    queue_wait_ms,
-                    response_adapter: Some(response_adapter),
-                    ..Default::default()
-                },
-                Some(key_id),
-                None,
-                path,
-                request_method,
-                model_for_log,
-                reasoning_for_log,
-                None,
-                Some(503),
-                super::request_log::RequestLogUsage::default(),
-                Some(message.as_str()),
-                None,
-            );
-            let response =
-                super::error_response::terminal_text_response(503, message, Some(trace_id));
-            let _ = request.respond(response);
-            return Ok(None);
+    let cached_items = if rotation_strategy == ROTATION_AGGREGATE_API {
+        Vec::new()
+    } else {
+        match storage.get_model_options_cache(MODEL_CACHE_SCOPE_DEFAULT) {
+            Ok(Some(record)) => {
+                serde_json::from_str::<Vec<ModelOption>>(&record.items_json).unwrap_or_default()
+            }
+            Ok(None) => Vec::new(),
+            Err(err) => {
+                let message = format!("model options cache read failed: {err}");
+                super::trace_log::log_attempt_result(trace_id, "-", None, 503, Some(message.as_str()));
+                super::trace_log::log_request_final(
+                    trace_id,
+                    503,
+                    None,
+                    None,
+                    Some(message.as_str()),
+                    0,
+                );
+                super::record_gateway_request_outcome(path, 503, Some(protocol_type));
+                super::write_request_log(
+                    storage,
+                    super::request_log::RequestLogTraceContext {
+                        trace_id: Some(trace_id),
+                        original_path: Some(original_path),
+                        adapted_path: Some(path),
+                        queue_wait_ms,
+                        response_adapter: Some(response_adapter),
+                        ..Default::default()
+                    },
+                    Some(key_id),
+                    None,
+                    path,
+                    request_method,
+                    model_for_log,
+                    reasoning_for_log,
+                    None,
+                    Some(503),
+                    super::request_log::RequestLogUsage::default(),
+                    Some(message.as_str()),
+                    None,
+                );
+                let response =
+                    super::error_response::terminal_text_response(503, message, Some(trace_id));
+                let _ = request.respond(response);
+                return Ok(None);
+            }
         }
     };
 
-    let items = if !cached_items.is_empty() {
+    let items = if rotation_strategy == ROTATION_AGGREGATE_API {
+        aggregate_api_model_options(storage, protocol_type)
+    } else if !cached_items.is_empty() {
         cached_items
     } else {
         match super::fetch_models_for_picker() {

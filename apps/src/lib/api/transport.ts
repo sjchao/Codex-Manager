@@ -67,6 +67,7 @@ const WEB_COMMAND_MAP: Record<string, WebCommandDescriptor> = {
   service_aggregate_api_test_connection: {
     rpcMethod: "aggregateApi/testConnection",
   },
+  service_aggregate_api_refresh_models: { rpcMethod: "aggregateApi/refreshModels" },
   service_login_start: {
     rpcMethod: "account/login/start",
     mapParams: (params) => ({
@@ -1047,6 +1048,7 @@ export async function requestlogListViaHttpRpc<T>(
   params: {
     query?: string;
     statusFilter?: string;
+    modelType?: string;
     page?: number;
     pageSize?: number;
   },
@@ -1060,6 +1062,7 @@ export async function requestlogListViaHttpRpc<T>(
       {
         query: params.query || "",
         statusFilter: params.statusFilter || "all",
+        modelType: params.modelType || "all",
         page: params.page ?? 1,
         pageSize: params.pageSize ?? 20,
         addr,
@@ -1076,6 +1079,7 @@ export async function requestlogListViaHttpRpc<T>(
     params: {
       query: params.query || "",
       statusFilter: params.statusFilter || "all",
+      modelType: params.modelType || "all",
       page: params.page ?? 1,
       pageSize: params.pageSize ?? 20,
     },

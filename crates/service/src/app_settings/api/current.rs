@@ -9,9 +9,10 @@ use super::{
     current_background_tasks_snapshot_value, current_close_to_tray_on_close_setting,
     current_env_overrides, current_gateway_account_max_inflight,
     current_gateway_aggregate_api_test_model, current_gateway_free_account_max_model,
-    current_gateway_model_forward_rules, current_gateway_originator,
+    current_gateway_image_models, current_gateway_model_forward_rules, current_gateway_originator,
     current_gateway_residency_requirement, current_gateway_sse_keepalive_interval_ms,
     current_gateway_upstream_stream_timeout_ms, current_gateway_user_agent_version,
+    current_gateway_video_models,
     current_lightweight_mode_on_close_to_tray_setting, current_saved_service_addr,
     current_service_bind_mode, current_ui_appearance_preset, current_ui_low_transparency_enabled,
     current_ui_theme, current_update_auto_check_enabled, env_override_catalog_value,
@@ -107,6 +108,8 @@ pub(super) fn current_app_settings_value(
     let route_strategy = crate::gateway::current_route_strategy().to_string();
     let free_account_max_model = current_gateway_free_account_max_model();
     let aggregate_api_test_model = current_gateway_aggregate_api_test_model();
+    let image_models = current_gateway_image_models();
+    let video_models = current_gateway_video_models();
     let model_forward_rules = current_gateway_model_forward_rules();
     let account_max_inflight = current_gateway_account_max_inflight();
     let gateway_originator = current_gateway_originator();
@@ -187,6 +190,8 @@ pub(super) fn current_app_settings_value(
         "routeStrategyOptions": ["ordered", "balanced"],
         "freeAccountMaxModel": free_account_max_model,
         "aggregateApiTestModel": aggregate_api_test_model,
+        "imageModels": image_models,
+        "videoModels": video_models,
         "modelForwardRules": model_forward_rules,
         "accountMaxInflight": account_max_inflight,
         "freeAccountMaxModelOptions": free_account_max_model_options,

@@ -1,4 +1,23 @@
 use super::*;
+use crate::gateway::{ModelType, ResponseAdapter};
+
+#[test]
+fn local_count_tokens_log_context_preserves_image_request_metadata() {
+    let context = request_log_trace_context(
+        "trace-image",
+        "/v1/messages/count_tokens",
+        "/v1/messages/count_tokens",
+        ResponseAdapter::Passthrough,
+        ModelType::Image,
+        Some(2),
+        Some("4K"),
+        None,
+    );
+
+    assert_eq!(context.model_type, Some(ModelType::Image));
+    assert_eq!(context.image_count, Some(2));
+    assert_eq!(context.image_size, Some("4K"));
+}
 
 /// 函数 `estimate_input_tokens_uses_messages_and_system_text`
 ///

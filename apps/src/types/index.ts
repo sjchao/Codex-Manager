@@ -106,6 +106,7 @@ export interface ApiKeyCreateResult {
 export interface AggregateApi {
   id: string;
   providerType: string;
+  supportedModels: string[];
   supplierName: string | null;
   sort: number;
   weight: number;
@@ -119,6 +120,11 @@ export interface AggregateApi {
   lastTestAt: number | null;
   lastTestStatus: string | null;
   lastTestError: string | null;
+}
+
+export interface AggregateApiModelCatalogResult {
+  id: string;
+  models: string[];
 }
 
 export interface AggregateApiCreateResult {
@@ -267,6 +273,9 @@ export interface RequestLog {
   requestType: string;
   path: string;
   model: string;
+  modelType: string;
+  imageCount: number | null;
+  imageSize: string;
   reasoningEffort: string;
   serviceTier: string;
   effectiveServiceTier: string;
@@ -417,6 +426,8 @@ export interface AppSettings {
   freeAccountMaxModel: string;
   freeAccountMaxModelOptions: string[];
   aggregateApiTestModel: string;
+  imageModels: string;
+  videoModels: string;
   modelForwardRules: string;
   accountMaxInflight: number;
   gatewayOriginator: string;

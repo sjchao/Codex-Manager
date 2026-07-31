@@ -3,7 +3,7 @@ use codexmanager_core::rpc::types::{AggregateApiListResult, JsonRpcRequest, Json
 use crate::{
     create_aggregate_api, delete_aggregate_api, disable_aggregate_api, enable_aggregate_api,
     list_aggregate_apis, read_aggregate_api_secret, test_aggregate_api_connection,
-    update_aggregate_api,
+    refresh_aggregate_api_model_catalog, update_aggregate_api,
 };
 
 /// 函数 `api_id_param`
@@ -39,6 +39,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
         ),
         "aggregateApi/create" => {
             let provider_type = super::string_param(req, "providerType");
+            let supported_models = super::string_array_param(req, "supportedModels");
             let supplier_name = super::string_param(req, "supplierName");
             let sort = super::i64_param(req, "sort");
             let weight = super::i64_param(req, "weight");
@@ -59,6 +60,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 url,
                 key,
                 provider_type,
+                supported_models,
                 supplier_name,
                 sort,
                 weight,
@@ -74,6 +76,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
         "aggregateApi/update" => {
             let api_id = api_id_param(req).unwrap_or("");
             let provider_type = super::string_param(req, "providerType");
+            let supported_models = super::string_array_param(req, "supportedModels");
             let supplier_name = super::string_param(req, "supplierName");
             let sort = super::i64_param(req, "sort");
             let weight = super::i64_param(req, "weight");
@@ -95,6 +98,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 url,
                 key,
                 provider_type,
+                supported_models,
                 supplier_name,
                 sort,
                 weight,
@@ -126,6 +130,10 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
         "aggregateApi/testConnection" => {
             let api_id = api_id_param(req).unwrap_or("");
             super::value_or_error(test_aggregate_api_connection(api_id))
+        }
+        "aggregateApi/refreshModels" => {
+            let api_id = api_id_param(req).unwrap_or("");
+            super::value_or_error(refresh_aggregate_api_model_catalog(api_id))
         }
         _ => return None,
     };

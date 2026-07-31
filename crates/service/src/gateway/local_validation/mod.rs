@@ -3,6 +3,9 @@ use codexmanager_core::storage::ConversationBinding;
 use reqwest::Method;
 use tiny_http::Request;
 
+use super::model_type::{classify_model_for_gateway_settings, ModelType};
+use super::request_helpers::ParsedRequestMetadata;
+
 mod auth;
 mod io;
 mod request;
@@ -31,6 +34,9 @@ pub(super) struct LocalValidationResult {
     pub(super) local_conversation_id: Option<String>,
     pub(super) conversation_binding: Option<ConversationBinding>,
     pub(super) model_for_log: Option<String>,
+    pub(super) model_type: ModelType,
+    pub(super) image_count: Option<i64>,
+    pub(super) image_size: Option<String>,
     pub(super) reasoning_for_log: Option<String>,
     pub(super) service_tier_for_log: Option<String>,
     pub(super) effective_service_tier_for_log: Option<String>,
@@ -40,6 +46,10 @@ pub(super) struct LocalValidationResult {
 pub(super) struct LocalValidationError {
     pub(super) status_code: u16,
     pub(super) message: String,
+    pub(super) model_for_log: Option<String>,
+    pub(super) model_type: ModelType,
+    pub(super) image_count: Option<i64>,
+    pub(super) image_size: Option<String>,
 }
 
 impl LocalValidationError {
@@ -58,7 +68,22 @@ impl LocalValidationError {
         Self {
             status_code,
             message: message.into(),
+            model_for_log: None,
+            model_type: ModelType::Text,
+            image_count: None,
+            image_size: None,
         }
+    }
+
+    pub(super) fn with_request_metadata(
+        mut self,
+        metadata: &ParsedRequestMetadata,
+    ) -> Self {
+        self.model_for_log = metadata.model.clone();
+        self.model_type = classify_model_for_gateway_settings(self.model_for_log.as_deref());
+        self.image_count = metadata.image_count;
+        self.image_size = metadata.image_size.clone();
+        self
     }
 }
 
@@ -80,11 +105,15 @@ pub(super) fn prepare_local_request(
     debug: bool,
 ) -> Result<LocalValidationResult, LocalValidationError> {
     let body = io::read_request_body(request, prefetched_body)?;
+    let request_metadata = super::parse_request_metadata(&body);
     let incoming_headers = super::IncomingHeaderSnapshot::from_request(request);
-    let platform_key = io::extract_platform_key_or_error(request, &incoming_headers, debug)?;
+    let platform_key = io::extract_platform_key_or_error(request, &incoming_headers, debug)
+        .map_err(|err| err.with_request_metadata(&request_metadata))?;
 
-    let storage = auth::open_storage_or_error()?;
-    let api_key = auth::load_active_api_key(&storage, &platform_key, request.url(), debug)?;
+    let storage = auth::open_storage_or_error()
+        .map_err(|err| err.with_request_metadata(&request_metadata))?;
+    let api_key = auth::load_active_api_key(&storage, &platform_key, request.url(), debug)
+        .map_err(|err| err.with_request_metadata(&request_metadata))?;
 
     request::build_local_validation_result(
         request,
@@ -94,6 +123,7 @@ pub(super) fn prepare_local_request(
         body,
         api_key,
     )
+    .map_err(|err| err.with_request_metadata(&request_metadata))
 }
 
 pub(super) fn header_text_for_log(request: &Request, header_name: &str) -> Option<String> {
@@ -102,4 +132,46 @@ pub(super) fn header_text_for_log(request: &Request, header_name: &str) -> Optio
 
 pub(super) fn host_port_for_log(host: Option<&str>) -> Option<String> {
     io::host_port_for_log(host)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::LocalValidationError;
+    use crate::gateway::{parse_request_metadata, ModelType};
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn unique_temp_db_path() -> PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        std::env::temp_dir().join(format!("codexmanager-validation-error-test-{unique}.db"))
+    }
+
+    #[test]
+    fn local_validation_error_preserves_image_request_metadata() {
+        let _guard = crate::test_env_guard();
+        let db_path = unique_temp_db_path();
+        let previous_db_path = std::env::var("CODEXMANAGER_DB_PATH").ok();
+        std::env::set_var("CODEXMANAGER_DB_PATH", &db_path);
+        crate::app_settings::set_gateway_model_lists("gpt-image2", "")
+            .expect("configure image model");
+
+        let error = LocalValidationError::new(401, "invalid api key").with_request_metadata(
+            &parse_request_metadata(br#"{"model":"gpt-image2","n":2,"size":"4K"}"#),
+        );
+
+        assert_eq!(error.model_for_log.as_deref(), Some("gpt-image2"));
+        assert_eq!(error.model_type, ModelType::Image);
+        assert_eq!(error.image_count, Some(2));
+        assert_eq!(error.image_size.as_deref(), Some("4K"));
+
+        if let Some(value) = previous_db_path {
+            std::env::set_var("CODEXMANAGER_DB_PATH", value);
+        } else {
+            std::env::remove_var("CODEXMANAGER_DB_PATH");
+        }
+        let _ = std::fs::remove_file(&db_path);
+    }
 }

@@ -1,3 +1,4 @@
+use crate::gateway::ModelType;
 use codexmanager_core::storage::{Account, Storage, Token};
 use tiny_http::Request;
 
@@ -7,6 +8,27 @@ pub(in super::super) enum CandidatePrecheckResult {
         candidates: Vec<(Account, Token)>,
     },
     Responded,
+}
+
+fn request_log_trace_context<'a>(
+    trace_id: &'a str,
+    original_path: &'a str,
+    path: &'a str,
+    response_adapter: super::super::super::ResponseAdapter,
+    model_type: ModelType,
+    image_count: Option<i64>,
+    image_size: Option<&'a str>,
+) -> super::super::super::request_log::RequestLogTraceContext<'a> {
+    super::super::super::request_log::RequestLogTraceContext {
+        trace_id: Some(trace_id),
+        original_path: Some(original_path),
+        adapted_path: Some(path),
+        response_adapter: Some(response_adapter),
+        model_type: Some(model_type),
+        image_count,
+        image_size,
+        ..Default::default()
+    }
 }
 
 /// 函数 `prepare_candidates_for_proxy`
@@ -31,6 +53,9 @@ pub(in super::super) fn prepare_candidates_for_proxy(
     response_adapter: super::super::super::ResponseAdapter,
     request_method: &str,
     model_for_log: Option<&str>,
+    model_type: ModelType,
+    image_count: Option<i64>,
+    image_size: Option<&str>,
     reasoning_for_log: Option<&str>,
 ) -> CandidatePrecheckResult {
     let candidates: Vec<(Account, Token)> =
@@ -40,13 +65,15 @@ pub(in super::super) fn prepare_candidates_for_proxy(
                 let err_text = format!("candidate resolve failed: {err}");
                 super::super::super::write_request_log(
                     storage,
-                    super::super::super::request_log::RequestLogTraceContext {
-                        trace_id: Some(trace_id),
-                        original_path: Some(original_path),
-                        adapted_path: Some(path),
-                        response_adapter: Some(response_adapter),
-                        ..Default::default()
-                    },
+                    request_log_trace_context(
+                        trace_id,
+                        original_path,
+                        path,
+                        response_adapter,
+                        model_type,
+                        image_count,
+                        image_size,
+                    ),
                     Some(key_id),
                     None,
                     path,
@@ -80,13 +107,15 @@ pub(in super::super) fn prepare_candidates_for_proxy(
     if candidates.is_empty() {
         super::super::super::write_request_log(
             storage,
-            super::super::super::request_log::RequestLogTraceContext {
-                trace_id: Some(trace_id),
-                original_path: Some(original_path),
-                adapted_path: Some(path),
-                response_adapter: Some(response_adapter),
-                ..Default::default()
-            },
+            request_log_trace_context(
+                trace_id,
+                original_path,
+                path,
+                response_adapter,
+                model_type,
+                image_count,
+                image_size,
+            ),
             Some(key_id),
             None,
             path,
@@ -119,5 +148,28 @@ pub(in super::super) fn prepare_candidates_for_proxy(
     CandidatePrecheckResult::Ready {
         request,
         candidates,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::request_log_trace_context;
+    use crate::gateway::{ModelType, ResponseAdapter};
+
+    #[test]
+    fn request_log_context_preserves_image_request_metadata() {
+        let context = request_log_trace_context(
+            "trace-image",
+            "/v1/images/generations",
+            "/v1/images/generations",
+            ResponseAdapter::Passthrough,
+            ModelType::Image,
+            Some(2),
+            Some("4K"),
+        );
+
+        assert_eq!(context.model_type, Some(ModelType::Image));
+        assert_eq!(context.image_count, Some(2));
+        assert_eq!(context.image_size, Some("4K"));
     }
 }

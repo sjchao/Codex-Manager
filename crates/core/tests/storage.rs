@@ -121,6 +121,12 @@ fn storage_aggregate_api_weight_roundtrip() {
     let aggregate_api = AggregateApi {
         id: "agg-weight-1".to_string(),
         provider_type: "codex".to_string(),
+        supported_models: vec![
+            " gpt-5 ".to_string(),
+            "GPT-5".to_string(),
+            "gpt-image2".to_string(),
+            " ".to_string(),
+        ],
         supplier_name: Some("weighted".to_string()),
         sort: 10,
         weight: 250,
@@ -153,6 +159,19 @@ fn storage_aggregate_api_weight_roundtrip() {
         .expect("find updated aggregate api")
         .expect("updated aggregate api exists");
     assert_eq!(updated.weight, 500);
+    assert_eq!(updated.supported_models, vec!["gpt-5", "gpt-image2"]);
+
+    storage
+        .update_aggregate_api_supported_models(
+            "agg-weight-1",
+            &[" gpt-video ".to_string(), "GPT-VIDEO".to_string()],
+        )
+        .expect("update aggregate api supported models");
+    let updated_models = storage
+        .find_aggregate_api_by_id("agg-weight-1")
+        .expect("find aggregate api after model update")
+        .expect("aggregate api exists after model update");
+    assert_eq!(updated_models.supported_models, vec!["gpt-video"]);
 }
 
 #[test]
@@ -164,6 +183,7 @@ fn storage_aggregate_api_list_uses_created_at_as_tiebreaker() {
         .insert_aggregate_api(&AggregateApi {
             id: "agg-created-old".to_string(),
             provider_type: "codex".to_string(),
+            supported_models: vec![],
             supplier_name: Some("older-created".to_string()),
             sort: 10,
             weight: 100,
@@ -184,6 +204,7 @@ fn storage_aggregate_api_list_uses_created_at_as_tiebreaker() {
         .insert_aggregate_api(&AggregateApi {
             id: "agg-created-new".to_string(),
             provider_type: "codex".to_string(),
+            supported_models: vec![],
             supplier_name: Some("newer-created".to_string()),
             sort: 10,
             weight: 100,

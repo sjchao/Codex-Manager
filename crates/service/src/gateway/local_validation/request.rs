@@ -9,6 +9,7 @@ use reqwest::Method;
 use tiny_http::Request;
 
 use super::{LocalValidationError, LocalValidationResult};
+use super::super::model_type::classify_model_for_gateway_settings;
 
 /// 函数 `resolve_effective_request_overrides`
 ///
@@ -306,6 +307,8 @@ pub(super) fn build_local_validation_result(
         );
         let incoming_headers = incoming_headers
             .with_conversation_id_override(initial_local_conversation_id.as_deref());
+        let model_type = classify_model_for_gateway_settings(model_for_log.as_deref());
+        let final_request_meta = super::super::parse_request_metadata(&rewritten_body);
         return Ok(LocalValidationResult {
             trace_id,
             incoming_headers,
@@ -330,6 +333,9 @@ pub(super) fn build_local_validation_result(
             local_conversation_id: initial_local_conversation_id,
             conversation_binding: None,
             model_for_log,
+            model_type,
+            image_count: final_request_meta.image_count,
+            image_size: final_request_meta.image_size,
             reasoning_for_log,
             service_tier_for_log,
             effective_service_tier_for_log,
@@ -408,7 +414,10 @@ pub(super) fn build_local_validation_result(
     };
 
     let request_meta = super::super::parse_request_metadata(&body);
+    let image_count = request_meta.image_count;
+    let image_size = request_meta.image_size;
     let model_for_log = request_meta.model.or(api_key.model_slug.clone());
+    let model_type = classify_model_for_gateway_settings(model_for_log.as_deref());
     let reasoning_for_log = request_meta
         .reasoning_effort
         .or(api_key.reasoning_effort.clone());
@@ -444,6 +453,9 @@ pub(super) fn build_local_validation_result(
         rotation_strategy: api_key.rotation_strategy,
         aggregate_api_id: api_key.aggregate_api_id,
         model_for_log,
+        model_type,
+        image_count,
+        image_size,
         reasoning_for_log,
         service_tier_for_log,
         effective_service_tier_for_log,

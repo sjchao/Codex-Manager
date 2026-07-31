@@ -105,6 +105,9 @@ pub(in super::super) fn proxy_validated_request(
         local_conversation_id,
         conversation_binding,
         model_for_log,
+        model_type,
+        image_count,
+        image_size,
         reasoning_for_log,
         service_tier_for_log,
         effective_service_tier_for_log,
@@ -152,11 +155,16 @@ pub(in super::super) fn proxy_validated_request(
             match super::protocol::aggregate_api::resolve_aggregate_api_rotation_candidates(
                 &storage,
                 protocol_type.as_str(),
+                model_for_log.as_deref(),
                 aggregate_api_id.as_deref(),
             ) {
                 Ok(candidates) => candidates,
                 Err(err) => {
-                    let message = err;
+                    let message = format!(
+                        "{err}; model={}; model_type={}",
+                        model_for_log.as_deref().unwrap_or("unknown"),
+                        model_type.as_str()
+                    );
                     super::super::record_gateway_request_outcome(
                         path.as_str(),
                         404,
@@ -178,6 +186,9 @@ pub(in super::super) fn proxy_validated_request(
                             adapted_path: Some(path.as_str()),
                             queue_wait_ms,
                             response_adapter: Some(super::super::ResponseAdapter::Passthrough),
+                            model_type: Some(model_type),
+                            image_count,
+                            image_size: image_size.as_deref(),
                             effective_service_tier: effective_service_tier_for_log.as_deref(),
                             ..Default::default()
                         },
@@ -223,6 +234,9 @@ pub(in super::super) fn proxy_validated_request(
             client_is_stream,
             super::super::ResponseAdapter::Passthrough,
             model_for_log.as_deref(),
+            model_type,
+            image_count,
+            image_size.as_deref(),
             reasoning_for_log.as_deref(),
             effective_service_tier_for_log.as_deref(),
             aggregate_api_candidates,
@@ -247,6 +261,9 @@ pub(in super::super) fn proxy_validated_request(
             response_adapter,
             &tool_name_restore_map,
             model_for_log.as_deref(),
+            model_type,
+            image_count,
+            image_size.as_deref(),
             reasoning_for_log.as_deref(),
             effective_service_tier_for_log.as_deref(),
             upstream_base_url.as_deref(),
@@ -267,6 +284,9 @@ pub(in super::super) fn proxy_validated_request(
         response_adapter,
         &request_method,
         model_for_log.as_deref(),
+        model_type,
+        image_count,
+        image_size.as_deref(),
         reasoning_for_log.as_deref(),
     ) {
         CandidatePrecheckResult::Ready {
@@ -301,6 +321,9 @@ pub(in super::super) fn proxy_validated_request(
         response_adapter,
         protocol_type.as_str(),
         model_for_log.as_deref(),
+        model_type,
+        image_count,
+        image_size.as_deref(),
         reasoning_for_log.as_deref(),
         service_tier_for_log.as_deref(),
         effective_service_tier_for_log.as_deref(),

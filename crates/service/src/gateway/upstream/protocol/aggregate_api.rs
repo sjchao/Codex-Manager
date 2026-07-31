@@ -12,6 +12,7 @@ use crate::aggregate_api::{
     AGGREGATE_API_PROVIDER_CODEX, AGGREGATE_API_STATUS_ACTIVE,
 };
 use crate::gateway::request_log::{AggregateApiAttemptFailure, RequestLogUsage};
+use crate::gateway::model_type::ModelType;
 
 const AGGREGATE_API_RETRY_ATTEMPTS_PER_CHANNEL: usize = 3;
 static AGGREGATE_API_BUCKET_ROUTE_STATE: OnceLock<Mutex<HashMap<String, HashMap<String, i64>>>> =
@@ -777,6 +778,7 @@ fn build_aggregate_api_request(
 pub(crate) fn resolve_aggregate_api_rotation_candidates(
     storage: &Storage,
     protocol_type: &str,
+    requested_model: Option<&str>,
     aggregate_api_id: Option<&str>,
 ) -> Result<Vec<AggregateApi>, String> {
     let provider_type = if protocol_type == "anthropic_native" {
@@ -792,6 +794,7 @@ pub(crate) fn resolve_aggregate_api_rotation_candidates(
         .filter(|api| {
             is_aggregate_api_active(api.status.as_str())
                 && normalize_provider_type_value(api.provider_type.as_str()) == provider_type
+                && aggregate_api_supports_model(api, requested_model)
         })
         .collect::<Vec<_>>();
     candidates = normalize_candidate_order(candidates);
@@ -805,7 +808,9 @@ pub(crate) fn resolve_aggregate_api_rotation_candidates(
             .map_err(|err| err.to_string())?
         {
             let preferred_provider = normalize_provider_type_value(preferred.provider_type.as_str());
-            if is_aggregate_api_active(preferred.status.as_str()) && preferred_provider == provider_type
+            if is_aggregate_api_active(preferred.status.as_str())
+                && preferred_provider == provider_type
+                && aggregate_api_supports_model(&preferred, requested_model)
             {
                 candidates.retain(|api| api.id != preferred.id);
                 candidates.insert(0, preferred);
@@ -815,11 +820,21 @@ pub(crate) fn resolve_aggregate_api_rotation_candidates(
 
     if candidates.is_empty() {
         Err(format!(
-            "aggregate api not found for provider {provider_type}"
+            "aggregate api not found for provider {provider_type} and model {}",
+            requested_model.unwrap_or("unknown")
         ))
     } else {
         Ok(candidates)
     }
+}
+
+fn aggregate_api_supports_model(api: &AggregateApi, requested_model: Option<&str>) -> bool {
+    let Some(requested_model) = requested_model.map(str::trim).filter(|model| !model.is_empty()) else {
+        return false;
+    };
+    api.supported_models
+        .iter()
+        .any(|model| model.eq_ignore_ascii_case(requested_model))
 }
 
 /// 函数 `proxy_aggregate_request`
@@ -847,6 +862,9 @@ pub(in super::super) fn proxy_aggregate_request(
     is_stream: bool,
     response_adapter: super::super::super::ResponseAdapter,
     model_for_log: Option<&str>,
+    model_type: ModelType,
+    image_count: Option<i64>,
+    image_size: Option<&str>,
     reasoning_for_log: Option<&str>,
     effective_service_tier_for_log: Option<&str>,
     aggregate_api_candidates: Vec<AggregateApi>,
@@ -958,6 +976,9 @@ pub(in super::super) fn proxy_aggregate_request(
                         adapted_path: Some(path),
                         queue_wait_ms,
                         response_adapter: Some(response_adapter),
+                        model_type: Some(model_type),
+                        image_count,
+                        image_size,
                         effective_service_tier: effective_service_tier_for_log,
                         aggregate_api_supplier_name: candidate_supplier_name.as_deref(),
                         aggregate_api_url: Some(candidate_url.as_str()),
@@ -1214,6 +1235,9 @@ pub(in super::super) fn proxy_aggregate_request(
                     adapted_path: Some(path),
                     queue_wait_ms,
                     response_adapter: Some(response_adapter),
+                    model_type: Some(model_type),
+                    image_count,
+                    image_size,
                     effective_service_tier: effective_service_tier_for_log,
                     aggregate_api_supplier_name: candidate_supplier_name.as_deref(),
                     aggregate_api_url: Some(candidate_url.as_str()),
@@ -1286,6 +1310,9 @@ pub(in super::super) fn proxy_aggregate_request(
             adapted_path: Some(path),
             queue_wait_ms,
             response_adapter: Some(response_adapter),
+            model_type: Some(model_type),
+            image_count,
+            image_size,
             effective_service_tier: effective_service_tier_for_log,
             aggregate_api_supplier_name: last_attempt_supplier_name.as_deref(),
             aggregate_api_url: last_attempt_url.as_deref(),
@@ -1334,6 +1361,7 @@ mod bridge_tests {
         AggregateApi {
             id: id.to_string(),
             provider_type: AGGREGATE_API_PROVIDER_CODEX.to_string(),
+            supported_models: vec!["gpt-5.6-terra".to_string()],
             supplier_name: None,
             sort,
             weight,
@@ -1524,11 +1552,12 @@ mod bridge_tests {
 
 #[cfg(test)]
 mod tests {
-    use codexmanager_core::storage::AggregateApi;
+    use codexmanager_core::storage::{AggregateApi, Storage};
 
     use super::{
-        build_upstream_url, effective_action_path, resolve_passthrough_sse_protocol,
-        should_failover_after_aggregate_bridge, should_retry_same_aggregate_candidate,
+        build_upstream_url, effective_action_path, resolve_aggregate_api_rotation_candidates,
+        resolve_passthrough_sse_protocol, should_failover_after_aggregate_bridge,
+        should_retry_same_aggregate_candidate,
     };
     use crate::gateway::{PassthroughSseProtocol, ResponseAdapter};
 
@@ -1536,6 +1565,7 @@ mod tests {
         AggregateApi {
             id: "agg-path-test".to_string(),
             provider_type: "claude".to_string(),
+            supported_models: vec!["claude-haiku-4-5-20251001".to_string()],
             supplier_name: Some("test".to_string()),
             sort: 0,
             weight: 100,
@@ -1705,5 +1735,51 @@ mod tests {
         } else {
             status_code
         }
+    }
+
+    #[test]
+    fn aggregate_rotation_matches_final_model_before_applying_preferred_supplier() {
+        let storage = Storage::open_in_memory().expect("open storage");
+        storage.init().expect("init storage");
+
+        let mut text = aggregate_api_with_action(None);
+        text.id = "text-preferred".to_string();
+        text.provider_type = "codex".to_string();
+        text.supported_models = vec!["gpt-5.6-terra".to_string()];
+        storage
+            .insert_aggregate_api(&text)
+            .expect("insert text supplier");
+
+        let mut image = aggregate_api_with_action(None);
+        image.id = "image-supplier".to_string();
+        image.provider_type = "codex".to_string();
+        image.supported_models = vec!["gpt-image2".to_string()];
+        storage
+            .insert_aggregate_api(&image)
+            .expect("insert image supplier");
+
+        let mut video = aggregate_api_with_action(None);
+        video.id = "video-supplier".to_string();
+        video.provider_type = "codex".to_string();
+        video.supported_models = vec!["sora-2".to_string()];
+        storage
+            .insert_aggregate_api(&video)
+            .expect("insert video supplier");
+
+        let candidates = resolve_aggregate_api_rotation_candidates(
+            &storage,
+            "openai_compat",
+            Some("GPT-IMAGE2"),
+            Some("text-preferred"),
+        )
+        .expect("resolve image candidates");
+
+        assert_eq!(
+            candidates
+                .iter()
+                .map(|candidate| candidate.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["image-supplier"]
+        );
     }
 }

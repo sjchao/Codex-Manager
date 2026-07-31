@@ -38,6 +38,7 @@ pub async fn service_aggregate_api_list(
 pub async fn service_aggregate_api_create(
     addr: Option<String>,
     provider_type: Option<String>,
+    supported_models: Option<Vec<String>>,
     supplier_name: Option<String>,
     sort: Option<i64>,
     weight: Option<i64>,
@@ -53,6 +54,7 @@ pub async fn service_aggregate_api_create(
 ) -> Result<serde_json::Value, String> {
     let params = serde_json::json!({
         "providerType": provider_type,
+        "supportedModels": supported_models,
         "supplierName": supplier_name,
         "sort": sort,
         "weight": weight,
@@ -91,6 +93,7 @@ pub async fn service_aggregate_api_update(
     addr: Option<String>,
     id: String,
     provider_type: Option<String>,
+    supported_models: Option<Vec<String>>,
     supplier_name: Option<String>,
     sort: Option<i64>,
     weight: Option<i64>,
@@ -107,6 +110,7 @@ pub async fn service_aggregate_api_update(
     let params = serde_json::json!({
         "id": id,
         "providerType": provider_type,
+        "supportedModels": supported_models,
         "supplierName": supplier_name,
         "sort": sort,
         "weight": weight,
@@ -202,4 +206,13 @@ pub async fn service_aggregate_api_test_connection(
 ) -> Result<serde_json::Value, String> {
     let params = serde_json::json!({ "id": id });
     rpc_call_in_background("aggregateApi/testConnection", addr, Some(params)).await
+}
+
+#[tauri::command]
+pub async fn service_aggregate_api_refresh_models(
+    addr: Option<String>,
+    id: String,
+) -> Result<serde_json::Value, String> {
+    let params = serde_json::json!({ "id": id });
+    rpc_call_in_background("aggregateApi/refreshModels", addr, Some(params)).await
 }

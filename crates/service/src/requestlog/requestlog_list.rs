@@ -73,16 +73,22 @@ pub(crate) fn read_request_log_page(
     let storage = open_storage().ok_or_else(|| "open storage failed".to_string())?;
     let query = normalize_optional_text(params.query);
     let status_filter = normalize_status_filter(params.status_filter);
+    let model_type = normalize_model_type_filter(params.model_type);
     let page_size = normalize_page_size(params.page_size);
     let total = storage
-        .count_request_logs(query.as_deref(), status_filter.as_deref())
+        .count_request_logs_by_model_type(
+            query.as_deref(),
+            status_filter.as_deref(),
+            model_type.as_deref(),
+        )
         .map_err(|err| format!("count request logs failed: {err}"))?;
     let page = clamp_page(params.page, total, page_size);
     let offset = (page - 1) * page_size;
     let logs = storage
-        .list_request_logs_paginated(
+        .list_request_logs_paginated_by_model_type(
             query.as_deref(),
             status_filter.as_deref(),
+            model_type.as_deref(),
             offset,
             page_size,
         )
@@ -131,6 +137,14 @@ pub(crate) fn normalize_status_filter(value: Option<String>) -> Option<String> {
     match normalized.as_str() {
         "" | "all" => None,
         "2xx" | "4xx" | "5xx" => Some(normalized),
+        _ => None,
+    }
+}
+
+pub(crate) fn normalize_model_type_filter(value: Option<String>) -> Option<String> {
+    let normalized = value.unwrap_or_default().trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "text" | "image" | "video" => Some(normalized),
         _ => None,
     }
 }
@@ -216,6 +230,15 @@ fn to_request_log_summary(item: RequestLog) -> RequestLogSummary {
         method: item.method,
         request_type: item.request_type,
         model: item.model,
+        model_type: item
+            .model_type
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("text")
+            .to_string(),
+        image_count: item.image_count,
+        image_size: item.image_size,
         reasoning_effort: item.reasoning_effort,
         service_tier: item.service_tier,
         effective_service_tier: item.effective_service_tier,
@@ -241,7 +264,8 @@ fn to_request_log_summary(item: RequestLog) -> RequestLogSummary {
 #[cfg(test)]
 mod tests {
     use super::{
-        normalize_optional_text, normalize_status_filter, normalize_upstream_url,
+        normalize_model_type_filter, normalize_optional_text, normalize_status_filter,
+        normalize_upstream_url,
         RequestLogListParams, DEFAULT_REQUEST_LOG_PAGE_SIZE,
     };
     use codexmanager_core::storage::RequestLog;
@@ -388,6 +412,16 @@ mod tests {
         );
         assert_eq!(normalize_status_filter(Some("ALL".to_string())), None);
         assert_eq!(normalize_status_filter(Some("unknown".to_string())), None);
+    }
+
+    #[test]
+    fn normalize_model_type_filter_accepts_known_values() {
+        assert_eq!(
+            normalize_model_type_filter(Some("IMAGE".to_string())).as_deref(),
+            Some("image")
+        );
+        assert_eq!(normalize_model_type_filter(Some("all".to_string())), None);
+        assert_eq!(normalize_model_type_filter(Some("audio".to_string())), None);
     }
 
     /// 函数 `normalize_optional_text_trims_blank_values`

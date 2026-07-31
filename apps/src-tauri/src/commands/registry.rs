@@ -79,6 +79,7 @@ macro_rules! invoke_handler {
             crate::commands::aggregate_api::service_aggregate_api_disable,
             crate::commands::aggregate_api::service_aggregate_api_enable,
             crate::commands::aggregate_api::service_aggregate_api_test_connection,
+            crate::commands::aggregate_api::service_aggregate_api_refresh_models,
             crate::commands::apikey::service_apikey_list,
             crate::commands::apikey::service_apikey_read_secret,
             crate::commands::apikey::service_apikey_create,

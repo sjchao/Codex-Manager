@@ -46,6 +46,10 @@ impl Storage {
             "CREATE INDEX IF NOT EXISTS idx_request_logs_trace_id_created_at ON request_logs(trace_id, created_at DESC)",
             [],
         )?;
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_request_logs_model_type_created_at ON request_logs(model_type, created_at DESC, id DESC)",
+            [],
+        )?;
         Ok(())
     }
 
@@ -66,8 +70,8 @@ impl Storage {
             "INSERT INTO request_logs (
                 trace_id, key_id, account_id, initial_account_id, attempted_account_ids_json, initial_aggregate_api_id, attempted_aggregate_api_ids_json, aggregate_api_attempt_failures_json,
                 request_path, original_path, adapted_path,
-                method, request_type, model, reasoning_effort, service_tier, effective_service_tier, response_adapter, upstream_url, aggregate_api_supplier_name, aggregate_api_url, status_code, duration_ms, first_response_ms, queue_wait_ms, error, created_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27)",
+                method, request_type, model, model_type, image_count, image_size, reasoning_effort, service_tier, effective_service_tier, response_adapter, upstream_url, aggregate_api_supplier_name, aggregate_api_url, status_code, duration_ms, first_response_ms, queue_wait_ms, error, created_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, COALESCE(NULLIF(TRIM(?15), ''), 'text'), ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30)",
             params![
                 &log.trace_id,
                 &log.key_id,
@@ -83,6 +87,9 @@ impl Storage {
                 &log.method,
                 &log.request_type,
                 &log.model,
+                &log.model_type,
+                log.image_count,
+                &log.image_size,
                 &log.reasoning_effort,
                 &log.service_tier,
                 &log.effective_service_tier,
@@ -124,8 +131,8 @@ impl Storage {
             "INSERT INTO request_logs (
                 trace_id, key_id, account_id, initial_account_id, attempted_account_ids_json, initial_aggregate_api_id, attempted_aggregate_api_ids_json, aggregate_api_attempt_failures_json,
                 request_path, original_path, adapted_path,
-                method, request_type, model, reasoning_effort, service_tier, effective_service_tier, response_adapter, upstream_url, aggregate_api_supplier_name, aggregate_api_url, status_code, duration_ms, first_response_ms, queue_wait_ms, error, created_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27)",
+                method, request_type, model, model_type, image_count, image_size, reasoning_effort, service_tier, effective_service_tier, response_adapter, upstream_url, aggregate_api_supplier_name, aggregate_api_url, status_code, duration_ms, first_response_ms, queue_wait_ms, error, created_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, COALESCE(NULLIF(TRIM(?15), ''), 'text'), ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30)",
             params![
                 &log.trace_id,
                 &log.key_id,
@@ -141,6 +148,9 @@ impl Storage {
                 &log.method,
                 &log.request_type,
                 &log.model,
+                &log.model_type,
+                log.image_count,
+                &log.image_size,
                 &log.reasoning_effort,
                 &log.service_tier,
                 &log.effective_service_tier,
@@ -239,14 +249,31 @@ impl Storage {
         offset: i64,
         limit: i64,
     ) -> Result<Vec<RequestLog>> {
+        self.list_request_logs_paginated_by_model_type(
+            query,
+            status_filter,
+            None,
+            offset,
+            limit,
+        )
+    }
+
+    pub fn list_request_logs_paginated_by_model_type(
+        &self,
+        query: Option<&str>,
+        status_filter: Option<&str>,
+        model_type_filter: Option<&str>,
+        offset: i64,
+        limit: i64,
+    ) -> Result<Vec<RequestLog>> {
         let normalized_limit = normalize_request_log_limit(limit);
         let normalized_offset = offset.max(0);
-        let filters = build_request_log_filters(query, status_filter);
+        let filters = build_request_log_filters(query, status_filter, model_type_filter);
         let sql = format!(
             "SELECT
                 r.trace_id, r.key_id, r.account_id, r.initial_account_id, r.attempted_account_ids_json, r.initial_aggregate_api_id, r.attempted_aggregate_api_ids_json, r.aggregate_api_attempt_failures_json,
                 r.request_path, r.original_path, r.adapted_path,
-                r.method, r.request_type, r.model, r.reasoning_effort, r.service_tier, r.effective_service_tier, r.response_adapter, r.upstream_url, r.aggregate_api_supplier_name, r.aggregate_api_url, r.status_code, r.duration_ms, r.first_response_ms, r.queue_wait_ms,
+                r.method, r.request_type, r.model, COALESCE(NULLIF(TRIM(r.model_type), ''), 'text'), r.image_count, r.image_size, r.reasoning_effort, r.service_tier, r.effective_service_tier, r.response_adapter, r.upstream_url, r.aggregate_api_supplier_name, r.aggregate_api_url, r.status_code, r.duration_ms, r.first_response_ms, r.queue_wait_ms,
                 t.input_tokens, t.cached_input_tokens, t.output_tokens, t.total_tokens, t.reasoning_output_tokens, t.estimated_cost_usd,
                 r.error, r.created_at
              FROM request_logs r
@@ -287,7 +314,16 @@ impl Storage {
         query: Option<&str>,
         status_filter: Option<&str>,
     ) -> Result<i64> {
-        let filters = build_request_log_filters(query, status_filter);
+        self.count_request_logs_by_model_type(query, status_filter, None)
+    }
+
+    pub fn count_request_logs_by_model_type(
+        &self,
+        query: Option<&str>,
+        status_filter: Option<&str>,
+        model_type_filter: Option<&str>,
+    ) -> Result<i64> {
+        let filters = build_request_log_filters(query, status_filter, model_type_filter);
         let sql = format!(
             "SELECT COUNT(1)
              FROM request_logs r
@@ -319,7 +355,16 @@ impl Storage {
         query: Option<&str>,
         status_filter: Option<&str>,
     ) -> Result<RequestLogQuerySummary> {
-        let filters = build_request_log_filters(query, status_filter);
+        self.summarize_request_logs_filtered_by_model_type(query, status_filter, None)
+    }
+
+    pub fn summarize_request_logs_filtered_by_model_type(
+        &self,
+        query: Option<&str>,
+        status_filter: Option<&str>,
+        model_type_filter: Option<&str>,
+    ) -> Result<RequestLogQuerySummary> {
+        let filters = build_request_log_filters(query, status_filter, model_type_filter);
         let sql = format!(
             "SELECT
                 COUNT(1),
@@ -422,6 +467,9 @@ impl Storage {
                 method TEXT NOT NULL,
                 request_type TEXT,
                 model TEXT,
+                model_type TEXT NOT NULL DEFAULT 'text',
+                image_count INTEGER,
+                image_size TEXT,
                 reasoning_effort TEXT,
                 service_tier TEXT,
                 effective_service_tier TEXT,
@@ -438,7 +486,7 @@ impl Storage {
             )",
             [],
         )?;
-        self.ensure_request_logs_indexes()?;
+        self.ensure_request_log_model_type_and_media_columns()?;
         Ok(())
     }
 
@@ -606,6 +654,24 @@ impl Storage {
         Ok(())
     }
 
+    pub(super) fn ensure_request_log_model_type_and_media_columns(&self) -> Result<()> {
+        self.ensure_column(
+            "request_logs",
+            "model_type",
+            "TEXT NOT NULL DEFAULT 'text'",
+        )?;
+        self.ensure_column("request_logs", "image_count", "INTEGER")?;
+        self.ensure_column("request_logs", "image_size", "TEXT")?;
+        self.conn.execute(
+            "UPDATE request_logs
+             SET model_type = 'text'
+             WHERE model_type IS NULL OR TRIM(model_type) = ''",
+            [],
+        )?;
+        self.ensure_request_logs_indexes()?;
+        Ok(())
+    }
+
     pub(super) fn ensure_request_log_request_type_and_service_tier_columns(&self) -> Result<()> {
         self.ensure_column("request_logs", "request_type", "TEXT")?;
         self.ensure_column("request_logs", "service_tier", "TEXT")?;
@@ -670,6 +736,9 @@ impl Storage {
                 method TEXT NOT NULL,
                 request_type TEXT,
                 model TEXT,
+                model_type TEXT NOT NULL DEFAULT 'text',
+                image_count INTEGER,
+                image_size TEXT,
                 reasoning_effort TEXT,
                 service_tier TEXT,
                 effective_service_tier TEXT,
@@ -687,11 +756,11 @@ impl Storage {
              INSERT INTO request_logs (
                 id, trace_id, key_id, account_id, initial_account_id, attempted_account_ids_json, initial_aggregate_api_id, attempted_aggregate_api_ids_json,
                 request_path, original_path, adapted_path,
-                method, request_type, model, reasoning_effort, service_tier, effective_service_tier, response_adapter, upstream_url, aggregate_api_supplier_name, aggregate_api_url, status_code, duration_ms, first_response_ms, queue_wait_ms, error, created_at
+                method, request_type, model, model_type, image_count, image_size, reasoning_effort, service_tier, effective_service_tier, response_adapter, upstream_url, aggregate_api_supplier_name, aggregate_api_url, status_code, duration_ms, first_response_ms, queue_wait_ms, error, created_at
              )
              SELECT
                 id, trace_id, key_id, account_id, NULL, NULL, NULL, NULL, request_path, original_path, adapted_path,
-                method, NULL, model, reasoning_effort, NULL, NULL, response_adapter, upstream_url, NULL, NULL, status_code, NULL, NULL, NULL, error, created_at
+                method, NULL, model, COALESCE(NULLIF(TRIM(model_type), ''), 'text'), image_count, image_size, reasoning_effort, NULL, NULL, response_adapter, upstream_url, NULL, NULL, status_code, NULL, NULL, NULL, error, created_at
              FROM request_logs_legacy_028;
              DROP TABLE request_logs_legacy_028;",
         )?;
@@ -729,25 +798,28 @@ fn map_request_log_row(row: &Row<'_>) -> Result<RequestLog> {
         method: row.get(11)?,
         request_type: row.get(12)?,
         model: row.get(13)?,
-        reasoning_effort: row.get(14)?,
-        service_tier: row.get(15)?,
-        effective_service_tier: row.get(16)?,
-        response_adapter: row.get(17)?,
-        upstream_url: row.get(18)?,
-        aggregate_api_supplier_name: row.get(19)?,
-        aggregate_api_url: row.get(20)?,
-        status_code: row.get(21)?,
-        duration_ms: row.get(22)?,
-        first_response_ms: row.get(23)?,
-        queue_wait_ms: row.get(24)?,
-        input_tokens: row.get(25)?,
-        cached_input_tokens: row.get(26)?,
-        output_tokens: row.get(27)?,
-        total_tokens: row.get(28)?,
-        reasoning_output_tokens: row.get(29)?,
-        estimated_cost_usd: row.get(30)?,
-        error: row.get(31)?,
-        created_at: row.get(32)?,
+        model_type: row.get(14)?,
+        image_count: row.get(15)?,
+        image_size: row.get(16)?,
+        reasoning_effort: row.get(17)?,
+        service_tier: row.get(18)?,
+        effective_service_tier: row.get(19)?,
+        response_adapter: row.get(20)?,
+        upstream_url: row.get(21)?,
+        aggregate_api_supplier_name: row.get(22)?,
+        aggregate_api_url: row.get(23)?,
+        status_code: row.get(24)?,
+        duration_ms: row.get(25)?,
+        first_response_ms: row.get(26)?,
+        queue_wait_ms: row.get(27)?,
+        input_tokens: row.get(28)?,
+        cached_input_tokens: row.get(29)?,
+        output_tokens: row.get(30)?,
+        total_tokens: row.get(31)?,
+        reasoning_output_tokens: row.get(32)?,
+        estimated_cost_usd: row.get(33)?,
+        error: row.get(34)?,
+        created_at: row.get(35)?,
     })
 }
 
@@ -790,6 +862,7 @@ fn normalize_request_log_limit(value: i64) -> i64 {
 fn build_request_log_filters(
     query: Option<&str>,
     status_filter: Option<&str>,
+    model_type_filter: Option<&str>,
 ) -> RequestLogSqlFilters {
     let mut clauses = Vec::new();
     let mut params = Vec::new();
@@ -800,6 +873,7 @@ fn build_request_log_filters(
         &mut params,
     );
     append_status_filter_clause(status_filter, &mut clauses, &mut params);
+    append_model_type_filter_clause(model_type_filter, &mut clauses, &mut params);
 
     RequestLogSqlFilters {
         where_clause: if clauses.is_empty() {
@@ -809,6 +883,22 @@ fn build_request_log_filters(
         },
         params,
     }
+}
+
+fn append_model_type_filter_clause(
+    model_type_filter: Option<&str>,
+    clauses: &mut Vec<String>,
+    params: &mut Vec<Value>,
+) {
+    let Some(model_type) = model_type_filter
+        .map(str::trim)
+        .map(str::to_ascii_lowercase)
+        .filter(|value| matches!(value.as_str(), "text" | "image" | "video"))
+    else {
+        return;
+    };
+    clauses.push("r.model_type = ?".to_string());
+    params.push(Value::Text(model_type));
 }
 
 /// 函数 `append_request_log_query_clause`

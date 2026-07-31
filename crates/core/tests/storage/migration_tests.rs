@@ -920,3 +920,308 @@ fn request_token_daily_stats_migration_adds_indexes() {
     assert!(day_index_sql.contains("request_token_daily_stats"));
     assert!(day_index_sql.contains("day_key DESC"));
 }
+
+#[test]
+fn model_type_migration_keeps_request_log_classification_after_supplier_column_removal() {
+    let storage = Storage::open_in_memory().expect("open in memory");
+    storage
+        .conn
+        .execute_batch(
+            "CREATE TABLE aggregate_apis (
+                id TEXT PRIMARY KEY,
+                provider_type TEXT,
+                supplier_name TEXT,
+                sort INTEGER,
+                weight INTEGER,
+                url TEXT NOT NULL,
+                auth_type TEXT,
+                auth_params_json TEXT,
+                action TEXT,
+                status TEXT,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                last_test_at INTEGER,
+                last_test_status TEXT,
+                last_test_error TEXT,
+                model_type TEXT
+             );
+             CREATE TABLE request_logs (
+                id INTEGER PRIMARY KEY,
+                trace_id TEXT,
+                key_id TEXT,
+                account_id TEXT,
+                request_path TEXT NOT NULL,
+                method TEXT NOT NULL,
+                model_type TEXT,
+                status_code INTEGER,
+                created_at INTEGER NOT NULL
+             );",
+        )
+        .expect("create 050-era tables");
+    storage
+        .ensure_migrations_table()
+        .expect("ensure migration tracker");
+    storage
+        .conn
+        .execute(
+            "INSERT INTO aggregate_apis (
+                id, provider_type, sort, weight, url, auth_type, status, created_at, updated_at,
+                model_type
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            (
+                "agg-model-type-legacy",
+                "codex",
+                0_i64,
+                100_i64,
+                "https://aggregate.example.test",
+                "apikey",
+                "active",
+                10_i64,
+                10_i64,
+                "",
+            ),
+        )
+        .expect("insert aggregate api with legacy model type");
+    storage
+        .conn
+        .execute(
+            "INSERT INTO request_logs (
+                trace_id, request_path, method, model_type, created_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5)",
+            ("trc-model-type-legacy", "/v1/images", "POST", "", 11_i64),
+        )
+        .expect("insert request log with legacy model type");
+
+    storage
+        .apply_sql_or_compat_migration(
+            "050_aggregate_api_model_types_and_request_log_media",
+            include_str!("../../migrations/050_aggregate_api_model_types_and_request_log_media.sql"),
+            |s| {
+                s.ensure_aggregate_apis_table()?;
+                s.ensure_request_log_model_type_and_media_columns()
+            },
+        )
+        .expect("apply 050 migration with fallback");
+
+    let applied_050: i64 = storage
+        .conn
+        .query_row(
+            "SELECT COUNT(1) FROM schema_migrations
+             WHERE version = '050_aggregate_api_model_types_and_request_log_media'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count 050 migration");
+    assert_eq!(applied_050, 1);
+
+    storage
+        .apply_sql_migration(
+            "051_aggregate_api_supported_models",
+            include_str!("../../migrations/051_aggregate_api_supported_models.sql"),
+        )
+        .expect("apply 051 migration");
+
+    let request_log_model_type: String = storage
+        .conn
+        .query_row(
+            "SELECT model_type FROM request_logs WHERE trace_id = 'trc-model-type-legacy'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("load request log model type");
+    assert_eq!(request_log_model_type, "text");
+
+    let aggregate_api = storage
+        .find_aggregate_api_by_id("agg-model-type-legacy")
+        .expect("find aggregate api")
+        .expect("aggregate api exists");
+    assert!(aggregate_api.supported_models.is_empty());
+    assert!(!storage
+        .has_column("aggregate_apis", "model_type")
+        .expect("check removed aggregate api model type"));
+
+    let index_sql: String = storage
+        .conn
+        .query_row(
+            "SELECT sql
+             FROM sqlite_master
+             WHERE type = 'index' AND name = 'idx_request_logs_model_type_created_at'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("load model type index definition");
+    assert!(index_sql.contains("model_type"));
+    assert!(index_sql.contains("created_at DESC"));
+    assert!(index_sql.contains("id DESC"));
+}
+
+#[test]
+fn model_type_compat_migration_preserves_request_log_classification() {
+    let storage = Storage::open_in_memory().expect("open in memory");
+    storage
+        .conn
+        .execute_batch(
+            "CREATE TABLE aggregate_apis (
+                id TEXT PRIMARY KEY,
+                provider_type TEXT,
+                supplier_name TEXT,
+                sort INTEGER,
+                weight INTEGER,
+                url TEXT NOT NULL,
+                auth_type TEXT,
+                auth_params_json TEXT,
+                action TEXT,
+                status TEXT,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                last_test_at INTEGER,
+                last_test_status TEXT,
+                last_test_error TEXT,
+                model_type TEXT
+             );
+             INSERT INTO aggregate_apis (
+                id, provider_type, url, status, created_at, updated_at, model_type
+             ) VALUES (
+                'agg-model-type-null', 'codex', 'https://aggregate.example.test', 'active', 20, 20, NULL
+             );
+             CREATE TABLE request_logs (
+                id INTEGER PRIMARY KEY,
+                trace_id TEXT,
+                key_id TEXT,
+                account_id TEXT,
+                request_path TEXT NOT NULL,
+                method TEXT NOT NULL,
+                status_code INTEGER,
+                created_at INTEGER NOT NULL,
+                model_type TEXT
+             );
+             INSERT INTO request_logs (
+                id, trace_id, request_path, method, created_at, model_type
+             ) VALUES (
+                1, 'trc-model-type-null', '/v1/responses', 'POST', 21, NULL
+             );",
+        )
+        .expect("create legacy tables with null model type");
+    storage
+        .ensure_migrations_table()
+        .expect("ensure migration tracker");
+
+    storage
+        .apply_sql_or_compat_migration(
+            "050_aggregate_api_model_types_and_request_log_media",
+            include_str!("../../migrations/050_aggregate_api_model_types_and_request_log_media.sql"),
+            |s| {
+                s.ensure_aggregate_apis_table()?;
+                s.ensure_request_log_model_type_and_media_columns()
+            },
+        )
+        .expect("apply 050 migration with fallback");
+
+    let request_log_model_type: String = storage
+        .conn
+        .query_row(
+            "SELECT model_type FROM request_logs WHERE trace_id = 'trc-model-type-null'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("load request log model type");
+    assert_eq!(request_log_model_type, "text");
+    assert!(storage
+        .find_aggregate_api_by_id("agg-model-type-null")
+        .expect("find migrated supplier")
+        .expect("migrated supplier exists")
+        .supported_models
+        .is_empty());
+}
+
+#[test]
+fn aggregate_api_supported_models_migration_removes_model_type() {
+    let storage = Storage::open_in_memory().expect("open in memory");
+    storage.init().expect("init schema");
+
+    assert!(storage
+        .has_column("aggregate_apis", "supported_models_json")
+        .expect("check aggregate_apis.supported_models_json"));
+    assert!(!storage
+        .has_column("aggregate_apis", "model_type")
+        .expect("check aggregate_apis.model_type"));
+
+    let stored_models: String = storage
+        .conn
+        .query_row(
+            "SELECT dflt_value
+             FROM pragma_table_info('aggregate_apis')
+             WHERE name = 'supported_models_json'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("read supported-model default");
+    assert_eq!(stored_models, "'[]'");
+}
+
+#[test]
+fn aggregate_api_supported_models_migration_preserves_supplier_secrets() {
+    let storage = Storage::open_in_memory().expect("open in memory");
+    storage
+        .conn
+        .execute_batch(
+            "PRAGMA foreign_keys = ON;
+             CREATE TABLE aggregate_apis (
+                id TEXT PRIMARY KEY,
+                provider_type TEXT NOT NULL,
+                model_type TEXT NOT NULL,
+                supplier_name TEXT,
+                sort INTEGER NOT NULL,
+                weight INTEGER NOT NULL,
+                url TEXT NOT NULL,
+                auth_type TEXT NOT NULL,
+                auth_params_json TEXT,
+                action TEXT,
+                status TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                last_test_at INTEGER,
+                last_test_status TEXT,
+                last_test_error TEXT
+             );
+             CREATE TABLE aggregate_api_secrets (
+                aggregate_api_id TEXT PRIMARY KEY REFERENCES aggregate_apis(id) ON DELETE CASCADE,
+                secret_value TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+             );
+             INSERT INTO aggregate_apis (
+                id, provider_type, model_type, sort, weight, url, auth_type, status, created_at, updated_at
+             ) VALUES (
+                'agg-secret-legacy', 'codex', 'image', 0, 100, 'https://aggregate.example.test',
+                'apikey', 'active', 1, 1
+             );
+             INSERT INTO aggregate_api_secrets (
+                aggregate_api_id, secret_value, created_at, updated_at
+             ) VALUES ('agg-secret-legacy', 'secret-value', 1, 1);",
+        )
+        .expect("create legacy supplier and secret");
+    storage
+        .ensure_migrations_table()
+        .expect("ensure migration tracker");
+
+    storage
+        .apply_sql_migration(
+            "051_aggregate_api_supported_models",
+            include_str!("../../migrations/051_aggregate_api_supported_models.sql"),
+        )
+        .expect("apply supported models migration");
+
+    assert_eq!(
+        storage
+            .find_aggregate_api_secret_by_id("agg-secret-legacy")
+            .expect("read preserved supplier secret"),
+        Some("secret-value".to_string())
+    );
+    assert!(storage
+        .find_aggregate_api_by_id("agg-secret-legacy")
+        .expect("read migrated supplier")
+        .expect("migrated supplier exists")
+        .supported_models
+        .is_empty());
+}

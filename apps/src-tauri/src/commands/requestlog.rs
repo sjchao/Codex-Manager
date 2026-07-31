@@ -20,12 +20,14 @@ pub async fn service_requestlog_list(
     addr: Option<String>,
     query: Option<String>,
     status_filter: Option<String>,
+    model_type: Option<String>,
     page: Option<i64>,
     page_size: Option<i64>,
 ) -> Result<serde_json::Value, String> {
     let params = serde_json::json!({
         "query": query,
         "statusFilter": status_filter,
+        "modelType": model_type,
         "page": page,
         "pageSize": page_size
     });
@@ -113,10 +115,12 @@ pub async fn service_requestlog_summary(
     addr: Option<String>,
     query: Option<String>,
     status_filter: Option<String>,
+    model_type: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let params = serde_json::json!({
         "query": query,
-        "statusFilter": status_filter
+        "statusFilter": status_filter,
+        "modelType": model_type
     });
     rpc_call_in_background("requestlog/summary", addr, Some(params)).await
 }

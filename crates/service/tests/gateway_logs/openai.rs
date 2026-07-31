@@ -1,4 +1,5 @@
 use super::*;
+use codexmanager_core::storage::AggregateApi;
 
 /// 函数 `gateway_openai_chat_completions_stabilizes_prompt_cache_key_without_conversation_id`
 ///
@@ -1827,6 +1828,97 @@ fn gateway_models_returns_cached_without_upstream() {
             .any(|item| item.get("id").and_then(|v| v.as_str()) == Some("gpt-5.3-codex")),
         "models response missing cached id: {response_body}"
     );
+}
+
+#[test]
+fn aggregate_api_models_return_the_enabled_supported_model_union() {
+    let _lock = test_env_guard();
+    let dir = new_test_dir("codexmanager-aggregate-api-models-list");
+    let db_path: PathBuf = dir.join("codexmanager.db");
+
+    let _db_guard = EnvGuard::set("CODEXMANAGER_DB_PATH", db_path.to_string_lossy().as_ref());
+    let storage = Storage::open(&db_path).expect("open db");
+    storage.init().expect("init db");
+    let now = now_ts();
+
+    for (id, status, models) in [
+        (
+            "agg-models-first",
+            "active",
+            vec!["gpt-image2", "gpt-5.6-terra"],
+        ),
+        (
+            "agg-models-second",
+            "active",
+            vec!["GPT-IMAGE2", "sora-2"],
+        ),
+        ("agg-models-disabled", "disabled", vec!["hidden-model"]),
+    ] {
+        storage
+            .insert_aggregate_api(&AggregateApi {
+                id: id.to_string(),
+                provider_type: "codex".to_string(),
+                supported_models: models.into_iter().map(str::to_string).collect(),
+                supplier_name: Some(id.to_string()),
+                sort: 0,
+                weight: 100,
+                url: "https://example.com/v1".to_string(),
+                auth_type: "apikey".to_string(),
+                auth_params_json: None,
+                action: None,
+                status: status.to_string(),
+                created_at: now,
+                updated_at: now,
+                last_test_at: None,
+                last_test_status: None,
+                last_test_error: None,
+            })
+            .expect("insert aggregate api");
+    }
+
+    let platform_key = "pk_aggregate_models";
+    storage
+        .insert_api_key(&ApiKey {
+            id: "gk_aggregate_models".to_string(),
+            name: Some("aggregate-models".to_string()),
+            group_name: None,
+            model_slug: None,
+            reasoning_effort: None,
+            service_tier: None,
+            rotation_strategy: "aggregate_api_rotation".to_string(),
+            aggregate_api_id: None,
+            aggregate_api_url: None,
+            client_type: "codex".to_string(),
+            protocol_type: "openai_compat".to_string(),
+            auth_scheme: "authorization_bearer".to_string(),
+            upstream_base_url: None,
+            static_headers_json: None,
+            key_hash: hash_platform_key_for_test(platform_key),
+            status: "active".to_string(),
+            created_at: now,
+            last_used_at: None,
+        })
+        .expect("insert aggregate api key");
+
+    let server = codexmanager_service::start_one_shot_server().expect("start server");
+    let (status, response_body) = get_http_raw(
+        &server.addr,
+        "/v1/models",
+        &[("Authorization", &format!("Bearer {platform_key}"))],
+    );
+    server.join();
+
+    assert_eq!(status, 200, "gateway response: {response_body}");
+    let value: serde_json::Value =
+        serde_json::from_str(&response_body).expect("parse models list response");
+    let ids = value
+        .get("data")
+        .and_then(serde_json::Value::as_array)
+        .expect("models list data array")
+        .iter()
+        .filter_map(|item| item.get("id").and_then(serde_json::Value::as_str))
+        .collect::<Vec<_>>();
+    assert_eq!(ids, vec!["gpt-5.6-terra", "gpt-image2", "sora-2"]);
 }
 
 /// 函数 `apikey_models_refresh_includes_client_version_query`

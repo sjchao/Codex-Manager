@@ -5,6 +5,8 @@ use sha2::{Digest, Sha256};
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ParsedRequestMetadata {
     pub(crate) model: Option<String>,
+    pub(crate) image_count: Option<i64>,
+    pub(crate) image_size: Option<String>,
     pub(crate) reasoning_effort: Option<String>,
     pub(crate) service_tier: Option<String>,
     pub(crate) is_stream: bool,
@@ -48,6 +50,25 @@ pub(crate) fn parse_request_metadata(body: &[u8]) -> ParsedRequestMetadata {
         .filter(|v| !v.is_empty())
         .map(|v| v.to_string());
 
+    let image_count = value
+        .get("n")
+        .and_then(Value::as_i64)
+        .filter(|value| *value > 0);
+    let image_size = value
+        .get("size")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            value
+                .get("image_size")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+        });
+
     let reasoning_effort = value
         .get("reasoning")
         .and_then(|v| v.get("effort"))
@@ -74,6 +95,8 @@ pub(crate) fn parse_request_metadata(body: &[u8]) -> ParsedRequestMetadata {
 
     ParsedRequestMetadata {
         model,
+        image_count,
+        image_size,
         reasoning_effort,
         service_tier,
         is_stream: value
@@ -297,4 +320,29 @@ pub(crate) fn normalize_models_path(path: &str) -> String {
         return path.to_string();
     }
     path.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_request_metadata;
+
+    #[test]
+    fn parse_request_metadata_reads_valid_image_parameters_without_normalizing_size() {
+        let metadata = parse_request_metadata(
+            br#"{"model":"gpt-image2","n":2,"size":"4K","image_size":"2K"}"#,
+        );
+        assert_eq!(metadata.image_count, Some(2));
+        assert_eq!(metadata.image_size.as_deref(), Some("4K"));
+
+        let fallback_size = parse_request_metadata(
+            br#"{"model":"gpt-image2","n":0,"image_size":"1024x1024"}"#,
+        );
+        assert_eq!(fallback_size.image_count, None);
+        assert_eq!(fallback_size.image_size.as_deref(), Some("1024x1024"));
+
+        let blank_primary_size = parse_request_metadata(
+            br#"{"model":"gpt-image2","size":"  ","image_size":"4K"}"#,
+        );
+        assert_eq!(blank_primary_size.image_size.as_deref(), Some("4K"));
+    }
 }

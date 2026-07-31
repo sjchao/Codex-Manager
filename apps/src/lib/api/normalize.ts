@@ -6,6 +6,7 @@ import {
   AccountUsage,
   AggregateApi,
   AggregateApiCreateResult,
+  AggregateApiModelCatalogResult,
   AggregateApiSecretResult,
   AggregateApiTestResult,
   ApiKey,
@@ -578,6 +579,9 @@ export function normalizeAggregateApi(item: unknown): AggregateApi | null {
   return {
     id,
     providerType: asString(source.providerType ?? source.provider_type) || "codex",
+    supportedModels: asArray(source.supportedModels ?? source.supported_models)
+      .map((model) => asString(model).trim())
+      .filter(Boolean),
     supplierName: asString(source.supplierName ?? source.supplier_name) || null,
     sort: asInteger(source.sort ?? source.priority, 0, 0),
     weight: asInteger(source.weight, 100, 1),
@@ -599,6 +603,18 @@ export function normalizeAggregateApi(item: unknown): AggregateApi | null {
     lastTestAt: toNullableNumber(source.lastTestAt ?? source.last_test_at),
     lastTestStatus: asString(source.lastTestStatus ?? source.last_test_status) || null,
     lastTestError: asString(source.lastTestError ?? source.last_test_error) || null,
+  };
+}
+
+export function normalizeAggregateApiModelCatalogResult(
+  payload: unknown
+): AggregateApiModelCatalogResult {
+  const source = asObject(payload);
+  return {
+    id: asString(source.id),
+    models: asArray(source.models)
+      .map((model) => asString(model).trim())
+      .filter(Boolean),
   };
 }
 
@@ -1131,6 +1147,9 @@ export function normalizeRequestLog(item: unknown): RequestLog | null {
     requestType: asString(source.requestType ?? source.request_type) || "http",
     path: requestPath,
     model: asString(source.model),
+    modelType: asString(source.modelType ?? source.model_type) || "text",
+    imageCount: toNullableNumber(source.imageCount ?? source.image_count),
+    imageSize: asString(source.imageSize ?? source.image_size),
     reasoningEffort: asString(source.reasoningEffort ?? source.reasoning_effort),
     serviceTier: asString(source.serviceTier ?? source.service_tier),
     effectiveServiceTier: asString(
@@ -1433,6 +1452,8 @@ export function normalizeAppSettings(payload: unknown): AppSettings {
     aggregateApiTestModel:
       asString(source.aggregateApiTestModel ?? source.aggregate_api_test_model) ||
       "gpt-5.6-terra",
+    imageModels: asString(source.imageModels ?? source.image_models),
+    videoModels: asString(source.videoModels ?? source.video_models),
     modelForwardRules: asString(source.modelForwardRules ?? source.model_forward_rules),
     accountMaxInflight: asInteger(source.accountMaxInflight, 1, 0),
     gatewayOriginator: asString(source.gatewayOriginator) || "codex_cli_rs",

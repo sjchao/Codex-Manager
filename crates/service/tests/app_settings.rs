@@ -542,6 +542,57 @@ fn app_settings_get_defaults_aggregate_api_test_model() {
     });
 }
 
+#[test]
+fn app_settings_model_type_lists_normalize_round_trip_and_reject_overlap() {
+    with_temp_db(|db_path| {
+        let saved = codexmanager_service::app_settings_set(Some(&json!({
+            "imageModels": "  gpt-image2  \nGPT-IMAGE2\n\ngpt-image2-mini ",
+            "videoModels": " sora-2 \nSORA-2"
+        })))
+        .expect("save normalized model type lists");
+
+        assert_eq!(
+            saved.get("imageModels").and_then(|value| value.as_str()),
+            Some("gpt-image2\ngpt-image2-mini")
+        );
+        assert_eq!(
+            saved.get("videoModels").and_then(|value| value.as_str()),
+            Some("sora-2")
+        );
+
+        let storage = Storage::open(db_path).expect("open storage");
+        assert_eq!(
+            storage
+                .get_app_setting(codexmanager_service::APP_SETTING_GATEWAY_IMAGE_MODELS_KEY)
+                .expect("read image models"),
+            Some("gpt-image2\ngpt-image2-mini".to_string())
+        );
+        assert_eq!(
+            storage
+                .get_app_setting(codexmanager_service::APP_SETTING_GATEWAY_VIDEO_MODELS_KEY)
+                .expect("read video models"),
+            Some("sora-2".to_string())
+        );
+        drop(storage);
+
+        let overlap = codexmanager_service::app_settings_set(Some(&json!({
+            "imageModels": "gpt-image2",
+            "videoModels": "GPT-IMAGE2"
+        })));
+        assert!(overlap.is_err());
+
+        let snapshot = codexmanager_service::app_settings_get().expect("read unchanged settings");
+        assert_eq!(
+            snapshot.get("imageModels").and_then(|value| value.as_str()),
+            Some("gpt-image2\ngpt-image2-mini")
+        );
+        assert_eq!(
+            snapshot.get("videoModels").and_then(|value| value.as_str()),
+            Some("sora-2")
+        );
+    });
+}
+
 /// 函数 `app_settings_set_preserves_dark_one_theme`
 ///
 /// 作者: gaohongshun

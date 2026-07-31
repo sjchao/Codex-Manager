@@ -1,4 +1,5 @@
 use super::super::support::candidates;
+use crate::gateway::ModelType;
 use codexmanager_core::storage::Storage;
 
 pub(in super::super) struct GatewayUpstreamExecutionContext<'a> {
@@ -11,6 +12,9 @@ pub(in super::super) struct GatewayUpstreamExecutionContext<'a> {
     response_adapter: super::super::super::ResponseAdapter,
     protocol_type: &'a str,
     model_for_log: Option<&'a str>,
+    model_type: ModelType,
+    image_count: Option<i64>,
+    image_size: Option<&'a str>,
     reasoning_for_log: Option<&'a str>,
     service_tier_for_log: Option<&'a str>,
     effective_service_tier_for_log: Option<&'a str>,
@@ -42,6 +46,9 @@ impl<'a> GatewayUpstreamExecutionContext<'a> {
         response_adapter: super::super::super::ResponseAdapter,
         protocol_type: &'a str,
         model_for_log: Option<&'a str>,
+        model_type: ModelType,
+        image_count: Option<i64>,
+        image_size: Option<&'a str>,
         reasoning_for_log: Option<&'a str>,
         service_tier_for_log: Option<&'a str>,
         effective_service_tier_for_log: Option<&'a str>,
@@ -59,6 +66,9 @@ impl<'a> GatewayUpstreamExecutionContext<'a> {
             response_adapter,
             protocol_type,
             model_for_log,
+            model_type,
+            image_count,
+            image_size,
             reasoning_for_log,
             service_tier_for_log,
             effective_service_tier_for_log,
@@ -277,6 +287,9 @@ impl<'a> GatewayUpstreamExecutionContext<'a> {
                 adapted_path: Some(self.path),
                 response_adapter: Some(self.response_adapter),
                 request_type: Some("http"),
+                model_type: Some(self.model_type),
+                image_count: self.image_count,
+                image_size: self.image_size,
                 service_tier: self.service_tier_for_log,
                 effective_service_tier: self.effective_service_tier_for_log,
                 queue_wait_ms: self.queue_wait_ms,

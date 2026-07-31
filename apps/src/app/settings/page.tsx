@@ -610,6 +610,8 @@ export default function SettingsPage() {
   const [aggregateApiTestModelDraft, setAggregateApiTestModelDraft] = useState<
     string | null
   >(null);
+  const [imageModelsDraft, setImageModelsDraft] = useState<string | null>(null);
+  const [videoModelsDraft, setVideoModelsDraft] = useState<string | null>(null);
   const [gatewayUserAgentVersionDraft, setGatewayUserAgentVersionDraft] =
     useState<string | null>(null);
   const [modelForwardRulesDraft, setModelForwardRulesDraft] =
@@ -681,6 +683,8 @@ export default function SettingsPage() {
   const aggregateApiTestModelInput =
     aggregateApiTestModelDraft ??
     (snapshot?.aggregateApiTestModel || "gpt-5.6-terra");
+  const imageModelsInput = imageModelsDraft ?? (snapshot?.imageModels || "");
+  const videoModelsInput = videoModelsDraft ?? (snapshot?.videoModels || "");
   const modelForwardRulesInput =
     modelForwardRulesDraft ?? (snapshot?.modelForwardRules || "");
   usePageTransitionReady(
@@ -1925,6 +1929,54 @@ export default function SettingsPage() {
                 <p className="text-[10px] text-muted-foreground">
                   一行一条，格式为 <code>源模型=目标模型</code>，支持
                   <code>*</code> 通配。平台 Key 没有强绑模型时，会先按这里把请求模型改写，再进入账号路由。
+                </p>
+              </div>
+
+              <div className="grid gap-2">
+                <Label>生图模型</Label>
+                <Textarea
+                  className="min-h-[96px] max-w-2xl font-mono text-xs"
+                  placeholder="gpt-image2"
+                  value={imageModelsInput}
+                  onChange={(event) => setImageModelsDraft(event.target.value)}
+                  onBlur={() => {
+                    if (imageModelsDraft == null) return;
+                    if (imageModelsInput === (snapshot.imageModels || "")) {
+                      setImageModelsDraft(null);
+                      return;
+                    }
+                    void updateSettings
+                      .mutateAsync({ imageModels: imageModelsInput })
+                      .then(() => setImageModelsDraft(null))
+                      .catch(() => undefined);
+                  }}
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  每行一个精确模型名；未配置的模型均按文本模型处理。
+                </p>
+              </div>
+
+              <div className="grid gap-2">
+                <Label>视频模型</Label>
+                <Textarea
+                  className="min-h-[96px] max-w-2xl font-mono text-xs"
+                  placeholder="sora-2"
+                  value={videoModelsInput}
+                  onChange={(event) => setVideoModelsDraft(event.target.value)}
+                  onBlur={() => {
+                    if (videoModelsDraft == null) return;
+                    if (videoModelsInput === (snapshot.videoModels || "")) {
+                      setVideoModelsDraft(null);
+                      return;
+                    }
+                    void updateSettings
+                      .mutateAsync({ videoModels: videoModelsInput })
+                      .then(() => setVideoModelsDraft(null))
+                      .catch(() => undefined);
+                  }}
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  每行一个精确模型名，不能与生图模型重复。
                 </p>
               </div>
 

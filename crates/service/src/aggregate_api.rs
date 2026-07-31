@@ -1,16 +1,20 @@
 use codexmanager_core::rpc::types::{
-    AggregateApiCreateResult, AggregateApiSecretResult, AggregateApiSummary, AggregateApiTestResult,
+    AggregateApiCreateResult, AggregateApiModelCatalogResult, AggregateApiSecretResult,
+    AggregateApiSummary, AggregateApiTestResult,
 };
-use codexmanager_core::storage::{now_ts, AggregateApi};
+use codexmanager_core::storage::{normalize_supported_models, now_ts, AggregateApi};
 use reqwest::header::{HeaderName, HeaderValue};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::io::Read;
 use std::time::Instant;
 
-use crate::app_settings::current_gateway_aggregate_api_test_model;
+use crate::app_settings::{
+    current_gateway_aggregate_api_test_model, current_gateway_image_model_list,
+    current_gateway_video_model_list,
+};
 use crate::apikey_profile::normalize_upstream_base_url;
-use crate::gateway;
+use crate::gateway::{self, ModelType};
 use crate::storage_helpers::{generate_aggregate_api_id, open_storage};
 
 pub(crate) const AGGREGATE_API_PROVIDER_CODEX: &str = "codex";
@@ -249,13 +253,17 @@ mod tests {
     use std::thread;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-    use codexmanager_core::storage::AggregateApi;
+    use codexmanager_core::storage::{AggregateApi, Storage};
     use tiny_http::{Header, Response, Server, StatusCode};
 
     use super::{
-        action_path_or_default, normalize_action_override, probe_codex_endpoint,
+        action_path_or_default, backfill_empty_aggregate_api_models, build_codex_probe_body,
+        normalize_action_override, probe_accept_header, probe_codex_endpoint,
+        probe_default_path_for_model_type, probe_model_for_aggregate_api, probe_model_for_type,
+        refresh_aggregate_api_model_catalog,
         DEFAULT_AGGREGATE_API_WEIGHT,
     };
+    use crate::gateway::ModelType;
 
     fn unique_temp_db_path() -> PathBuf {
         let unique = SystemTime::now()
@@ -269,6 +277,7 @@ mod tests {
         AggregateApi {
             id: "agg-test".to_string(),
             provider_type: "claude".to_string(),
+            supported_models: vec![],
             supplier_name: Some("test".to_string()),
             sort: 0,
             weight: DEFAULT_AGGREGATE_API_WEIGHT,
@@ -291,6 +300,220 @@ mod tests {
         let value =
             normalize_action_override(Some(false), Some("/v1/messages".to_string())).unwrap();
         assert_eq!(value, Some(None));
+    }
+
+    #[test]
+    fn aggregate_api_model_catalog_refresh_returns_normalized_models_without_overwriting_selection() {
+        let _guard = crate::test_env_guard();
+        let db_path = unique_temp_db_path();
+        let previous_db_path = std::env::var("CODEXMANAGER_DB_PATH").ok();
+        std::env::set_var("CODEXMANAGER_DB_PATH", &db_path);
+
+        let server = Server::http("127.0.0.1:0").expect("start mock catalog server");
+        let addr = format!("http://{}", server.server_addr());
+        let (tx, rx) = mpsc::channel();
+        let handle = thread::spawn(move || {
+            let request = server
+                .recv_timeout(Duration::from_secs(3))
+                .expect("receive catalog request")
+                .expect("catalog request present");
+            let authorization = request
+                .headers()
+                .iter()
+                .find(|header| header.field.equiv("authorization"))
+                .map(|header| header.value.as_str().to_string());
+            tx.send((request.method().as_str().to_string(), request.url().to_string(), authorization))
+                .expect("record catalog request");
+            request
+                .respond(Response::from_string(
+                    r#"{"data":[{"id":" gpt-image2 "},{"id":"GPT-IMAGE2"},{"id":"gpt-5.6-terra"}]}"#,
+                ))
+                .expect("respond catalog request");
+        });
+
+        {
+            let storage = Storage::open(&db_path).expect("open storage");
+            storage.init().expect("init storage");
+            let mut api = aggregate_api_with_action(None);
+            api.id = "agg-catalog-refresh".to_string();
+            api.url = addr;
+            api.supported_models = vec!["manual-model".to_string()];
+            storage.insert_aggregate_api(&api).expect("insert supplier");
+            storage
+                .upsert_aggregate_api_secret(&api.id, "catalog-secret")
+                .expect("store supplier secret");
+        }
+
+        let result = refresh_aggregate_api_model_catalog("agg-catalog-refresh")
+            .expect("refresh catalog");
+        assert_eq!(result.models, vec!["gpt-image2", "gpt-5.6-terra"]);
+        assert_eq!(
+            rx.recv_timeout(Duration::from_secs(2))
+                .expect("catalog request"),
+            (
+                "GET".to_string(),
+                "/v1/models".to_string(),
+                Some("Bearer catalog-secret".to_string()),
+            )
+        );
+        handle.join().expect("join catalog server");
+
+        let stored = Storage::open(&db_path)
+            .expect("reopen storage")
+            .find_aggregate_api_by_id("agg-catalog-refresh")
+            .expect("load supplier")
+            .expect("supplier exists");
+        assert_eq!(stored.supported_models, vec!["manual-model"]);
+
+        if let Some(value) = previous_db_path {
+            std::env::set_var("CODEXMANAGER_DB_PATH", value);
+        } else {
+            std::env::remove_var("CODEXMANAGER_DB_PATH");
+        }
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn aggregate_api_empty_model_backfill_persists_catalog() {
+        let _guard = crate::test_env_guard();
+        let db_path = unique_temp_db_path();
+        let previous_db_path = std::env::var("CODEXMANAGER_DB_PATH").ok();
+        std::env::set_var("CODEXMANAGER_DB_PATH", &db_path);
+
+        let server = Server::http("127.0.0.1:0").expect("start mock backfill server");
+        let addr = format!("http://{}", server.server_addr());
+        let handle = thread::spawn(move || {
+            let request = server
+                .recv_timeout(Duration::from_secs(3))
+                .expect("receive backfill request")
+                .expect("backfill request present");
+            assert_eq!(request.method().as_str(), "GET");
+            assert_eq!(request.url(), "/v1/models");
+            request
+                .respond(Response::from_string(r#"{"data":[{"id":"gpt-image2"},{"id":"sora-2"}]}"#))
+                .expect("respond backfill request");
+        });
+
+        {
+            let storage = Storage::open(&db_path).expect("open storage");
+            storage.init().expect("init storage");
+            let mut api = aggregate_api_with_action(None);
+            api.id = "agg-catalog-backfill".to_string();
+            api.url = addr;
+            api.status = "active".to_string();
+            api.supported_models.clear();
+            storage.insert_aggregate_api(&api).expect("insert supplier");
+            storage
+                .upsert_aggregate_api_secret(&api.id, "catalog-secret")
+                .expect("store supplier secret");
+        }
+
+        backfill_empty_aggregate_api_models().expect("backfill empty supplier models");
+        handle.join().expect("join backfill server");
+
+        let stored = Storage::open(&db_path)
+            .expect("reopen storage")
+            .find_aggregate_api_by_id("agg-catalog-backfill")
+            .expect("load backfilled supplier")
+            .expect("backfilled supplier exists");
+        assert_eq!(stored.supported_models, vec!["gpt-image2", "sora-2"]);
+
+        if let Some(value) = previous_db_path {
+            std::env::set_var("CODEXMANAGER_DB_PATH", value);
+        } else {
+            std::env::remove_var("CODEXMANAGER_DB_PATH");
+        }
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn probe_model_for_aggregate_api_uses_supported_image_model_and_rejects_empty_lists() {
+        let _guard = crate::test_env_guard();
+        let db_path = unique_temp_db_path();
+        let previous_db_path = std::env::var("CODEXMANAGER_DB_PATH").ok();
+        std::env::set_var("CODEXMANAGER_DB_PATH", &db_path);
+        crate::app_settings::set_gateway_model_lists(
+            "gpt-image2\nsecond-image-model",
+            "sora-2\nsecond-video-model",
+        )
+        .expect("save model lists");
+
+        assert_eq!(
+            probe_model_for_type(ModelType::Image).expect("image model"),
+            "gpt-image2"
+        );
+        assert_eq!(
+            probe_model_for_type(ModelType::Video).expect("video model"),
+            "sora-2"
+        );
+        let mut api = aggregate_api_with_action(None);
+        api.supported_models = vec!["gpt-image2".to_string()];
+        assert_eq!(
+            probe_model_for_aggregate_api(&api).expect("selected image model"),
+            (ModelType::Image, "gpt-image2".to_string())
+        );
+
+        crate::app_settings::set_gateway_model_lists("", "").expect("clear model lists");
+        assert_eq!(
+            probe_model_for_type(ModelType::Image).expect_err("image list should be required"),
+            "未配置生图模型，无法测试生图供应商"
+        );
+        assert_eq!(
+            probe_model_for_type(ModelType::Video).expect_err("video list should be required"),
+            "未配置视频模型，无法测试视频供应商"
+        );
+
+        if let Some(value) = previous_db_path {
+            std::env::set_var("CODEXMANAGER_DB_PATH", value);
+        } else {
+            std::env::remove_var("CODEXMANAGER_DB_PATH");
+        }
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn image_and_video_probes_use_generation_request_payloads() {
+        let image_body = build_codex_probe_body(
+            ModelType::Image,
+            "gpt-image2",
+            "/v1/images/generations",
+        );
+        assert_eq!(image_body.get("model").and_then(|value| value.as_str()), Some("gpt-image2"));
+        assert_eq!(image_body.get("prompt").and_then(|value| value.as_str()), Some("hi"));
+        assert_eq!(image_body.get("n").and_then(|value| value.as_i64()), Some(1));
+        assert!(image_body.get("input").is_none());
+        assert_eq!(
+            probe_accept_header(ModelType::Image, "/v1/images/generations"),
+            "application/json"
+        );
+
+        let video_body = build_codex_probe_body(ModelType::Video, "sora-2", "/v1/videos");
+        assert_eq!(video_body.get("model").and_then(|value| value.as_str()), Some("sora-2"));
+        assert_eq!(video_body.get("prompt").and_then(|value| value.as_str()), Some("hi"));
+        assert!(video_body.get("stream").is_none());
+        assert!(video_body.get("input").is_none());
+        assert_eq!(probe_accept_header(ModelType::Video, "/v1/videos"), "application/json");
+
+        let responses_body = build_codex_probe_body(ModelType::Image, "gpt-image2", "/v1/responses");
+        assert!(responses_body.get("input").is_some());
+        assert!(responses_body.get("prompt").is_none());
+        assert_eq!(
+            probe_accept_header(ModelType::Image, "/v1/responses"),
+            "text/event-stream"
+        );
+    }
+
+    #[test]
+    fn image_and_video_probes_default_to_generation_endpoints() {
+        assert_eq!(
+            probe_default_path_for_model_type(ModelType::Image),
+            "/v1/images/generations"
+        );
+        assert_eq!(probe_default_path_for_model_type(ModelType::Video), "/v1/videos");
+        assert_eq!(
+            probe_default_path_for_model_type(ModelType::Text),
+            "/v1/chat/completions"
+        );
     }
 
     #[test]
@@ -907,7 +1130,7 @@ fn should_retry_codex_probe_with_models(error: &str) -> bool {
 }
 
 fn parse_codex_models_response(value: &serde_json::Value) -> Vec<String> {
-    value
+    let models = value
         .get("data")
         .and_then(|item| item.as_array())
         .map(|items| {
@@ -919,7 +1142,8 @@ fn parse_codex_models_response(value: &serde_json::Value) -> Vec<String> {
                 .map(str::to_string)
                 .collect::<Vec<_>>()
         })
-        .unwrap_or_default()
+        .unwrap_or_default();
+    normalize_supported_models(models.as_slice())
 }
 
 /// 函数 `build_claude_probe_body`
@@ -956,15 +1180,21 @@ fn build_claude_probe_body() -> serde_json::Value {
 ///
 /// # 返回
 /// 返回函数执行结果
-fn build_codex_probe_body(model: &str, probe_path: &str) -> serde_json::Value {
-    if probe_path.to_ascii_lowercase().contains("chat/completions") {
-        json!({
+fn build_codex_probe_body(
+    model_type: ModelType,
+    model: &str,
+    probe_path: &str,
+) -> serde_json::Value {
+    let normalized_path = probe_path.to_ascii_lowercase();
+    if normalized_path.contains("chat/completions") {
+        return json!({
             "model": model,
             "messages": [{"role":"user","content":"hi"}],
             "stream": false
-        })
-    } else {
-        json!({
+        });
+    }
+    if normalized_path.contains("responses") {
+        return json!({
             "model": model,
             "input": [{
                 "role": "user",
@@ -974,7 +1204,46 @@ fn build_codex_probe_body(model: &str, probe_path: &str) -> serde_json::Value {
                 }]
             }],
             "stream": false
-        })
+        });
+    }
+
+    match model_type {
+        ModelType::Image => json!({
+            "model": model,
+            "prompt": "hi",
+            "n": 1
+        }),
+        ModelType::Video => json!({
+            "model": model,
+            "prompt": "hi"
+        }),
+        ModelType::Text => json!({
+            "model": model,
+            "input": [{
+                "role": "user",
+                "content": [{
+                    "type": "text",
+                    "text": "hi"
+                }]
+            }],
+            "stream": false
+        }),
+    }
+}
+
+fn probe_default_path_for_model_type(model_type: ModelType) -> &'static str {
+    match model_type {
+        ModelType::Text => "/v1/chat/completions",
+        ModelType::Image => "/v1/images/generations",
+        ModelType::Video => "/v1/videos",
+    }
+}
+
+fn probe_accept_header(model_type: ModelType, probe_path: &str) -> &'static str {
+    if model_type == ModelType::Text || probe_path.to_ascii_lowercase().contains("responses") {
+        "text/event-stream"
+    } else {
+        "application/json"
     }
 }
 
@@ -1078,21 +1347,10 @@ fn probe_codex_real_endpoint(
     client: &reqwest::blocking::Client,
     api: &AggregateApi,
     secret: &str,
+    model_type: ModelType,
     model: &str,
 ) -> Result<i64, String> {
-    let action_hint = api
-        .action
-        .as_deref()
-        .map(str::trim)
-        .unwrap_or("/v1/chat/completions")
-        .to_ascii_lowercase();
-    let default_path = if action_hint.contains("chat/completions") {
-        "/v1/chat/completions"
-    } else if action_hint.contains("responses") {
-        "/v1/responses"
-    } else {
-        "/v1/chat/completions"
-    };
+    let default_path = probe_default_path_for_model_type(model_type);
     let probe_path = action_path_or_default(api, default_path);
     let url = normalize_probe_url(api.url.as_str(), probe_path.as_str());
     let builder = client.post(url.as_str());
@@ -1104,10 +1362,10 @@ fn probe_codex_real_endpoint(
     } else {
         builder
     };
-    let request_body = build_codex_probe_body(model, probe_path.as_str());
+    let request_body = build_codex_probe_body(model_type, model, probe_path.as_str());
     let response = add_codex_probe_headers(builder)?
         .header("content-type", "application/json")
-        .header("accept", "text/event-stream")
+        .header("accept", probe_accept_header(model_type, probe_path.as_str()))
         .json(&request_body)
         .send()
         .map_err(|err| err.to_string())?;
@@ -1138,8 +1396,9 @@ fn probe_codex_endpoint(
     api: &AggregateApi,
     secret: &str,
 ) -> Result<i64, String> {
-    let default_model = current_gateway_aggregate_api_test_model();
-    let initial_result = probe_codex_real_endpoint(client, api, secret, default_model.as_str());
+    let (model_type, default_model) = probe_model_for_aggregate_api(api)?;
+    let initial_result =
+        probe_codex_real_endpoint(client, api, secret, model_type, default_model.as_str());
     if let Ok(code) = initial_result {
         return Ok(code);
     }
@@ -1147,7 +1406,7 @@ fn probe_codex_endpoint(
     let initial_error = initial_result
         .err()
         .unwrap_or_else(|| "codex real model probe failed".to_string());
-    if !should_retry_codex_probe_with_models(initial_error.as_str()) {
+    if model_type != ModelType::Text || !should_retry_codex_probe_with_models(initial_error.as_str()) {
         return Err(initial_error);
     }
 
@@ -1160,12 +1419,38 @@ fn probe_codex_endpoint(
         .filter(|model| model.as_str() != default_model.as_str())
         .take(3)
     {
-        if let Ok(code) = probe_codex_real_endpoint(client, api, secret, model.as_str()) {
+        if let Ok(code) = probe_codex_real_endpoint(client, api, secret, model_type, model.as_str()) {
             return Ok(code);
         }
     }
 
     Err(initial_error)
+}
+
+fn probe_model_for_aggregate_api(api: &AggregateApi) -> Result<(ModelType, String), String> {
+    let model = api
+        .supported_models
+        .first()
+        .cloned()
+        .unwrap_or(probe_model_for_type(ModelType::Text)?);
+    Ok((
+        gateway::classify_model_for_gateway_settings(Some(model.as_str())),
+        model,
+    ))
+}
+
+fn probe_model_for_type(model_type: ModelType) -> Result<String, String> {
+    match model_type {
+        ModelType::Text => Ok(current_gateway_aggregate_api_test_model()),
+        ModelType::Image => current_gateway_image_model_list()
+            .into_iter()
+            .next()
+            .ok_or_else(|| "未配置生图模型，无法测试生图供应商".to_string()),
+        ModelType::Video => current_gateway_video_model_list()
+            .into_iter()
+            .next()
+            .ok_or_else(|| "未配置视频模型，无法测试视频供应商".to_string()),
+    }
 }
 
 /// 函数 `probe_claude_endpoint`
@@ -1241,6 +1526,7 @@ pub(crate) fn list_aggregate_apis() -> Result<Vec<AggregateApiSummary>, String> 
         .map(|item| AggregateApiSummary {
             id: item.id,
             provider_type: item.provider_type,
+            supported_models: item.supported_models,
             supplier_name: item.supplier_name,
             sort: item.sort,
             weight: item.weight,
@@ -1278,6 +1564,7 @@ pub(crate) fn create_aggregate_api(
     url: Option<String>,
     key: Option<String>,
     provider_type: Option<String>,
+    supported_models: Option<Vec<String>>,
     supplier_name: Option<String>,
     sort: Option<i64>,
     weight: Option<i64>,
@@ -1291,6 +1578,9 @@ pub(crate) fn create_aggregate_api(
 ) -> Result<AggregateApiCreateResult, String> {
     let storage = open_storage().ok_or_else(|| "storage unavailable".to_string())?;
     let normalized_provider_type = normalize_provider_type(provider_type)?;
+    let normalized_supported_models = normalize_supported_models(
+        supported_models.unwrap_or_default().as_slice(),
+    );
     let normalized_supplier_name = normalize_supplier_name(supplier_name)?;
     let normalized_sort = normalize_sort(sort);
     let normalized_weight = normalize_weight(weight)?;
@@ -1320,6 +1610,7 @@ pub(crate) fn create_aggregate_api(
     let record = AggregateApi {
         id: id.clone(),
         provider_type: normalized_provider_type,
+        supported_models: normalized_supported_models,
         supplier_name: Some(normalized_supplier_name),
         sort: normalized_sort,
         weight: normalized_weight,
@@ -1342,6 +1633,9 @@ pub(crate) fn create_aggregate_api(
     if let Err(err) = storage.upsert_aggregate_api_secret(&id, &normalized_secret) {
         let _ = storage.delete_aggregate_api(&id);
         return Err(format!("persist aggregate api secret failed: {err}"));
+    }
+    if record.supported_models.is_empty() {
+        schedule_empty_aggregate_api_models_backfill();
     }
     Ok(AggregateApiCreateResult {
         id,
@@ -1369,6 +1663,7 @@ pub(crate) fn update_aggregate_api(
     url: Option<String>,
     key: Option<String>,
     provider_type: Option<String>,
+    supported_models: Option<Vec<String>>,
     supplier_name: Option<String>,
     sort: Option<i64>,
     weight: Option<i64>,
@@ -1411,6 +1706,14 @@ pub(crate) fn update_aggregate_api(
         let normalized_provider_type = normalize_provider_type(Some(provider_type))?;
         storage
             .update_aggregate_api_type(api_id, normalized_provider_type.as_str())
+            .map_err(|err| err.to_string())?;
+    }
+    if let Some(models) = supported_models.as_ref() {
+        storage
+            .update_aggregate_api_supported_models(
+                api_id,
+                normalize_supported_models(models.as_slice()).as_slice(),
+            )
             .map_err(|err| err.to_string())?;
     }
     let normalized_supplier_name = normalize_supplier_name(supplier_name)?;
@@ -1491,7 +1794,75 @@ pub(crate) fn update_aggregate_api(
                 .map_err(|err| err.to_string())?;
         }
     }
+    let should_backfill = supported_models
+        .as_ref()
+        .map(|models| normalize_supported_models(models.as_slice()).is_empty())
+        .unwrap_or(existing.supported_models.is_empty());
+    if should_backfill {
+        schedule_empty_aggregate_api_models_backfill();
+    }
     Ok(())
+}
+
+pub(crate) fn refresh_aggregate_api_model_catalog(
+    api_id: &str,
+) -> Result<AggregateApiModelCatalogResult, String> {
+    if api_id.trim().is_empty() {
+        return Err("aggregate api id required".to_string());
+    }
+    let storage = open_storage().ok_or_else(|| "storage unavailable".to_string())?;
+    let api = storage
+        .find_aggregate_api_by_id(api_id)
+        .map_err(|err| err.to_string())?
+        .ok_or_else(|| "aggregate api not found".to_string())?;
+    let secret = storage
+        .find_aggregate_api_secret_by_id(api_id)
+        .map_err(|err| err.to_string())?
+        .ok_or_else(|| "aggregate api secret not found".to_string())?;
+    let models = probe_codex_models_endpoint(&gateway::fresh_upstream_client(), &api, secret.as_str())?;
+    Ok(AggregateApiModelCatalogResult {
+        id: api.id,
+        models,
+    })
+}
+
+pub(crate) fn backfill_empty_aggregate_api_models() -> Result<(), String> {
+    let storage = open_storage().ok_or_else(|| "storage unavailable".to_string())?;
+    let client = gateway::fresh_upstream_client();
+    let apis = storage
+        .list_aggregate_apis()
+        .map_err(|err| err.to_string())?;
+    for api in apis.into_iter().filter(|api| {
+        api.status.eq_ignore_ascii_case(AGGREGATE_API_STATUS_ACTIVE)
+            && api.supported_models.is_empty()
+    }) {
+        let Some(secret) = storage
+            .find_aggregate_api_secret_by_id(api.id.as_str())
+            .map_err(|err| err.to_string())?
+        else {
+            log::warn!("aggregate api {} has no secret for model catalog refresh", api.id);
+            continue;
+        };
+        match probe_codex_models_endpoint(&client, &api, secret.as_str()) {
+            Ok(models) => {
+                storage
+                    .update_aggregate_api_supported_models(api.id.as_str(), models.as_slice())
+                    .map_err(|err| err.to_string())?;
+            }
+            Err(err) => log::warn!("aggregate api {} model catalog refresh failed: {}", api.id, err),
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn schedule_empty_aggregate_api_models_backfill() {
+    let _ = std::thread::Builder::new()
+        .name("aggregate-api-model-backfill".to_string())
+        .spawn(|| {
+            if let Err(err) = backfill_empty_aggregate_api_models() {
+                log::warn!("aggregate api model catalog backfill failed: {}", err);
+            }
+        });
 }
 
 pub(crate) fn disable_aggregate_api(api_id: &str) -> Result<(), String> {

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Clipboard, Database, ShieldCheck } from "lucide-react";
+import { Clipboard, Database, RefreshCw, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -69,6 +70,8 @@ export function AggregateApiModal({
   const serviceStatus = useAppStore((state) => state.serviceStatus);
   const { canAccessManagementRpc } = useRuntimeCapabilities();
   const [providerType, setProviderType] = useState("codex");
+  const [supportedModels, setSupportedModels] = useState<string[]>([]);
+  const [catalogModels, setCatalogModels] = useState<string[]>([]);
   const [supplierName, setSupplierName] = useState("");
   const [sortDraft, setSortDraft] = useState("0");
   const [weightDraft, setWeightDraft] = useState("100");
@@ -94,6 +97,7 @@ export function AggregateApiModal({
   const [key, setKey] = useState("");
   const [generatedKey, setGeneratedKey] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isRefreshingModels, setIsRefreshingModels] = useState(false);
   const queryClient = useQueryClient();
   const isServiceReady = canAccessManagementRpc && serviceStatus.connected;
   const unavailableMessage = canAccessManagementRpc
@@ -104,6 +108,9 @@ export function AggregateApiModal({
     if (!open) return;
     const nextProviderType = aggregateApi?.providerType || "codex";
     setProviderType(nextProviderType);
+    const nextSupportedModels = aggregateApi?.supportedModels || [];
+    setSupportedModels(nextSupportedModels);
+    setCatalogModels(nextSupportedModels);
     setSupplierName(aggregateApi?.supplierName || "");
     setSortDraft(String(aggregateApi?.sort ?? defaultSort));
     setWeightDraft(String(aggregateApi?.weight ?? 100));
@@ -159,6 +166,46 @@ export function AggregateApiModal({
     setPassword("");
     setGeneratedKey("");
   }, [aggregateApi, defaultSort, open]);
+
+  const mergeModels = (models: string[]) => {
+    const next: string[] = [];
+    for (const model of models) {
+      const normalized = model.trim();
+      if (
+        normalized &&
+        !next.some((existing) => existing.toLowerCase() === normalized.toLowerCase())
+      ) {
+        next.push(normalized);
+      }
+    }
+    return next;
+  };
+
+  const toggleSupportedModel = (model: string, checked: boolean) => {
+    setSupportedModels((current) =>
+      checked
+        ? mergeModels([...current, model])
+        : current.filter((item) => item.toLowerCase() !== model.toLowerCase())
+    );
+  };
+
+  const refreshModelCatalog = async () => {
+    if (!aggregateApi?.id || !isServiceReady) return;
+    setIsRefreshingModels(true);
+    try {
+      const result = await accountClient.refreshAggregateApiModels(aggregateApi.id);
+      setCatalogModels((current) =>
+        mergeModels([...result.models, ...current, ...supportedModels])
+      );
+      toast.success(`已读取 ${result.models.length} 个模型`);
+    } catch (error: unknown) {
+      toast.error(
+        `更新模型列表失败: ${error instanceof Error ? error.message : String(error)}`
+      );
+    } finally {
+      setIsRefreshingModels(false);
+    }
+  };
 
   /**
    * 函数 `handleSave`
@@ -278,6 +325,7 @@ export function AggregateApiModal({
       if (aggregateApi?.id) {
         await accountClient.updateAggregateApi(aggregateApi.id, {
           providerType,
+          supportedModels,
           supplierName,
           sort: parsedSort,
           weight: parsedWeight,
@@ -303,6 +351,7 @@ export function AggregateApiModal({
 
       const result = await accountClient.createAggregateApi({
         providerType,
+        supportedModels,
         supplierName,
         sort: parsedSort,
         weight: parsedWeight,
@@ -428,7 +477,7 @@ export function AggregateApiModal({
                 </div>
 
                 <div className="grid gap-2">
-                  <Label htmlFor="aggregate-api-provider">类型</Label>
+                  <Label htmlFor="aggregate-api-provider">协议类型</Label>
                   <Select
                     value={providerType}
                     disabled={!isServiceReady}
@@ -484,6 +533,61 @@ export function AggregateApiModal({
                     </SelectContent>
                   </Select>
                 </div>
+              </div>
+
+              <div className="grid gap-2">
+                <div className="flex items-center justify-between gap-3">
+                  <Label>支持模型</Label>
+                  {aggregateApi?.id ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 gap-1.5 px-2 text-xs"
+                      disabled={!isServiceReady || isRefreshingModels}
+                      onClick={refreshModelCatalog}
+                    >
+                      <RefreshCw
+                        className={
+                          isRefreshingModels
+                            ? "h-3.5 w-3.5 animate-spin"
+                            : "h-3.5 w-3.5"
+                        }
+                      />
+                      更新模型
+                    </Button>
+                  ) : null}
+                </div>
+                {catalogModels.length > 0 ? (
+                  <div className="grid max-h-44 gap-1 overflow-y-auto rounded-md border border-border/60 p-2 sm:grid-cols-2">
+                    {catalogModels.map((model) => {
+                      const checked = supportedModels.some(
+                        (selected) => selected.toLowerCase() === model.toLowerCase()
+                      );
+                      return (
+                        <label
+                          key={model.toLowerCase()}
+                          className="flex min-w-0 items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-muted/50"
+                        >
+                          <Checkbox
+                            checked={checked}
+                            disabled={!isServiceReady}
+                            onCheckedChange={(value) =>
+                              toggleSupportedModel(model, Boolean(value))
+                            }
+                          />
+                          <span className="truncate font-mono text-xs" title={model}>
+                            {model}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="rounded-md border border-dashed border-border/60 px-3 py-2 text-xs text-muted-foreground">
+                    暂无可选模型
+                  </div>
+                )}
               </div>
 
               <div className="grid gap-2">

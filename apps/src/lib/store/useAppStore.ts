@@ -52,6 +52,8 @@ export const useAppStore = create<AppState>((set) => ({
       "gpt-5.4",
     ],
     aggregateApiTestModel: "gpt-5.6-terra",
+    imageModels: "",
+    videoModels: "",
     modelForwardRules: "",
     accountMaxInflight: 1,
     gatewayOriginator: "codex_cli_rs",

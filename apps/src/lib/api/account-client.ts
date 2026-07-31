@@ -3,6 +3,7 @@ import {
   normalizeAccountList,
   normalizeAggregateApiCreateResult,
   normalizeAggregateApiList,
+  normalizeAggregateApiModelCatalogResult,
   normalizeAggregateApiSecretResult,
   normalizeAggregateApiTestResult,
   normalizeApiKeyCreateResult,
@@ -19,6 +20,7 @@ import {
   AccountUsage,
   AggregateApi,
   AggregateApiCreateResult,
+  AggregateApiModelCatalogResult,
   AggregateApiSecretResult,
   AggregateApiTestResult,
   ApiKey,
@@ -104,6 +106,7 @@ interface ApiKeyPayload {
 
 interface AggregateApiPayload {
   providerType?: string | null;
+  supportedModels?: string[] | null;
   supplierName?: string | null;
   sort?: number | null;
   weight?: number | null;
@@ -464,6 +467,7 @@ export const accountClient = {
       "service_aggregate_api_create",
       withAddr({
         providerType: params.providerType || null,
+        supportedModels: params.supportedModels || null,
         supplierName: params.supplierName || null,
         sort: typeof params.sort === "number" ? params.sort : null,
         weight: typeof params.weight === "number" ? params.weight : null,
@@ -492,6 +496,7 @@ export const accountClient = {
       withAddr({
         id: apiId,
         providerType: params.providerType || null,
+        supportedModels: params.supportedModels || null,
         supplierName: params.supplierName || null,
         sort: typeof params.sort === "number" ? params.sort : null,
         weight: typeof params.weight === "number" ? params.weight : null,
@@ -531,6 +536,13 @@ export const accountClient = {
       withAddr({ id: apiId })
     );
     return normalizeAggregateApiTestResult(result);
+  },
+  async refreshAggregateApiModels(apiId: string): Promise<AggregateApiModelCatalogResult> {
+    const result = await invoke<unknown>(
+      "service_aggregate_api_refresh_models",
+      withAddr({ id: apiId })
+    );
+    return normalizeAggregateApiModelCatalogResult(result);
   },
 
   async listApiKeys(): Promise<ApiKey[]> {

@@ -4,6 +4,30 @@ use tiny_http::Response;
 use crate::apikey_profile::{
     is_gemini_count_tokens_request_path, PROTOCOL_ANTHROPIC_NATIVE, PROTOCOL_GEMINI_NATIVE,
 };
+use crate::gateway::ModelType;
+
+fn request_log_trace_context<'a>(
+    trace_id: &'a str,
+    original_path: &'a str,
+    path: &'a str,
+    response_adapter: super::ResponseAdapter,
+    model_type: ModelType,
+    image_count: Option<i64>,
+    image_size: Option<&'a str>,
+    queue_wait_ms: Option<u128>,
+) -> super::request_log::RequestLogTraceContext<'a> {
+    super::request_log::RequestLogTraceContext {
+        trace_id: Some(trace_id),
+        original_path: Some(original_path),
+        adapted_path: Some(path),
+        queue_wait_ms,
+        response_adapter: Some(response_adapter),
+        model_type: Some(model_type),
+        image_count,
+        image_size,
+        ..Default::default()
+    }
+}
 
 /// 函数 `accumulate_text_len`
 ///
@@ -122,6 +146,9 @@ pub(super) fn maybe_respond_local_count_tokens(
     request_method: &str,
     body: &[u8],
     model_for_log: Option<&str>,
+    model_type: ModelType,
+    image_count: Option<i64>,
+    image_size: Option<&str>,
     reasoning_for_log: Option<&str>,
     queue_wait_ms: Option<u128>,
     storage: &codexmanager_core::storage::Storage,
@@ -153,14 +180,16 @@ pub(super) fn maybe_respond_local_count_tokens(
             super::record_gateway_request_outcome(path, 200, Some(protocol_type));
             super::write_request_log(
                 storage,
-                super::request_log::RequestLogTraceContext {
-                    trace_id: Some(trace_id),
-                    original_path: Some(original_path),
-                    adapted_path: Some(path),
+                request_log_trace_context(
+                    trace_id,
+                    original_path,
+                    path,
+                    response_adapter,
+                    model_type,
+                    image_count,
+                    image_size,
                     queue_wait_ms,
-                    response_adapter: Some(response_adapter),
-                    ..Default::default()
-                },
+                ),
                 Some(key_id),
                 None,
                 path,
@@ -201,14 +230,16 @@ pub(super) fn maybe_respond_local_count_tokens(
             super::record_gateway_request_outcome(path, 400, Some(protocol_type));
             super::write_request_log(
                 storage,
-                super::request_log::RequestLogTraceContext {
-                    trace_id: Some(trace_id),
-                    original_path: Some(original_path),
-                    adapted_path: Some(path),
+                request_log_trace_context(
+                    trace_id,
+                    original_path,
+                    path,
+                    response_adapter,
+                    model_type,
+                    image_count,
+                    image_size,
                     queue_wait_ms,
-                    response_adapter: Some(response_adapter),
-                    ..Default::default()
-                },
+                ),
                 Some(key_id),
                 None,
                 path,

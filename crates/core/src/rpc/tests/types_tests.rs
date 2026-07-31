@@ -112,10 +112,11 @@ fn account_list_result_serialization_includes_pagination_fields() {
 }
 
 #[test]
-fn aggregate_api_summary_serialization_includes_weight() {
+fn aggregate_api_summary_serialization_includes_weight_and_supported_models() {
     let summary = AggregateApiSummary {
         id: "agg_1".to_string(),
         provider_type: "codex".to_string(),
+        supported_models: vec!["gpt-5.6-terra".to_string(), "gpt-image2".to_string()],
         supplier_name: Some("weighted".to_string()),
         sort: 10,
         weight: 250,
@@ -134,6 +135,10 @@ fn aggregate_api_summary_serialization_includes_weight() {
     let value = serde_json::to_value(summary).expect("serialize aggregate api summary");
     let obj = value.as_object().expect("aggregate api summary object");
     assert_eq!(obj.get("weight"), Some(&serde_json::Value::from(250)));
+    assert_eq!(
+        obj.get("supportedModels"),
+        Some(&serde_json::json!(["gpt-5.6-terra", "gpt-image2"]))
+    );
 }
 
 #[test]
@@ -195,6 +200,9 @@ fn request_log_summary_serialization_includes_trace_route_fields() {
         adapted_path: Some("/v1/responses".to_string()),
         method: "POST".to_string(),
         model: Some("gpt-5.3-codex".to_string()),
+        model_type: "image".to_string(),
+        image_count: Some(2),
+        image_size: Some("4K".to_string()),
         reasoning_effort: Some("high".to_string()),
         effective_service_tier: Some("fast".to_string()),
         response_adapter: Some("OpenAIChatCompletionsJson".to_string()),
@@ -233,6 +241,9 @@ fn request_log_summary_serialization_includes_trace_route_fields() {
         "durationMs",
         "firstResponseMs",
         "queueWaitMs",
+        "modelType",
+        "imageCount",
+        "imageSize",
     ] {
         assert!(obj.contains_key(key), "missing key: {key}");
     }
@@ -257,6 +268,13 @@ fn request_log_list_params_default_to_first_page_with_twenty_items() {
 
     assert_eq!(normalized.page, 1);
     assert_eq!(normalized.page_size, 20);
+    assert_eq!(normalized.model_type, None);
+
+    let image_params: RequestLogListParams = serde_json::from_value(serde_json::json!({
+        "modelType": "image"
+    }))
+    .expect("deserialize image params");
+    assert_eq!(image_params.normalized().model_type.as_deref(), Some("image"));
 }
 
 /// 函数 `request_log_list_result_serialization_includes_pagination_fields`

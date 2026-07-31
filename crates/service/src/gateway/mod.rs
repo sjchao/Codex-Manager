@@ -22,6 +22,7 @@ mod local_models;
 mod local_validation;
 #[path = "observability/metrics.rs"]
 mod metrics;
+mod model_type;
 mod model_picker;
 #[path = "auth/openai_fallback.rs"]
 mod openai_fallback;
@@ -54,6 +55,7 @@ mod upstream;
 
 pub(crate) use concurrency::current_gateway_concurrency_recommendation;
 pub(crate) use error_log::write_gateway_error_log;
+pub(crate) use model_type::{classify_model_for_gateway_settings, ModelType};
 use metrics::{
     account_inflight_count, acquire_account_inflight, begin_gateway_request,
     record_gateway_cooldown_mark, record_gateway_failover_attempt, record_gateway_request_outcome,

@@ -407,6 +407,7 @@ pub struct ApiKeySecretResult {
 pub struct AggregateApiSummary {
     pub id: String,
     pub provider_type: String,
+    pub supported_models: Vec<String>,
     pub supplier_name: Option<String>,
     pub sort: i64,
     pub weight: i64,
@@ -528,6 +529,13 @@ pub struct AggregateApiCreateResult {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AggregateApiModelCatalogResult {
+    pub id: String,
+    pub models: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AggregateApiSecretResult {
     pub id: String,
     pub key: String,
@@ -591,6 +599,10 @@ pub struct RequestLogSummary {
     pub method: String,
     pub request_type: Option<String>,
     pub model: Option<String>,
+    #[serde(default)]
+    pub model_type: String,
+    pub image_count: Option<i64>,
+    pub image_size: Option<String>,
     pub reasoning_effort: Option<String>,
     pub service_tier: Option<String>,
     pub effective_service_tier: Option<String>,
@@ -619,6 +631,7 @@ pub struct RequestLogListParams {
     pub page_size: i64,
     pub query: Option<String>,
     pub status_filter: Option<String>,
+    pub model_type: Option<String>,
 }
 
 impl Default for RequestLogListParams {
@@ -639,6 +652,7 @@ impl Default for RequestLogListParams {
             page_size: 20,
             query: None,
             status_filter: None,
+            model_type: None,
         }
     }
 }
@@ -665,6 +679,7 @@ impl RequestLogListParams {
             },
             query: self.query,
             status_filter: self.status_filter,
+            model_type: self.model_type,
         }
     }
 }

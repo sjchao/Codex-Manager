@@ -1,4 +1,10 @@
-use super::{estimate_cost_usd, should_write_gateway_error_fallback};
+use codexmanager_core::storage::Storage;
+
+use super::{
+    estimate_cost_usd, should_write_gateway_error_fallback, write_request_log, RequestLogTraceContext,
+    RequestLogUsage,
+};
+use crate::gateway::ModelType;
 
 /// 函数 `assert_close`
 ///
@@ -17,6 +23,40 @@ fn assert_close(actual: f64, expected: f64) {
         (actual - expected).abs() < 1e-12,
         "actual={actual}, expected={expected}"
     );
+}
+
+#[test]
+fn request_log_persists_image_type_and_defaults_missing_image_count_to_one() {
+    let storage = Storage::open_in_memory().expect("open storage");
+    storage.init().expect("init storage");
+
+    write_request_log(
+        &storage,
+        RequestLogTraceContext {
+            model_type: Some(ModelType::Image),
+            image_size: Some("4K"),
+            ..Default::default()
+        },
+        Some("key-image"),
+        None,
+        "/v1/images/generations",
+        "POST",
+        Some("gpt-image2"),
+        None,
+        None,
+        Some(200),
+        RequestLogUsage::default(),
+        None,
+        Some(12),
+    );
+
+    let logs = storage
+        .list_request_logs_paginated(None, None, 0, 20)
+        .expect("list logs");
+    assert_eq!(logs.len(), 1);
+    assert_eq!(logs[0].model_type.as_deref(), Some("image"));
+    assert_eq!(logs[0].image_count, Some(1));
+    assert_eq!(logs[0].image_size.as_deref(), Some("4K"));
 }
 
 /// 函数 `estimate_cost_matches_openai_gpt5_family_prices`

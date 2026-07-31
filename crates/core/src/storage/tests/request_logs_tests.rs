@@ -1,4 +1,4 @@
-use super::{RequestLog, RequestTokenStat, Storage};
+use super::{build_request_log_filters, RequestLog, RequestTokenStat, Storage};
 
 /// 函数 `collect_query_plan_details`
 ///
@@ -180,6 +180,64 @@ fn insert_request_log_with_token_stat_is_visible_via_join() {
     assert_eq!(row.total_tokens, Some(12));
     assert_eq!(row.reasoning_output_tokens, Some(3));
     assert_eq!(row.estimated_cost_usd, Some(0.123));
+}
+
+#[test]
+fn image_request_log_metadata_roundtrips_through_both_insert_paths() {
+    let storage = Storage::open_in_memory().expect("open");
+    storage.init().expect("init");
+
+    let direct_log = RequestLog {
+        trace_id: Some("trc-image-direct".to_string()),
+        request_path: "/v1/images/generations".to_string(),
+        method: "POST".to_string(),
+        model_type: Some("image".to_string()),
+        image_count: Some(3),
+        image_size: Some("1024x1024".to_string()),
+        created_at: 1_001,
+        ..Default::default()
+    };
+    storage
+        .insert_request_log(&direct_log)
+        .expect("insert direct image request log");
+
+    let token_stat_log = RequestLog {
+        trace_id: Some("trc-image-token-stat".to_string()),
+        request_path: "/v1/images/generations".to_string(),
+        method: "POST".to_string(),
+        model_type: Some("image".to_string()),
+        image_count: Some(1),
+        image_size: Some("1536x1024".to_string()),
+        created_at: 1_002,
+        ..Default::default()
+    };
+    let token_stat = RequestTokenStat {
+        request_log_id: 0,
+        created_at: token_stat_log.created_at,
+        ..Default::default()
+    };
+    storage
+        .insert_request_log_with_token_stat(&token_stat_log, &token_stat)
+        .expect("insert image request log with token stat");
+
+    let logs = storage
+        .list_request_logs(None, 10)
+        .expect("list request logs");
+    let direct_row = logs
+        .iter()
+        .find(|item| item.trace_id.as_deref() == Some("trc-image-direct"))
+        .expect("direct request log exists");
+    assert_eq!(direct_row.model_type.as_deref(), Some("image"));
+    assert_eq!(direct_row.image_count, Some(3));
+    assert_eq!(direct_row.image_size.as_deref(), Some("1024x1024"));
+
+    let token_stat_row = logs
+        .iter()
+        .find(|item| item.trace_id.as_deref() == Some("trc-image-token-stat"))
+        .expect("token stat request log exists");
+    assert_eq!(token_stat_row.model_type.as_deref(), Some("image"));
+    assert_eq!(token_stat_row.image_count, Some(1));
+    assert_eq!(token_stat_row.image_size.as_deref(), Some("1536x1024"));
 }
 
 /// 函数 `token_stat_failure_still_commits_request_log`
@@ -376,6 +434,49 @@ fn request_logs_support_backend_pagination_and_status_filters() {
         .count_request_logs(None, Some("5xx"))
         .expect("count 5xx logs");
     assert_eq!(total_5xx, 2);
+}
+
+#[test]
+fn request_logs_filter_by_persisted_model_type_for_page_count_and_summary() {
+    let storage = Storage::open_in_memory().expect("open");
+    storage.init().expect("init");
+
+    for (index, model_type) in [(0_i64, "text"), (1, "image"), (2, "video")] {
+        storage
+            .insert_request_log(&RequestLog {
+                trace_id: Some(format!("trc-model-type-{index}")),
+                request_path: "/v1/responses".to_string(),
+                method: "POST".to_string(),
+                model_type: Some(model_type.to_string()),
+                status_code: Some(200),
+                created_at: 10_000 + index,
+                ..Default::default()
+            })
+            .expect("insert request log");
+    }
+
+    let image_logs = storage
+        .list_request_logs_paginated_by_model_type(None, None, Some("image"), 0, 20)
+        .expect("list image logs");
+    assert_eq!(image_logs.len(), 1);
+    assert_eq!(image_logs[0].trace_id.as_deref(), Some("trc-model-type-1"));
+
+    assert_eq!(
+        storage
+            .count_request_logs_by_model_type(None, None, Some("image"))
+            .expect("count image logs"),
+        1
+    );
+    assert_eq!(
+        storage
+            .summarize_request_logs_filtered_by_model_type(None, None, Some("image"))
+            .expect("summarize image logs")
+            .count,
+        1
+    );
+
+    let filters = build_request_log_filters(None, None, Some("image"));
+    assert_eq!(filters.where_clause, "WHERE r.model_type = ?");
 }
 
 /// 函数 `request_logs_filtered_summary_aggregates_counts_and_tokens`

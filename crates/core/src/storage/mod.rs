@@ -19,6 +19,8 @@ mod settings;
 mod tokens;
 mod usage;
 
+pub use aggregate_apis::normalize_supported_models;
+
 #[derive(Debug, Clone)]
 pub struct Account {
     pub id: String,
@@ -118,6 +120,9 @@ pub struct RequestLog {
     pub method: String,
     pub request_type: Option<String>,
     pub model: Option<String>,
+    pub model_type: Option<String>,
+    pub image_count: Option<i64>,
+    pub image_size: Option<String>,
     pub reasoning_effort: Option<String>,
     pub service_tier: Option<String>,
     pub effective_service_tier: Option<String>,
@@ -225,6 +230,7 @@ pub struct ApiKey {
 pub struct AggregateApi {
     pub id: String,
     pub provider_type: String,
+    pub supported_models: Vec<String>,
     pub supplier_name: Option<String>,
     pub sort: i64,
     pub weight: i64,
@@ -593,6 +599,18 @@ impl Storage {
             include_str!("../../migrations/049_api_keys_group_name.sql"),
             |s| s.ensure_api_key_group_name_column(),
         )?;
+        self.apply_sql_or_compat_migration(
+            "050_aggregate_api_model_types_and_request_log_media",
+            include_str!("../../migrations/050_aggregate_api_model_types_and_request_log_media.sql"),
+            |s| {
+                s.ensure_aggregate_apis_table()?;
+                s.ensure_request_log_model_type_and_media_columns()
+            },
+        )?;
+        self.apply_sql_migration(
+            "051_aggregate_api_supported_models",
+            include_str!("../../migrations/051_aggregate_api_supported_models.sql"),
+        )?;
         self.ensure_api_key_rotation_columns()?;
         self.ensure_api_key_group_name_column()?;
         self.ensure_aggregate_apis_table()?;
@@ -605,6 +623,7 @@ impl Storage {
         self.ensure_request_log_aggregate_api_failure_chain_column()?;
         self.ensure_request_log_queue_wait_column()?;
         self.ensure_request_log_first_response_column()?;
+        self.ensure_request_log_model_type_and_media_columns()?;
         let _ = self.maintain_request_token_stats_if_due();
         Ok(())
     }

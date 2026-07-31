@@ -8,9 +8,12 @@ import {
   CheckCircle2,
   Copy,
   Database,
+  FileText,
+  ImageIcon,
   RefreshCw,
   Shield,
   Trash2,
+  Video,
   Zap,
   type LucideIcon,
 } from "lucide-react";
@@ -68,7 +71,8 @@ import {
 } from "@/types";
 
 type StatusFilter = "all" | "2xx" | "4xx" | "5xx";
-type LogsTab = "requests" | "gateway-errors";
+type RequestLogModelTab = "all" | "text" | "image" | "video";
+type LogsTab = RequestLogModelTab | "gateway-errors";
 
 /**
  * 函数 `getStatusBadge`
@@ -1269,7 +1273,7 @@ function LogsPageContent() {
   const [gatewayPage, setGatewayPage] = useState(1);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [clearGatewayConfirmOpen, setClearGatewayConfirmOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<LogsTab>("requests");
+  const [activeTab, setActiveTab] = useState<LogsTab>("all");
   const [gatewayStageFilter, setGatewayStageFilter] = useState("all");
   const pageSizeNumber = Number(pageSize) || 10;
   const gatewayPageSizeNumber = Number(gatewayPageSize) || 10;
@@ -1282,8 +1286,14 @@ function LogsPageContent() {
   const startupAccounts = startupSnapshot?.accounts || [];
   const startupApiKeys = startupSnapshot?.apiKeys || [];
   const startupRequestLogs = startupSnapshot?.requestLogs || [];
+  const modelTypeFilter: RequestLogModelTab =
+    activeTab === "gateway-errors" ? "all" : activeTab;
   const canUseStartupLogsPlaceholder =
-    !routeQuery.trim() && !search.trim() && filter === "all" && page === 1;
+    !routeQuery.trim() &&
+    !search.trim() &&
+    filter === "all" &&
+    modelTypeFilter === "all" &&
+    page === 1;
   const hasStartupLogsSnapshot =
     canUseStartupLogsPlaceholder && startupRequestLogs.length > 0;
 
@@ -1324,19 +1334,20 @@ function LogsPageContent() {
   });
 
   const { data: logsResult, isLoading, isError: isLogsError } = useQuery({
-    queryKey: ["logs", "list", search, filter, page, pageSizeNumber],
+    queryKey: ["logs", "list", search, filter, modelTypeFilter, page, pageSizeNumber],
     queryFn: () =>
       serviceClient.listRequestLogs({
         query: search,
         statusFilter: filter,
+        modelType: modelTypeFilter,
         page,
         pageSize: pageSizeNumber,
       }),
     enabled: areLogQueriesEnabled && isPageActive,
     refetchInterval: 5000,
     retry: 1,
-    placeholderData: (previousData): RequestLogListResult | undefined =>
-      previousData ||
+    placeholderData: (previousData, previousQuery): RequestLogListResult | undefined =>
+      (previousQuery?.queryKey[4] === modelTypeFilter ? previousData : undefined) ||
       (hasStartupLogsSnapshot
         ? {
             items: startupRequestLogs,
@@ -1348,17 +1359,18 @@ function LogsPageContent() {
   });
 
   const { data: summaryResult, isError: isSummaryError } = useQuery({
-    queryKey: ["logs", "summary", search, filter],
+    queryKey: ["logs", "summary", search, filter, modelTypeFilter],
     queryFn: () =>
       serviceClient.getRequestLogSummary({
         query: search,
         statusFilter: filter,
+        modelType: modelTypeFilter,
       }),
     enabled: areLogQueriesEnabled && isPageActive,
     refetchInterval: 5000,
     retry: 1,
-    placeholderData: (previousData) =>
-      previousData ||
+    placeholderData: (previousData, previousQuery) =>
+      (previousQuery?.queryKey[4] === modelTypeFilter ? previousData : undefined) ||
       (canUseStartupLogsPlaceholder
         ? buildSummaryPlaceholder(startupRequestLogs)
         : undefined),
@@ -1487,7 +1499,7 @@ function LogsPageContent() {
     };
   }, [isPageActive]);
 
-  const currentFilterLabel =
+  const currentStatusFilterLabel =
     filter === "all"
       ? "全部状态"
       : filter === "2xx"
@@ -1495,7 +1507,15 @@ function LogsPageContent() {
         : filter === "4xx"
           ? "客户端错误"
           : "服务端错误";
-  const compactMetaText = `${summary.filteredCount}/${summary.totalCount} 条 · ${currentFilterLabel} · ${
+  const currentModelTypeLabel =
+    modelTypeFilter === "all"
+      ? "全部请求"
+      : modelTypeFilter === "text"
+        ? "文本模型"
+        : modelTypeFilter === "image"
+          ? "生图模型"
+          : "视频模型";
+  const compactMetaText = `${summary.filteredCount}/${summary.totalCount} 条 · ${currentModelTypeLabel} · ${currentStatusFilterLabel} · ${
     serviceStatus.connected ? "5 秒刷新" : "服务未连接"
   }`;
 
@@ -1550,22 +1570,43 @@ function LogsPageContent() {
       <Tabs
         value={activeTab}
         onValueChange={(value) => {
-          if (value === "requests" || value === "gateway-errors") {
+          if (
+            value === "all" ||
+            value === "text" ||
+            value === "image" ||
+            value === "video" ||
+            value === "gateway-errors"
+          ) {
             setActiveTab(value);
+            if (value !== "gateway-errors") {
+              setPage(1);
+            }
           }
         }}
         className="w-full"
       >
         <TabsList className="glass-card flex h-11 w-full justify-start overflow-x-auto rounded-xl border-none p-1 no-scrollbar lg:w-fit">
-          <TabsTrigger value="requests" className="gap-2 px-5 shrink-0">
-            <Database className="h-4 w-4" /> 请求日志
+          <TabsTrigger value="all" className="gap-2 px-5 shrink-0">
+            <Database className="h-4 w-4" /> 全部请求
+          </TabsTrigger>
+          <TabsTrigger value="text" className="gap-2 px-5 shrink-0">
+            <FileText className="h-4 w-4" /> 文本模型
+          </TabsTrigger>
+          <TabsTrigger value="image" className="gap-2 px-5 shrink-0">
+            <ImageIcon className="h-4 w-4" /> 生图模型
+          </TabsTrigger>
+          <TabsTrigger value="video" className="gap-2 px-5 shrink-0">
+            <Video className="h-4 w-4" /> 视频模型
           </TabsTrigger>
           <TabsTrigger value="gateway-errors" className="gap-2 px-5 shrink-0">
             <Shield className="h-4 w-4" /> 网关错误诊断
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="requests" className="space-y-5">
+        <TabsContent
+          value={activeTab === "gateway-errors" ? "all" : activeTab}
+          className="space-y-5"
+        >
           <Card className="glass-card border-none shadow-md backdrop-blur-md">
             <CardContent className="grid gap-3 pt-0 lg:grid-cols-[minmax(0,1fr)_auto_auto_auto] lg:items-center">
               <div className="min-w-0">
@@ -1665,7 +1706,7 @@ function LogsPageContent() {
                   <CardTitle className="text-[15px] font-semibold">
                     请求明细 按{" "}
                     <span className="font-medium text-foreground">
-                      {currentFilterLabel}
+                      {currentModelTypeLabel}
                     </span>{" "}
                     展示
                   </CardTitle>
@@ -1699,7 +1740,7 @@ function LogsPageContent() {
                   排队等待
                 </TableHead>
                 <TableHead className="w-[148px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                  词元
+                  {modelTypeFilter === "image" ? "图片参数" : "词元"}
                 </TableHead>
                 <TableHead className="w-[240px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
                   错误
@@ -1793,15 +1834,22 @@ function LogsPageContent() {
                       {formatDuration(log.queueWaitMs)}
                     </TableCell>
                     <TableCell className="px-4 py-3 align-top">
-                      <div className="flex flex-col gap-0.5 text-[10px] text-muted-foreground">
-                        <span>总 {formatTableTokenAmount(log.totalTokens)}</span>
-                        <span>
-                          输入 {formatTableTokenAmount(log.inputTokens)}
-                        </span>
-                        <span className="opacity-60">
-                          缓存 {formatTableTokenAmount(log.cachedInputTokens)}
-                        </span>
-                      </div>
+                      {log.modelType === "image" ? (
+                        <div className="flex flex-col gap-0.5 text-[10px] text-muted-foreground">
+                          <span>{Math.max(1, log.imageCount ?? 1)} 张</span>
+                          <span>{log.imageSize || "-"}</span>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col gap-0.5 text-[10px] text-muted-foreground">
+                          <span>总 {formatTableTokenAmount(log.totalTokens)}</span>
+                          <span>
+                            输入 {formatTableTokenAmount(log.inputTokens)}
+                          </span>
+                          <span className="opacity-60">
+                            缓存 {formatTableTokenAmount(log.cachedInputTokens)}
+                          </span>
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell className="px-4 py-3 text-left align-top">
                       <ErrorInfoCell

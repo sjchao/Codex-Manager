@@ -1,4 +1,5 @@
 use crate::gateway::error_log::GatewayErrorLogInput;
+use crate::gateway::ModelType;
 use codexmanager_core::storage::{now_ts, RequestLog, RequestTokenStat, Storage};
 use serde::Serialize;
 
@@ -27,6 +28,9 @@ pub(crate) struct RequestLogTraceContext<'a> {
     pub original_path: Option<&'a str>,
     pub adapted_path: Option<&'a str>,
     pub request_type: Option<&'a str>,
+    pub model_type: Option<ModelType>,
+    pub image_count: Option<i64>,
+    pub image_size: Option<&'a str>,
     pub service_tier: Option<&'a str>,
     pub effective_service_tier: Option<&'a str>,
     pub queue_wait_ms: Option<u128>,
@@ -357,6 +361,19 @@ pub(crate) fn write_request_log_with_attempts(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or("http");
+    let model_type = trace_context.model_type.unwrap_or(ModelType::Text);
+    let (image_count, image_size) = if model_type == ModelType::Image {
+        (
+            Some(trace_context.image_count.unwrap_or(1).max(1)),
+            trace_context
+                .image_size
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+        )
+    } else {
+        (None, None)
+    };
     let service_tier = trace_context
         .service_tier
         .map(str::trim)
@@ -425,6 +442,9 @@ pub(crate) fn write_request_log_with_attempts(
             method: method.to_string(),
             request_type: Some(request_type.to_string()),
             model: model.map(|v| v.to_string()),
+            model_type: Some(model_type.as_str().to_string()),
+            image_count,
+            image_size,
             reasoning_effort: reasoning_effort.map(|v| v.to_string()),
             service_tier: service_tier.map(str::to_string),
             effective_service_tier: effective_service_tier.map(str::to_string),

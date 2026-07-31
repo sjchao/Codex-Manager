@@ -10,8 +10,7 @@ fn respond_local_validation_error(
     request_method_for_log: &str,
     request_path_for_log: &str,
     queue_wait_ms: Option<u128>,
-    status_code: u16,
-    message: String,
+    error: super::local_validation::LocalValidationError,
 ) -> Result<(), String> {
     super::trace_log::log_request_start(
         trace_id,
@@ -25,8 +24,15 @@ fn respond_local_validation_error(
         "http",
         "-",
     );
-    super::trace_log::log_request_final(trace_id, status_code, None, None, Some(message.as_str()), 0);
-    super::record_gateway_request_outcome(request_path_for_log, status_code, None);
+    super::trace_log::log_request_final(
+        trace_id,
+        error.status_code,
+        None,
+        None,
+        Some(error.message.as_str()),
+        0,
+    );
+    super::record_gateway_request_outcome(request_path_for_log, error.status_code, None);
     if let Some(storage) = super::open_storage() {
         super::write_request_log(
             &storage,
@@ -36,23 +42,26 @@ fn respond_local_validation_error(
                 adapted_path: Some(request_path_for_log),
                 queue_wait_ms,
                 response_adapter: None,
+                model_type: Some(error.model_type),
+                image_count: error.image_count,
+                image_size: error.image_size.as_deref(),
                 ..Default::default()
             },
-            None,
+            error.model_for_log.as_deref(),
             None,
             request_path_for_log,
             request_method_for_log,
             None,
             None,
             None,
-            Some(status_code),
+            Some(error.status_code),
             super::request_log::RequestLogUsage::default(),
-            Some(message.as_str()),
+            Some(error.message.as_str()),
             None,
         );
     }
     let response =
-        super::error_response::terminal_text_response(status_code, message, Some(trace_id));
+        super::error_response::terminal_text_response(error.status_code, error.message, Some(trace_id));
     let _ = request.respond(response);
     Ok(())
 }
@@ -137,8 +146,7 @@ pub(crate) fn handle_gateway_request(
             request_method_for_log.as_str(),
             request_path_for_log.as_str(),
             queue_wait_ms,
-            status_code,
-            message,
+            super::local_validation::LocalValidationError::new(status_code, message),
         );
     }
     let validated =
@@ -156,32 +164,28 @@ pub(crate) fn handle_gateway_request(
                     request_method_for_log.as_str(),
                     request_path_for_log.as_str(),
                     queue_wait_ms,
-                    err.status_code,
-                    err.message,
+                    err,
                 );
             }
         };
 
-    let request = if validated.rotation_strategy == crate::apikey_profile::ROTATION_AGGREGATE_API {
-        request
-    } else {
-        match super::maybe_respond_local_models(
-            request,
-            validated.trace_id.as_str(),
-            validated.key_id.as_str(),
-            validated.protocol_type.as_str(),
-            validated.original_path.as_str(),
-            validated.path.as_str(),
-            validated.response_adapter,
-            validated.request_method.as_str(),
-            validated.model_for_log.as_deref(),
-            validated.reasoning_for_log.as_deref(),
-            queue_wait_ms,
-            &validated.storage,
-        )? {
-            Some(request) => request,
-            None => return Ok(()),
-        }
+    let request = match super::maybe_respond_local_models(
+        request,
+        validated.trace_id.as_str(),
+        validated.key_id.as_str(),
+        validated.protocol_type.as_str(),
+        validated.original_path.as_str(),
+        validated.path.as_str(),
+        validated.response_adapter,
+        validated.request_method.as_str(),
+        validated.rotation_strategy.as_str(),
+        validated.model_for_log.as_deref(),
+        validated.reasoning_for_log.as_deref(),
+        queue_wait_ms,
+        &validated.storage,
+    )? {
+        Some(request) => request,
+        None => return Ok(()),
     };
 
     let trace_id_for_count_tokens = validated.trace_id.clone();
@@ -190,6 +194,9 @@ pub(crate) fn handle_gateway_request(
     let path_for_count_tokens = validated.path.clone();
     let request_method_for_count_tokens = validated.request_method.clone();
     let model_for_count_tokens = validated.model_for_log.clone();
+    let model_type_for_count_tokens = validated.model_type;
+    let image_count_for_count_tokens = validated.image_count;
+    let image_size_for_count_tokens = validated.image_size.clone();
     let reasoning_for_count_tokens = validated.reasoning_for_log.clone();
     let request = if validated.rotation_strategy == crate::apikey_profile::ROTATION_AGGREGATE_API {
         request
@@ -205,6 +212,9 @@ pub(crate) fn handle_gateway_request(
             request_method_for_count_tokens.as_str(),
             validated.body.as_ref(),
             model_for_count_tokens.as_deref(),
+            model_type_for_count_tokens,
+            image_count_for_count_tokens,
+            image_size_for_count_tokens.as_deref(),
             reasoning_for_count_tokens.as_deref(),
             queue_wait_ms,
             &validated.storage,

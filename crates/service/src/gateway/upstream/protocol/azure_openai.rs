@@ -5,6 +5,7 @@ use std::time::Instant;
 use tiny_http::Request;
 
 use crate::apikey_profile::PROTOCOL_AZURE_OPENAI;
+use crate::gateway::ModelType;
 
 /// 函数 `parse_static_headers_json`
 ///
@@ -84,6 +85,57 @@ fn respond_error(request: Request, status: u16, message: &str, trace_id: Option<
     let _ = request.respond(response);
 }
 
+#[allow(clippy::too_many_arguments)]
+fn request_log_trace_context<'a>(
+    trace_id: &'a str,
+    original_path: &'a str,
+    path: &'a str,
+    response_adapter: super::super::super::ResponseAdapter,
+    model_type: ModelType,
+    image_count: Option<i64>,
+    image_size: Option<&'a str>,
+    effective_service_tier: Option<&'a str>,
+    queue_wait_ms: Option<u128>,
+) -> super::super::super::request_log::RequestLogTraceContext<'a> {
+    super::super::super::request_log::RequestLogTraceContext {
+        trace_id: Some(trace_id),
+        original_path: Some(original_path),
+        adapted_path: Some(path),
+        queue_wait_ms,
+        response_adapter: Some(response_adapter),
+        model_type: Some(model_type),
+        image_count,
+        image_size,
+        effective_service_tier,
+        ..Default::default()
+    }
+}
+
+#[cfg(test)]
+mod trace_context_tests {
+    use super::request_log_trace_context;
+    use crate::gateway::{ModelType, ResponseAdapter};
+
+    #[test]
+    fn request_log_context_preserves_image_request_metadata() {
+        let context = request_log_trace_context(
+            "trace-image",
+            "/v1/images/generations",
+            "/v1/images/generations",
+            ResponseAdapter::Passthrough,
+            ModelType::Image,
+            Some(2),
+            Some("4K"),
+            None,
+            None,
+        );
+
+        assert_eq!(context.model_type, Some(ModelType::Image));
+        assert_eq!(context.image_count, Some(2));
+        assert_eq!(context.image_size, Some("4K"));
+    }
+}
+
 /// 函数 `proxy_azure_request`
 ///
 /// 作者: gaohongshun
@@ -110,6 +162,9 @@ pub(in super::super) fn proxy_azure_request(
     response_adapter: super::super::super::ResponseAdapter,
     tool_name_restore_map: &super::super::super::ToolNameRestoreMap,
     model_for_log: Option<&str>,
+    model_type: ModelType,
+    image_count: Option<i64>,
+    image_size: Option<&str>,
     reasoning_for_log: Option<&str>,
     effective_service_tier_for_log: Option<&str>,
     upstream_base_url: Option<&str>,
@@ -134,15 +189,17 @@ pub(in super::super) fn proxy_azure_request(
         );
         super::super::super::write_request_log(
             storage,
-            super::super::super::request_log::RequestLogTraceContext {
-                trace_id: Some(trace_id),
-                original_path: Some(original_path),
-                adapted_path: Some(path),
+            request_log_trace_context(
+                trace_id,
+                original_path,
+                path,
+                response_adapter,
+                model_type,
+                image_count,
+                image_size,
+                effective_service_tier_for_log,
                 queue_wait_ms,
-                response_adapter: Some(response_adapter),
-                effective_service_tier: effective_service_tier_for_log,
-                ..Default::default()
-            },
+            ),
             Some(key_id),
             None,
             path,
@@ -177,15 +234,17 @@ pub(in super::super) fn proxy_azure_request(
             );
             super::super::super::write_request_log(
                 storage,
-                super::super::super::request_log::RequestLogTraceContext {
-                    trace_id: Some(trace_id),
-                    original_path: Some(original_path),
-                    adapted_path: Some(path),
+                request_log_trace_context(
+                    trace_id,
+                    original_path,
+                    path,
+                    response_adapter,
+                    model_type,
+                    image_count,
+                    image_size,
+                    effective_service_tier_for_log,
                     queue_wait_ms,
-                    response_adapter: Some(response_adapter),
-                    effective_service_tier: effective_service_tier_for_log,
-                    ..Default::default()
-                },
+                ),
                 Some(key_id),
                 None,
                 path,
@@ -224,15 +283,17 @@ pub(in super::super) fn proxy_azure_request(
                 );
                 super::super::super::write_request_log(
                     storage,
-                    super::super::super::request_log::RequestLogTraceContext {
-                        trace_id: Some(trace_id),
-                        original_path: Some(original_path),
-                        adapted_path: Some(path),
+                    request_log_trace_context(
+                        trace_id,
+                        original_path,
+                        path,
+                        response_adapter,
+                        model_type,
+                        image_count,
+                        image_size,
+                        effective_service_tier_for_log,
                         queue_wait_ms,
-                        response_adapter: Some(response_adapter),
-                        effective_service_tier: effective_service_tier_for_log,
-                        ..Default::default()
-                    },
+                    ),
                     Some(key_id),
                     None,
                     path,
@@ -265,15 +326,17 @@ pub(in super::super) fn proxy_azure_request(
                 );
                 super::super::super::write_request_log(
                     storage,
-                    super::super::super::request_log::RequestLogTraceContext {
-                        trace_id: Some(trace_id),
-                        original_path: Some(original_path),
-                        adapted_path: Some(path),
+                    request_log_trace_context(
+                        trace_id,
+                        original_path,
+                        path,
+                        response_adapter,
+                        model_type,
+                        image_count,
+                        image_size,
+                        effective_service_tier_for_log,
                         queue_wait_ms,
-                        response_adapter: Some(response_adapter),
-                        effective_service_tier: effective_service_tier_for_log,
-                        ..Default::default()
-                    },
+                    ),
                     Some(key_id),
                     None,
                     path,
@@ -409,15 +472,17 @@ pub(in super::super) fn proxy_azure_request(
                     );
                     super::super::super::write_request_log(
                         storage,
-                        super::super::super::request_log::RequestLogTraceContext {
-                            trace_id: Some(trace_id),
-                            original_path: Some(original_path),
-                            adapted_path: Some(path),
+                        request_log_trace_context(
+                            trace_id,
+                            original_path,
+                            path,
+                            response_adapter,
+                            model_type,
+                            image_count,
+                            image_size,
+                            effective_service_tier_for_log,
                             queue_wait_ms,
-                            response_adapter: Some(response_adapter),
-                            effective_service_tier: effective_service_tier_for_log,
-                            ..Default::default()
-                        },
+                        ),
                         Some(key_id),
                         None,
                         path,
@@ -486,15 +551,17 @@ pub(in super::super) fn proxy_azure_request(
     );
     super::super::super::write_request_log(
         storage,
-        super::super::super::request_log::RequestLogTraceContext {
-            trace_id: Some(trace_id),
-            original_path: Some(original_path),
-            adapted_path: Some(path),
+        request_log_trace_context(
+            trace_id,
+            original_path,
+            path,
+            response_adapter,
+            model_type,
+            image_count,
+            image_size,
+            effective_service_tier_for_log,
             queue_wait_ms,
-            response_adapter: Some(response_adapter),
-            effective_service_tier: effective_service_tier_for_log,
-            ..Default::default()
-        },
+        ),
         Some(key_id),
         None,
         path,

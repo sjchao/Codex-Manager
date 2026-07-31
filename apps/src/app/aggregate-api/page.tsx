@@ -301,6 +301,7 @@ export default function AggregateApiPage() {
 
       await accountClient.updateAggregateApi(api.id, {
         providerType: api.providerType,
+        supportedModels: api.supportedModels,
         supplierName: api.supplierName || "",
         sort: nextSort,
         weight: api.weight,
@@ -538,7 +539,7 @@ export default function AggregateApiPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead className="max-w-[220px]">供应商 / URL</TableHead>
-                  <TableHead className="w-[84px] text-center">类型</TableHead>
+                  <TableHead className="w-[180px]">支持模型</TableHead>
                   <TableHead className="w-[148px]">密钥</TableHead>
                   <TableHead className="w-[64px] text-center">排序</TableHead>
                   <TableHead className="w-[72px] text-center">权重</TableHead>
@@ -649,8 +650,8 @@ export default function AggregateApiPage() {
                             </TooltipContent>
                           </Tooltip>
                         </TableCell>
-                        <TableCell className="text-center">
-                          <div className="flex justify-center">
+                        <TableCell className="overflow-hidden">
+                          <div className="flex flex-wrap gap-1">
                             <Badge
                               variant="secondary"
                               className="w-fit text-[10px] font-normal"
@@ -659,6 +660,25 @@ export default function AggregateApiPage() {
                                 api.providerType
                               ] || api.providerType}
                             </Badge>
+                            {api.supportedModels.length > 0 ? (
+                              api.supportedModels.slice(0, 2).map((model) => (
+                                <Badge
+                                  key={model.toLowerCase()}
+                                  variant="outline"
+                                  className="max-w-full truncate font-mono text-[10px] font-normal"
+                                  title={model}
+                                >
+                                  {model}
+                                </Badge>
+                              ))
+                            ) : (
+                              <span className="text-xs text-muted-foreground">-</span>
+                            )}
+                            {api.supportedModels.length > 2 ? (
+                              <Badge variant="outline" className="text-[10px] font-normal">
+                                +{api.supportedModels.length - 2}
+                              </Badge>
+                            ) : null}
                           </div>
                         </TableCell>
                         <TableCell className="overflow-hidden">

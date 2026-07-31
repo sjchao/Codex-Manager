@@ -41,6 +41,7 @@ pub fn start_one_shot_server() -> std::io::Result<ServerHandle> {
         log::warn!("storage startup init skipped: {}", err);
     }
     crate::sync_runtime_settings_from_storage();
+    crate::schedule_empty_aggregate_api_models_backfill();
     let server = tiny_http::Server::http("127.0.0.1:0")
         .map_err(|err| io::Error::new(io::ErrorKind::Other, err))?;
     let addr = server
@@ -76,6 +77,7 @@ pub fn start_server(addr: &str) -> std::io::Result<()> {
         log::warn!("storage startup init skipped: {}", err);
     }
     crate::sync_runtime_settings_from_storage();
+    crate::schedule_empty_aggregate_api_models_backfill();
     crate::usage_refresh::ensure_usage_polling();
     crate::usage_refresh::ensure_gateway_keepalive();
     crate::usage_refresh::ensure_token_refresh_polling();

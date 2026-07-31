@@ -1,10 +1,12 @@
 use rusqlite::{Result, Row};
+use serde_json::{from_str, to_string};
 
 use super::{now_ts, AggregateApi, Storage};
 
 const AGGREGATE_API_SELECT_SQL: &str = "SELECT
     id,
     provider_type,
+    supported_models_json,
     supplier_name,
     sort,
     weight,
@@ -38,6 +40,7 @@ impl Storage {
             "INSERT OR REPLACE INTO aggregate_apis (
                 id,
                 provider_type,
+                supported_models_json,
                 supplier_name,
                 sort,
                 weight,
@@ -51,10 +54,11 @@ impl Storage {
                 last_test_at,
                 last_test_status,
                 last_test_error
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
             (
                 &api.id,
                 &api.provider_type,
+                serialize_supported_models(api.supported_models.as_slice()),
                 &api.supplier_name,
                 api.sort,
                 api.weight,
@@ -214,6 +218,24 @@ impl Storage {
         self.conn.execute(
             "UPDATE aggregate_apis SET provider_type = ?1, updated_at = ?2 WHERE id = ?3",
             (provider_type, now_ts(), api_id),
+        )?;
+        Ok(())
+    }
+
+    pub fn update_aggregate_api_supported_models(
+        &self,
+        api_id: &str,
+        supported_models: &[String],
+    ) -> Result<()> {
+        self.conn.execute(
+            "UPDATE aggregate_apis
+             SET supported_models_json = ?1, updated_at = ?2
+             WHERE id = ?3",
+            (
+                serialize_supported_models(supported_models),
+                now_ts(),
+                api_id,
+            ),
         )?;
         Ok(())
     }
@@ -387,6 +409,7 @@ impl Storage {
             "CREATE TABLE IF NOT EXISTS aggregate_apis (
                 id TEXT PRIMARY KEY,
                 provider_type TEXT NOT NULL DEFAULT 'codex',
+                supported_models_json TEXT NOT NULL DEFAULT '[]',
                 supplier_name TEXT,
                 sort INTEGER NOT NULL DEFAULT 0,
                 weight INTEGER NOT NULL DEFAULT 100,
@@ -408,6 +431,11 @@ impl Storage {
             [],
         )?;
         self.ensure_column("aggregate_apis", "provider_type", "TEXT")?;
+        self.ensure_column(
+            "aggregate_apis",
+            "supported_models_json",
+            "TEXT NOT NULL DEFAULT '[]'",
+        )?;
         self.ensure_column("aggregate_apis", "supplier_name", "TEXT")?;
         self.ensure_column("aggregate_apis", "sort", "INTEGER DEFAULT 0")?;
         self.ensure_column("aggregate_apis", "weight", "INTEGER NOT NULL DEFAULT 100")?;
@@ -418,6 +446,12 @@ impl Storage {
             "UPDATE aggregate_apis
              SET provider_type = COALESCE(NULLIF(TRIM(provider_type), ''), 'codex')
              WHERE provider_type IS NULL OR TRIM(provider_type) = ''",
+            [],
+        )?;
+        self.conn.execute(
+            "UPDATE aggregate_apis
+             SET supported_models_json = '[]'
+             WHERE supported_models_json IS NULL OR TRIM(supported_models_json) = ''",
             [],
         )?;
         self.conn.execute(
@@ -485,18 +519,44 @@ fn map_aggregate_api_row(row: &Row<'_>) -> Result<AggregateApi> {
     Ok(AggregateApi {
         id: row.get(0)?,
         provider_type: row.get(1)?,
-        supplier_name: row.get(2)?,
-        sort: row.get(3)?,
-        weight: row.get(4)?,
-        url: row.get(5)?,
-        auth_type: row.get(6)?,
-        auth_params_json: row.get(7)?,
-        action: row.get(8)?,
-        status: row.get(9)?,
-        created_at: row.get(10)?,
-        updated_at: row.get(11)?,
-        last_test_at: row.get(12)?,
-        last_test_status: row.get(13)?,
-        last_test_error: row.get(14)?,
+        supported_models: parse_supported_models(row.get::<_, String>(2)?.as_str()),
+        supplier_name: row.get(3)?,
+        sort: row.get(4)?,
+        weight: row.get(5)?,
+        url: row.get(6)?,
+        auth_type: row.get(7)?,
+        auth_params_json: row.get(8)?,
+        action: row.get(9)?,
+        status: row.get(10)?,
+        created_at: row.get(11)?,
+        updated_at: row.get(12)?,
+        last_test_at: row.get(13)?,
+        last_test_status: row.get(14)?,
+        last_test_error: row.get(15)?,
     })
+}
+
+pub fn normalize_supported_models(models: &[String]) -> Vec<String> {
+    let mut normalized = Vec::new();
+    for model in models {
+        let model = model.trim();
+        if !model.is_empty()
+            && !normalized
+                .iter()
+                .any(|existing: &String| existing.eq_ignore_ascii_case(model))
+        {
+            normalized.push(model.to_string());
+        }
+    }
+    normalized
+}
+
+fn parse_supported_models(value: &str) -> Vec<String> {
+    from_str::<Vec<String>>(value)
+        .map(|models| normalize_supported_models(models.as_slice()))
+        .unwrap_or_default()
+}
+
+fn serialize_supported_models(models: &[String]) -> String {
+    to_string(&normalize_supported_models(models)).expect("serialize supported models")
 }

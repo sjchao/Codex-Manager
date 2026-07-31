@@ -1,16 +1,19 @@
 use crate::gateway;
 use crate::usage_refresh;
 use serde::Deserialize;
+use std::sync::{Mutex, OnceLock};
 
 use super::{
     get_persisted_app_setting, normalize_optional_text, save_persisted_app_setting,
     save_persisted_bool_setting, APP_SETTING_GATEWAY_ACCOUNT_MAX_INFLIGHT_KEY,
     APP_SETTING_GATEWAY_AGGREGATE_API_TEST_MODEL_KEY, APP_SETTING_GATEWAY_BACKGROUND_TASKS_KEY,
-    APP_SETTING_GATEWAY_FREE_ACCOUNT_MAX_MODEL_KEY, APP_SETTING_GATEWAY_MODEL_FORWARD_RULES_KEY,
+    APP_SETTING_GATEWAY_FREE_ACCOUNT_MAX_MODEL_KEY, APP_SETTING_GATEWAY_IMAGE_MODELS_KEY,
+    APP_SETTING_GATEWAY_MODEL_FORWARD_RULES_KEY,
     APP_SETTING_GATEWAY_ORIGINATOR_KEY, APP_SETTING_GATEWAY_REQUEST_COMPRESSION_ENABLED_KEY,
     APP_SETTING_GATEWAY_RESIDENCY_REQUIREMENT_KEY, APP_SETTING_GATEWAY_ROUTE_STRATEGY_KEY,
     APP_SETTING_GATEWAY_SSE_KEEPALIVE_INTERVAL_MS_KEY, APP_SETTING_GATEWAY_UPSTREAM_PROXY_URL_KEY,
     APP_SETTING_GATEWAY_UPSTREAM_STREAM_TIMEOUT_MS_KEY, APP_SETTING_GATEWAY_USER_AGENT_VERSION_KEY,
+    APP_SETTING_GATEWAY_VIDEO_MODELS_KEY,
 };
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -45,6 +48,34 @@ const DEFAULT_GATEWAY_AGGREGATE_API_TEST_MODEL: &str = "gpt-5.6-terra";
 fn normalize_gateway_aggregate_api_test_model(raw: Option<&str>) -> String {
     normalize_optional_text(raw)
         .unwrap_or_else(|| DEFAULT_GATEWAY_AGGREGATE_API_TEST_MODEL.to_string())
+}
+
+fn normalize_gateway_model_list(raw: &str) -> String {
+    let mut models = Vec::new();
+    for model in raw.lines().map(str::trim).filter(|value| !value.is_empty()) {
+        if !models
+            .iter()
+            .any(|existing: &String| existing.eq_ignore_ascii_case(model))
+        {
+            models.push(model.to_string());
+        }
+    }
+    models.join("\n")
+}
+
+fn model_list_values(raw: &str) -> Vec<String> {
+    normalize_gateway_model_list(raw)
+        .lines()
+        .map(ToString::to_string)
+        .collect()
+}
+
+fn has_overlapping_model(image_models: &[String], video_models: &[String]) -> bool {
+    image_models.iter().any(|image_model| {
+        video_models
+            .iter()
+            .any(|video_model| image_model.eq_ignore_ascii_case(video_model))
+    })
 }
 
 impl BackgroundTasksInput {
@@ -163,6 +194,121 @@ pub fn current_gateway_aggregate_api_test_model() -> String {
     normalize_gateway_aggregate_api_test_model(
         get_persisted_app_setting(APP_SETTING_GATEWAY_AGGREGATE_API_TEST_MODEL_KEY).as_deref(),
     )
+}
+
+pub fn current_gateway_image_models() -> String {
+    normalize_gateway_model_list(
+        get_persisted_app_setting(APP_SETTING_GATEWAY_IMAGE_MODELS_KEY)
+            .as_deref()
+            .unwrap_or_default(),
+    )
+}
+
+pub fn current_gateway_video_models() -> String {
+    normalize_gateway_model_list(
+        get_persisted_app_setting(APP_SETTING_GATEWAY_VIDEO_MODELS_KEY)
+            .as_deref()
+            .unwrap_or_default(),
+    )
+}
+
+pub fn current_gateway_image_model_list() -> Vec<String> {
+    model_list_values(&current_gateway_image_models())
+}
+
+pub fn current_gateway_video_model_list() -> Vec<String> {
+    model_list_values(&current_gateway_video_models())
+}
+
+fn gateway_model_lists_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
+
+pub fn set_gateway_model_lists(
+    image_models: &str,
+    video_models: &str,
+) -> Result<(String, String), String> {
+    let _guard = gateway_model_lists_lock()
+        .lock()
+        .map_err(|_| "gateway model list lock poisoned".to_string())?;
+    set_gateway_model_lists_unlocked(image_models, video_models)
+}
+
+pub(super) fn apply_gateway_model_lists_patch(
+    image_models: Option<&str>,
+    video_models: Option<&str>,
+) -> Result<(String, String), String> {
+    let _guard = gateway_model_lists_lock()
+        .lock()
+        .map_err(|_| "gateway model list lock poisoned".to_string())?;
+    let image_models = image_models
+        .map(str::to_string)
+        .unwrap_or_else(current_gateway_image_models);
+    let video_models = video_models
+        .map(str::to_string)
+        .unwrap_or_else(current_gateway_video_models);
+    set_gateway_model_lists_unlocked(&image_models, &video_models)
+}
+
+fn set_gateway_model_lists_unlocked(
+    image_models: &str,
+    video_models: &str,
+) -> Result<(String, String), String> {
+    let image_models = normalize_gateway_model_list(image_models);
+    let video_models = normalize_gateway_model_list(video_models);
+    if has_overlapping_model(
+        &model_list_values(&image_models),
+        &model_list_values(&video_models),
+    ) {
+        return Err("生图模型和视频模型不能包含同一个模型".to_string());
+    }
+    save_persisted_app_setting(
+        APP_SETTING_GATEWAY_IMAGE_MODELS_KEY,
+        (!image_models.is_empty()).then_some(image_models.as_str()),
+    )?;
+    save_persisted_app_setting(
+        APP_SETTING_GATEWAY_VIDEO_MODELS_KEY,
+        (!video_models.is_empty()).then_some(video_models.as_str()),
+    )?;
+    Ok((image_models, video_models))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{apply_gateway_model_lists_patch, current_gateway_image_models, current_gateway_video_models, set_gateway_model_lists};
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn unique_temp_db_path() -> PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        std::env::temp_dir().join(format!("codexmanager-model-list-patch-test-{unique}.db"))
+    }
+
+    #[test]
+    fn partial_model_list_update_preserves_the_other_list() {
+        let _guard = crate::test_env_guard();
+        let db_path = unique_temp_db_path();
+        let previous_db_path = std::env::var("CODEXMANAGER_DB_PATH").ok();
+        std::env::set_var("CODEXMANAGER_DB_PATH", &db_path);
+
+        set_gateway_model_lists("old-image", "sora-2").expect("seed model lists");
+        apply_gateway_model_lists_patch(Some("gpt-image2"), None)
+            .expect("update image model list");
+
+        assert_eq!(current_gateway_image_models(), "gpt-image2");
+        assert_eq!(current_gateway_video_models(), "sora-2");
+
+        if let Some(value) = previous_db_path {
+            std::env::set_var("CODEXMANAGER_DB_PATH", value);
+        } else {
+            std::env::remove_var("CODEXMANAGER_DB_PATH");
+        }
+        let _ = std::fs::remove_file(&db_path);
+    }
 }
 
 /// 函数 `set_gateway_model_forward_rules`
