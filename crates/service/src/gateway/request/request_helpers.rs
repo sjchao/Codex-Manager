@@ -37,7 +37,7 @@ pub(crate) fn parse_request_metadata(body: &[u8]) -> ParsedRequestMetadata {
         return ParsedRequestMetadata::default();
     }
     let Ok(value) = serde_json::from_slice::<Value>(body) else {
-        return ParsedRequestMetadata::default();
+        return parse_multipart_request_metadata(body);
     };
     let Some(object) = value.as_object() else {
         return ParsedRequestMetadata::default();
@@ -106,6 +106,113 @@ pub(crate) fn parse_request_metadata(body: &[u8]) -> ParsedRequestMetadata {
         request_shape,
         has_prompt_cache_key,
     }
+}
+
+fn find_subsequence(haystack: &[u8], needle: &[u8], start: usize) -> Option<usize> {
+    if needle.is_empty() || start >= haystack.len() || haystack.len() < needle.len() {
+        return None;
+    }
+    haystack[start..]
+        .windows(needle.len())
+        .position(|window| window == needle)
+        .map(|idx| idx + start)
+}
+
+fn extract_multipart_part_name(headers: &[u8]) -> Option<&str> {
+    let headers = std::str::from_utf8(headers).ok()?;
+    for line in headers.split("\r\n") {
+        let Some((header_name, value)) = line.split_once(':') else {
+            continue;
+        };
+        if !header_name
+            .trim()
+            .eq_ignore_ascii_case("content-disposition")
+        {
+            continue;
+        }
+        for token in value.split(';').map(str::trim) {
+            let Some((parameter, value)) = token.split_once('=') else {
+                continue;
+            };
+            if !parameter.trim().eq_ignore_ascii_case("name") {
+                continue;
+            }
+            let field_name = value.trim().trim_matches('"').trim();
+            if !field_name.is_empty() {
+                return Some(field_name);
+            }
+        }
+    }
+    None
+}
+
+fn visit_multipart_parts(body: &[u8], mut visit: impl FnMut(&str, &[u8])) -> Option<()> {
+    if !body.starts_with(b"--") {
+        return None;
+    }
+    let boundary_line_end = find_subsequence(body, b"\r\n", 0)?;
+    if boundary_line_end <= 2 {
+        return None;
+    }
+    let boundary_marker = &body[..boundary_line_end];
+    let mut delimiter = Vec::with_capacity(boundary_marker.len() + 2);
+    delimiter.extend_from_slice(b"\r\n");
+    delimiter.extend_from_slice(boundary_marker);
+
+    let mut cursor = boundary_line_end + 2;
+    loop {
+        let headers_end = find_subsequence(body, b"\r\n\r\n", cursor)?;
+        let headers = &body[cursor..headers_end];
+        let part_body_start = headers_end + 4;
+        let next_boundary = find_subsequence(body, &delimiter, part_body_start)?;
+        if let Some(name) = extract_multipart_part_name(headers) {
+            visit(name, &body[part_body_start..next_boundary]);
+        }
+
+        cursor = next_boundary + delimiter.len();
+        if body.get(cursor..cursor + 2) == Some(b"--") {
+            return Some(());
+        }
+        if body.get(cursor..cursor + 2) != Some(b"\r\n") {
+            return None;
+        }
+        cursor += 2;
+    }
+}
+
+fn multipart_text_value(value: &[u8]) -> Option<&str> {
+    std::str::from_utf8(value)
+        .ok()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn parse_multipart_request_metadata(body: &[u8]) -> ParsedRequestMetadata {
+    let mut metadata = ParsedRequestMetadata::default();
+    let mut primary_image_size = None;
+    let mut fallback_image_size = None;
+    let parsed = visit_multipart_parts(body, |name, value| match name {
+        "model" => {
+            metadata.model = multipart_text_value(value).map(str::to_string);
+        }
+        "n" => {
+            metadata.image_count = multipart_text_value(value)
+                .and_then(|value| value.parse::<i64>().ok())
+                .filter(|value| *value > 0);
+        }
+        "size" => {
+            primary_image_size = multipart_text_value(value).map(str::to_string);
+        }
+        "image_size" => {
+            fallback_image_size = multipart_text_value(value).map(str::to_string);
+        }
+        _ => {}
+    });
+    if parsed.is_none() {
+        return ParsedRequestMetadata::default();
+    }
+    metadata.image_size = primary_image_size.or(fallback_image_size);
+    metadata
 }
 
 pub(crate) fn inspect_service_tier_for_log(body: &[u8]) -> ServiceTierLogDiagnostic {
@@ -344,5 +451,33 @@ mod tests {
             br#"{"model":"gpt-image2","size":"  ","image_size":"4K"}"#,
         );
         assert_eq!(blank_primary_size.image_size.as_deref(), Some("4K"));
+    }
+
+    #[test]
+    fn parse_request_metadata_reads_multipart_image_edit_fields() {
+        let metadata = parse_request_metadata(
+            b"--image-edit-boundary\r\n\
+Content-Disposition: form-data; name=\"model\"\r\n\
+\r\n\
+gpt-image2\r\n\
+--image-edit-boundary\r\n\
+Content-Disposition: form-data; name=\"n\"\r\n\
+\r\n\
+2\r\n\
+--image-edit-boundary\r\n\
+Content-Disposition: form-data; name=\"size\"\r\n\
+\r\n\
+1024x1024\r\n\
+--image-edit-boundary\r\n\
+Content-Disposition: form-data; name=\"image[]\"; filename=\"input.png\"\r\n\
+Content-Type: image/png\r\n\
+\r\n\
+\x89PNG\r\n\x1a\n{\"model\":\"not-a-form-field\"}\r\n\
+--image-edit-boundary--\r\n",
+        );
+
+        assert_eq!(metadata.model.as_deref(), Some("gpt-image2"));
+        assert_eq!(metadata.image_count, Some(2));
+        assert_eq!(metadata.image_size.as_deref(), Some("1024x1024"));
     }
 }
