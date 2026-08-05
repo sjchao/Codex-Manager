@@ -1614,3 +1614,36 @@ fn storage_can_roundtrip_api_key_secret() {
         .expect("load removed secret");
     assert!(removed.is_none());
 }
+
+/// 函数 `request_log_image_results_round_trip_through_storage`
+///
+/// # 参数
+/// 无
+///
+/// # 返回
+/// 无
+#[test]
+fn request_log_image_results_round_trip_through_storage() {
+    let storage = Storage::open_in_memory().expect("open in memory");
+    storage.init().expect("init schema");
+    let image_results_json = r#"[{"storageKey":"trc-image/0.png","mimeType":"image/png","byteLength":12}]"#;
+
+    storage
+        .insert_request_log(&RequestLog {
+            trace_id: Some("trc-image".to_string()),
+            request_path: "/v1/images/generations".to_string(),
+            method: "POST".to_string(),
+            model_type: Some("image".to_string()),
+            image_results_json: Some(image_results_json.to_string()),
+            created_at: now_ts(),
+            ..Default::default()
+        })
+        .expect("insert image request log");
+
+    let logs = storage
+        .list_request_logs(None, 20)
+        .expect("list request logs");
+
+    assert_eq!(logs.len(), 1);
+    assert_eq!(logs[0].image_results_json.as_deref(), Some(image_results_json));
+}

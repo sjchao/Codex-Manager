@@ -123,6 +123,7 @@ pub struct RequestLog {
     pub model_type: Option<String>,
     pub image_count: Option<i64>,
     pub image_size: Option<String>,
+    pub image_results_json: Option<String>,
     pub reasoning_effort: Option<String>,
     pub service_tier: Option<String>,
     pub effective_service_tier: Option<String>,
@@ -610,6 +611,11 @@ impl Storage {
         self.apply_sql_migration(
             "051_aggregate_api_supported_models",
             include_str!("../../migrations/051_aggregate_api_supported_models.sql"),
+        )?;
+        self.apply_sql_or_compat_migration(
+            "052_request_log_image_results",
+            include_str!("../../migrations/052_request_log_image_results.sql"),
+            |s| s.ensure_request_log_image_results_column(),
         )?;
         self.ensure_api_key_rotation_columns()?;
         self.ensure_api_key_group_name_column()?;

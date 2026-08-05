@@ -70,8 +70,8 @@ impl Storage {
             "INSERT INTO request_logs (
                 trace_id, key_id, account_id, initial_account_id, attempted_account_ids_json, initial_aggregate_api_id, attempted_aggregate_api_ids_json, aggregate_api_attempt_failures_json,
                 request_path, original_path, adapted_path,
-                method, request_type, model, model_type, image_count, image_size, reasoning_effort, service_tier, effective_service_tier, response_adapter, upstream_url, aggregate_api_supplier_name, aggregate_api_url, status_code, duration_ms, first_response_ms, queue_wait_ms, error, created_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, COALESCE(NULLIF(TRIM(?15), ''), 'text'), ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30)",
+                method, request_type, model, model_type, image_count, image_size, image_results_json, reasoning_effort, service_tier, effective_service_tier, response_adapter, upstream_url, aggregate_api_supplier_name, aggregate_api_url, status_code, duration_ms, first_response_ms, queue_wait_ms, error, created_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, COALESCE(NULLIF(TRIM(?15), ''), 'text'), ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31)",
             params![
                 &log.trace_id,
                 &log.key_id,
@@ -90,6 +90,7 @@ impl Storage {
                 &log.model_type,
                 log.image_count,
                 &log.image_size,
+                &log.image_results_json,
                 &log.reasoning_effort,
                 &log.service_tier,
                 &log.effective_service_tier,
@@ -131,8 +132,8 @@ impl Storage {
             "INSERT INTO request_logs (
                 trace_id, key_id, account_id, initial_account_id, attempted_account_ids_json, initial_aggregate_api_id, attempted_aggregate_api_ids_json, aggregate_api_attempt_failures_json,
                 request_path, original_path, adapted_path,
-                method, request_type, model, model_type, image_count, image_size, reasoning_effort, service_tier, effective_service_tier, response_adapter, upstream_url, aggregate_api_supplier_name, aggregate_api_url, status_code, duration_ms, first_response_ms, queue_wait_ms, error, created_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, COALESCE(NULLIF(TRIM(?15), ''), 'text'), ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30)",
+                method, request_type, model, model_type, image_count, image_size, image_results_json, reasoning_effort, service_tier, effective_service_tier, response_adapter, upstream_url, aggregate_api_supplier_name, aggregate_api_url, status_code, duration_ms, first_response_ms, queue_wait_ms, error, created_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, COALESCE(NULLIF(TRIM(?15), ''), 'text'), ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31)",
             params![
                 &log.trace_id,
                 &log.key_id,
@@ -151,6 +152,7 @@ impl Storage {
                 &log.model_type,
                 log.image_count,
                 &log.image_size,
+                &log.image_results_json,
                 &log.reasoning_effort,
                 &log.service_tier,
                 &log.effective_service_tier,
@@ -273,7 +275,7 @@ impl Storage {
             "SELECT
                 r.trace_id, r.key_id, r.account_id, r.initial_account_id, r.attempted_account_ids_json, r.initial_aggregate_api_id, r.attempted_aggregate_api_ids_json, r.aggregate_api_attempt_failures_json,
                 r.request_path, r.original_path, r.adapted_path,
-                r.method, r.request_type, r.model, COALESCE(NULLIF(TRIM(r.model_type), ''), 'text'), r.image_count, r.image_size, r.reasoning_effort, r.service_tier, r.effective_service_tier, r.response_adapter, r.upstream_url, r.aggregate_api_supplier_name, r.aggregate_api_url, r.status_code, r.duration_ms, r.first_response_ms, r.queue_wait_ms,
+                r.method, r.request_type, r.model, COALESCE(NULLIF(TRIM(r.model_type), ''), 'text'), r.image_count, r.image_size, r.image_results_json, r.reasoning_effort, r.service_tier, r.effective_service_tier, r.response_adapter, r.upstream_url, r.aggregate_api_supplier_name, r.aggregate_api_url, r.status_code, r.duration_ms, r.first_response_ms, r.queue_wait_ms,
                 t.input_tokens, t.cached_input_tokens, t.output_tokens, t.total_tokens, t.reasoning_output_tokens, t.estimated_cost_usd,
                 r.error, r.created_at
              FROM request_logs r
@@ -417,6 +419,16 @@ impl Storage {
         Ok(())
     }
 
+    pub fn list_request_log_image_results_jsons(&self) -> Result<Vec<Option<String>>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT image_results_json
+             FROM request_logs
+             WHERE image_results_json IS NOT NULL AND TRIM(image_results_json) <> ''",
+        )?;
+        let rows = stmt.query_map([], |row| row.get(0))?;
+        rows.collect()
+    }
+
     /// 函数 `summarize_request_logs_between`
     ///
     /// 作者: gaohongshun
@@ -487,6 +499,7 @@ impl Storage {
             [],
         )?;
         self.ensure_request_log_model_type_and_media_columns()?;
+        self.ensure_request_log_image_results_column()?;
         Ok(())
     }
 
@@ -672,6 +685,11 @@ impl Storage {
         Ok(())
     }
 
+    pub(super) fn ensure_request_log_image_results_column(&self) -> Result<()> {
+        self.ensure_column("request_logs", "image_results_json", "TEXT")?;
+        Ok(())
+    }
+
     pub(super) fn ensure_request_log_request_type_and_service_tier_columns(&self) -> Result<()> {
         self.ensure_column("request_logs", "request_type", "TEXT")?;
         self.ensure_column("request_logs", "service_tier", "TEXT")?;
@@ -801,25 +819,26 @@ fn map_request_log_row(row: &Row<'_>) -> Result<RequestLog> {
         model_type: row.get(14)?,
         image_count: row.get(15)?,
         image_size: row.get(16)?,
-        reasoning_effort: row.get(17)?,
-        service_tier: row.get(18)?,
-        effective_service_tier: row.get(19)?,
-        response_adapter: row.get(20)?,
-        upstream_url: row.get(21)?,
-        aggregate_api_supplier_name: row.get(22)?,
-        aggregate_api_url: row.get(23)?,
-        status_code: row.get(24)?,
-        duration_ms: row.get(25)?,
-        first_response_ms: row.get(26)?,
-        queue_wait_ms: row.get(27)?,
-        input_tokens: row.get(28)?,
-        cached_input_tokens: row.get(29)?,
-        output_tokens: row.get(30)?,
-        total_tokens: row.get(31)?,
-        reasoning_output_tokens: row.get(32)?,
-        estimated_cost_usd: row.get(33)?,
-        error: row.get(34)?,
-        created_at: row.get(35)?,
+        image_results_json: row.get(17)?,
+        reasoning_effort: row.get(18)?,
+        service_tier: row.get(19)?,
+        effective_service_tier: row.get(20)?,
+        response_adapter: row.get(21)?,
+        upstream_url: row.get(22)?,
+        aggregate_api_supplier_name: row.get(23)?,
+        aggregate_api_url: row.get(24)?,
+        status_code: row.get(25)?,
+        duration_ms: row.get(26)?,
+        first_response_ms: row.get(27)?,
+        queue_wait_ms: row.get(28)?,
+        input_tokens: row.get(29)?,
+        cached_input_tokens: row.get(30)?,
+        output_tokens: row.get(31)?,
+        total_tokens: row.get(32)?,
+        reasoning_output_tokens: row.get(33)?,
+        estimated_cost_usd: row.get(34)?,
+        error: row.get(35)?,
+        created_at: row.get(36)?,
     })
 }
 

@@ -1,4 +1,7 @@
 use codexmanager_core::storage::Storage;
+use std::fs;
+use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::{
     estimate_cost_usd, should_write_gateway_error_fallback, write_request_log, RequestLogTraceContext,
@@ -23,6 +26,39 @@ fn assert_close(actual: f64, expected: f64) {
         (actual - expected).abs() < 1e-12,
         "actual={actual}, expected={expected}"
     );
+}
+
+struct EnvGuard {
+    original: Option<std::ffi::OsString>,
+}
+
+impl EnvGuard {
+    fn set_database_path(path: &std::path::Path) -> Self {
+        let original = std::env::var_os("CODEXMANAGER_DB_PATH");
+        std::env::set_var("CODEXMANAGER_DB_PATH", path);
+        Self { original }
+    }
+}
+
+impl Drop for EnvGuard {
+    fn drop(&mut self) {
+        if let Some(value) = &self.original {
+            std::env::set_var("CODEXMANAGER_DB_PATH", value);
+        } else {
+            std::env::remove_var("CODEXMANAGER_DB_PATH");
+        }
+    }
+}
+
+fn temporary_database_path(name: &str) -> PathBuf {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock")
+        .as_nanos();
+    std::env::temp_dir()
+        .join(format!("codexmanager-request-log-{name}-{}-{unique}", std::process::id()))
+        .join("data")
+        .join("codexmanager.db")
 }
 
 #[test]
@@ -57,6 +93,53 @@ fn request_log_persists_image_type_and_defaults_missing_image_count_to_one() {
     assert_eq!(logs[0].model_type.as_deref(), Some("image"));
     assert_eq!(logs[0].image_count, Some(1));
     assert_eq!(logs[0].image_size.as_deref(), Some("4K"));
+}
+
+#[test]
+fn request_log_write_failure_removes_uncatalogued_image_results() {
+    let _env_lock = crate::test_env_guard();
+    let db_path = temporary_database_path("image-cleanup");
+    fs::create_dir_all(db_path.parent().expect("database parent"))
+        .expect("create database directory");
+    let _db_path_guard = EnvGuard::set_database_path(&db_path);
+    let body = br#"{"data":[{"b64_json":"iVBORw0KGgo="}]}"#;
+    let image_results = crate::requestlog::image_assets::cache_openai_image_results(
+        &db_path,
+        "trc-image-cleanup",
+        body,
+    );
+    let metadata = serde_json::to_string(&image_results).expect("serialize image metadata");
+    let image_path = db_path
+        .parent()
+        .expect("database parent")
+        .join("request-log-images")
+        .join(&image_results[0].storage_key);
+    assert!(image_path.is_file());
+
+    let storage = Storage::open_in_memory().expect("open uninitialized storage");
+    write_request_log(
+        &storage,
+        RequestLogTraceContext {
+            trace_id: Some("trc-image-cleanup"),
+            model_type: Some(ModelType::Image),
+            image_results_json: Some(metadata.as_str()),
+            ..Default::default()
+        },
+        Some("key-image-cleanup"),
+        None,
+        "/v1/images/generations",
+        "POST",
+        Some("gpt-image2"),
+        None,
+        None,
+        Some(200),
+        RequestLogUsage::default(),
+        None,
+        Some(1),
+    );
+
+    assert!(!image_path.exists());
+    let _ = fs::remove_dir_all(db_path.parent().expect("database parent").parent().expect("test root"));
 }
 
 /// 函数 `estimate_cost_matches_openai_gpt5_family_prices`

@@ -25,6 +25,7 @@ pub(crate) struct UpstreamResponseUsage {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct UpstreamResponseBridgeResult {
     pub usage: UpstreamResponseUsage,
+    pub image_results_json: Option<String>,
     pub stream_terminal_seen: bool,
     pub stream_terminal_error: Option<String>,
     pub delivery_error: Option<String>,

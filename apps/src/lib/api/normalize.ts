@@ -28,6 +28,8 @@ import {
   PluginTaskSummary,
   RequestLog,
   RequestLogFilterSummary,
+  RequestLogImageData,
+  RequestLogImageResult,
   RequestLogListResult,
   RequestLogTodaySummary,
   StartupSnapshot,
@@ -1051,6 +1053,50 @@ export function normalizeLoginStartResult(payload: unknown): LoginStartResult {
   };
 }
 
+function normalizeRequestLogImageResults(
+  payload: unknown
+): RequestLogImageResult[] {
+  return asArray(payload)
+    .map((item) => {
+      const source = asObject(item);
+      const storageKey = asString(source.storageKey ?? source.storage_key);
+      const mimeType = asString(source.mimeType ?? source.mime_type);
+      const byteLength = toNullableNumber(
+        source.byteLength ?? source.byte_length
+      );
+      if (
+        !storageKey ||
+        !mimeType.startsWith("image/") ||
+        byteLength == null ||
+        !Number.isInteger(byteLength) ||
+        byteLength < 0
+      ) {
+        return null;
+      }
+      return { storageKey, mimeType, byteLength };
+    })
+    .filter(
+      (item): item is RequestLogImageResult => item !== null
+    );
+}
+
+export function normalizeRequestLogImageData(
+  payload: unknown
+): RequestLogImageData[] {
+  const source = asObject(payload);
+  return asArray(source.items ?? payload)
+    .map((item) => {
+      const current = asObject(item);
+      const storageKey = asString(current.storageKey ?? current.storage_key);
+      const dataUrl = asString(current.dataUrl ?? current.data_url);
+      if (!storageKey || !dataUrl.startsWith("data:image/")) {
+        return null;
+      }
+      return { storageKey, dataUrl };
+    })
+    .filter((item): item is RequestLogImageData => item !== null);
+}
+
 /**
  * 函数 `normalizeRequestLog`
  *
@@ -1150,6 +1196,9 @@ export function normalizeRequestLog(item: unknown): RequestLog | null {
     modelType: asString(source.modelType ?? source.model_type) || "text",
     imageCount: toNullableNumber(source.imageCount ?? source.image_count),
     imageSize: asString(source.imageSize ?? source.image_size),
+    imageResults: normalizeRequestLogImageResults(
+      source.imageResults ?? source.image_results
+    ),
     reasoningEffort: asString(source.reasoningEffort ?? source.reasoning_effort),
     serviceTier: asString(source.serviceTier ?? source.service_tier),
     effectiveServiceTier: asString(

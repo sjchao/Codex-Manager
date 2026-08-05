@@ -1,8 +1,9 @@
 use codexmanager_core::rpc::types::{
     RequestLogAggregateApiAttemptFailure, RequestLogListParams, RequestLogListResult,
-    RequestLogSummary,
+    RequestLogImageData, RequestLogImageReadParams, RequestLogImageResult, RequestLogSummary,
 };
 use codexmanager_core::storage::RequestLog;
+use std::path::Path;
 
 use crate::storage_helpers::open_storage;
 
@@ -30,6 +31,11 @@ fn parse_aggregate_api_attempt_failures(
     raw: Option<&str>,
 ) -> Vec<RequestLogAggregateApiAttemptFailure> {
     raw.and_then(|value| serde_json::from_str::<Vec<RequestLogAggregateApiAttemptFailure>>(value).ok())
+        .unwrap_or_default()
+}
+
+fn parse_image_results(raw: Option<&str>) -> Vec<RequestLogImageResult> {
+    raw.and_then(|value| serde_json::from_str::<Vec<RequestLogImageResult>>(value).ok())
         .unwrap_or_default()
 }
 
@@ -100,6 +106,32 @@ pub(crate) fn read_request_log_page(
         page,
         page_size,
     })
+}
+
+pub(crate) fn read_request_log_images(
+    params: RequestLogImageReadParams,
+) -> Result<Vec<RequestLogImageData>, String> {
+    let trace_id = params.trace_id.trim();
+    if trace_id.is_empty() {
+        return Err("request log trace ID is required".to_string());
+    }
+    let storage = open_storage().ok_or_else(|| "open storage failed".to_string())?;
+    let query = format!("trace:={trace_id}");
+    let log = storage
+        .list_request_logs(Some(query.as_str()), 1)
+        .map_err(|err| format!("read request log failed: {err}"))?
+        .into_iter()
+        .next();
+    let Some(log) = log else {
+        return Ok(Vec::new());
+    };
+    let db_path = std::env::var("CODEXMANAGER_DB_PATH")
+        .map_err(|_| "CODEXMANAGER_DB_PATH not set".to_string())?;
+    crate::requestlog::image_assets::read_image_data_urls(
+        Path::new(&db_path),
+        trace_id,
+        log.image_results_json.as_deref(),
+    )
 }
 
 /// 函数 `normalize_optional_text`
@@ -215,6 +247,7 @@ fn to_request_log_summary(item: RequestLog) -> RequestLogSummary {
         .unwrap_or_default();
     let aggregate_api_attempt_failures =
         parse_aggregate_api_attempt_failures(item.aggregate_api_attempt_failures_json.as_deref());
+    let image_results = parse_image_results(item.image_results_json.as_deref());
     RequestLogSummary {
         trace_id: item.trace_id,
         key_id: item.key_id,
@@ -239,6 +272,7 @@ fn to_request_log_summary(item: RequestLog) -> RequestLogSummary {
             .to_string(),
         image_count: item.image_count,
         image_size: item.image_size,
+        image_results,
         reasoning_effort: item.reasoning_effort,
         service_tier: item.service_tier,
         effective_service_tier: item.effective_service_tier,
@@ -370,6 +404,25 @@ mod tests {
 
         assert_eq!(summary.duration_ms, Some(2345));
         assert_eq!(summary.first_response_ms, Some(340));
+    }
+
+    #[test]
+    fn to_request_log_summary_exposes_image_result_metadata() {
+        let summary = super::to_request_log_summary(RequestLog {
+            request_path: "/v1/images/generations".to_string(),
+            method: "POST".to_string(),
+            image_results_json: Some(
+                r#"[{"storageKey":"trc-image/0.png","mimeType":"image/png","byteLength":8}]"#
+                    .to_string(),
+            ),
+            created_at: 1,
+            ..Default::default()
+        });
+
+        assert_eq!(summary.image_results.len(), 1);
+        assert_eq!(summary.image_results[0].storage_key, "trc-image/0.png");
+        assert_eq!(summary.image_results[0].mime_type, "image/png");
+        assert_eq!(summary.image_results[0].byte_length, 8);
     }
 
     /// 函数 `request_log_list_params_default_to_first_page_with_twenty_items`

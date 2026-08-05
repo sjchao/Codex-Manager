@@ -1910,6 +1910,95 @@ fn rpc_requestlog_list_and_summary_support_pagination() {
     );
 }
 
+#[test]
+fn rpc_requestlog_images_read_and_clear_remove_cached_assets() {
+    let ctx = RpcTestContext::new("rpc-requestlog-images");
+    let storage = Storage::open(ctx.db_path()).expect("open db");
+    storage.init().expect("init schema");
+    let image_path = ctx
+        .dir
+        .join("request-log-images")
+        .join("trc-image")
+        .join("0.png");
+    fs::create_dir_all(image_path.parent().expect("image parent"))
+        .expect("create image directory");
+    fs::write(&image_path, b"\x89PNG\r\n\x1a\n").expect("write cached image");
+    let image_results_json = r#"[{"storageKey":"trc-image/0.png","mimeType":"image/png","byteLength":8}]"#;
+    let request_log_id = storage
+        .insert_request_log(&RequestLog {
+            trace_id: Some("trc-image".to_string()),
+            request_path: "/v1/images/generations".to_string(),
+            method: "POST".to_string(),
+            model_type: Some("image".to_string()),
+            image_results_json: Some(image_results_json.to_string()),
+            status_code: Some(200),
+            created_at: now_ts(),
+            ..Default::default()
+        })
+        .expect("insert image request log");
+    storage
+        .insert_request_token_stat(&RequestTokenStat {
+            request_log_id,
+            input_tokens: Some(100),
+            total_tokens: Some(100),
+            created_at: now_ts(),
+            ..Default::default()
+        })
+        .expect("insert token stat");
+
+    let list_server = codexmanager_service::start_one_shot_server().expect("start list server");
+    let list_request = JsonRpcRequest {
+        id: 801.into(),
+        method: "requestlog/list".to_string(),
+        params: Some(serde_json::json!({ "modelType": "image" })),
+        trace: None,
+    };
+    let list_response = post_rpc(
+        &list_server.addr,
+        &serde_json::to_string(&list_request).expect("serialize list request"),
+    );
+    let list_item = &list_response["result"]["items"][0];
+    assert_eq!(list_item["imageResults"][0]["storageKey"], "trc-image/0.png");
+    assert!(list_item.get("dataUrl").is_none());
+
+    let read_server = codexmanager_service::start_one_shot_server().expect("start read server");
+    let read_request = JsonRpcRequest {
+        id: 802.into(),
+        method: "requestlog/images/read".to_string(),
+        params: Some(serde_json::json!({ "traceId": "trc-image" })),
+        trace: None,
+    };
+    let read_response = post_rpc(
+        &read_server.addr,
+        &serde_json::to_string(&read_request).expect("serialize read request"),
+    );
+    assert!(read_response["result"][0]["dataUrl"]
+        .as_str()
+        .is_some_and(|value| value.starts_with("data:image/png;base64,")));
+
+    let clear_server = codexmanager_service::start_one_shot_server().expect("start clear server");
+    let clear_request = JsonRpcRequest {
+        id: 803.into(),
+        method: "requestlog/clear".to_string(),
+        params: None,
+        trace: None,
+    };
+    let clear_response = post_rpc(
+        &clear_server.addr,
+        &serde_json::to_string(&clear_request).expect("serialize clear request"),
+    );
+    assert_eq!(clear_response["result"]["ok"], true);
+    assert!(!image_path.exists());
+    assert!(storage
+        .list_request_logs(None, 20)
+        .expect("list cleared request logs")
+        .is_empty());
+    let token_summary = storage
+        .summarize_request_logs_between(0, now_ts() + 1)
+        .expect("summarize preserved token stats");
+    assert_eq!(token_summary.input_tokens, 100);
+}
+
 /// 函数 `rpc_apikey_update_model_updates_name_with_chinese`
 ///
 /// 作者: gaohongshun

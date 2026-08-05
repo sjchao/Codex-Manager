@@ -140,6 +140,7 @@ pub(super) fn respond_with_upstream(
     tool_name_restore_map: Option<&super::ToolNameRestoreMap>,
     is_stream: bool,
     allow_failover_for_deactivation: bool,
+    capture_image_results: bool,
     trace_id: Option<&str>,
     request_started_at: std::time::Instant,
 ) -> Result<UpstreamResponseBridgeOutcome, String> {
@@ -154,6 +155,7 @@ pub(super) fn respond_with_upstream(
         tool_name_restore_map,
         is_stream,
         allow_failover_for_deactivation,
+        capture_image_results,
         trace_id,
         request_started_at,
     )

@@ -1140,6 +1140,7 @@ pub(in super::super) fn proxy_aggregate_request(
                 None,
                 is_stream,
                 candidate_idx + 1 < total_candidates,
+                model_type == ModelType::Image,
                 Some(trace_id),
                 started_at,
             )?
@@ -1192,6 +1193,7 @@ pub(in super::super) fn proxy_aggregate_request(
                 candidate_idx + 1 < total_candidates,
                 failover_request.is_some(),
             );
+            let image_results_json = bridge.image_results_json.clone();
             let usage = bridge.usage;
 
             last_attempt_url = Some(url.as_str().to_string());
@@ -1238,6 +1240,7 @@ pub(in super::super) fn proxy_aggregate_request(
                     model_type: Some(model_type),
                     image_count,
                     image_size,
+                    image_results_json: image_results_json.as_deref(),
                     effective_service_tier: effective_service_tier_for_log,
                     aggregate_api_supplier_name: candidate_supplier_name.as_deref(),
                     aggregate_api_url: Some(candidate_url.as_str()),

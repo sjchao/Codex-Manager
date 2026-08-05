@@ -19,9 +19,11 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/modals/confirm-dialog";
+import { RequestLogImageResultCell } from "@/components/logs/request-log-image-result-cell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -66,6 +68,7 @@ import {
   RequestLog,
   RequestLogAggregateApiAttemptFailure,
   RequestLogFilterSummary,
+  RequestLogImageData,
   RequestLogListResult,
   StartupSnapshot,
 } from "@/types";
@@ -1275,6 +1278,7 @@ function LogsPageContent() {
   const [clearGatewayConfirmOpen, setClearGatewayConfirmOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<LogsTab>("all");
   const [gatewayStageFilter, setGatewayStageFilter] = useState("all");
+  const [previewedImage, setPreviewedImage] = useState<RequestLogImageData | null>(null);
   const pageSizeNumber = Number(pageSize) || 10;
   const gatewayPageSizeNumber = Number(gatewayPageSize) || 10;
   const startupSnapshot = queryClient.getQueryData<StartupSnapshot>(
@@ -1398,6 +1402,8 @@ function LogsPageContent() {
   const clearMutation = useMutation({
     mutationFn: () => serviceClient.clearRequestLogs(),
     onSuccess: async () => {
+      setPreviewedImage(null);
+      queryClient.removeQueries({ queryKey: ["logs", "images"] });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["logs"] }),
         queryClient.invalidateQueries({ queryKey: ["today-summary"] }),
@@ -1715,7 +1721,7 @@ function LogsPageContent() {
               </div>
             </CardHeader>
             <CardContent className="px-0">
-              <Table className="min-w-[1450px] table-fixed">
+              <Table className={cn("table-fixed", modelTypeFilter === "image" ? "min-w-[1580px]" : "min-w-[1450px]")}>
             <TableHeader>
               <TableRow>
                 <TableHead className="h-12 w-[150px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
@@ -1742,6 +1748,11 @@ function LogsPageContent() {
                 <TableHead className="w-[148px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
                   {modelTypeFilter === "image" ? "图片参数" : "词元"}
                 </TableHead>
+                {modelTypeFilter === "image" ? (
+                  <TableHead className="w-[150px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+                    图片结果
+                  </TableHead>
+                ) : null}
                 <TableHead className="w-[240px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
                   错误
                 </TableHead>
@@ -1775,6 +1786,11 @@ function LogsPageContent() {
                     <TableCell>
                       <Skeleton className="h-4 w-20" />
                     </TableCell>
+                    {modelTypeFilter === "image" ? (
+                      <TableCell>
+                        <Skeleton className="h-12 w-16" />
+                      </TableCell>
+                    ) : null}
                     <TableCell>
                       <Skeleton className="h-4 w-full" />
                     </TableCell>
@@ -1783,7 +1799,7 @@ function LogsPageContent() {
               ) : logs.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={9}
+                    colSpan={modelTypeFilter === "image" ? 10 : 9}
                     className="h-52 px-4 text-center text-sm text-muted-foreground"
                   >
                     {!serviceStatus.connected
@@ -1851,6 +1867,16 @@ function LogsPageContent() {
                         </div>
                       )}
                     </TableCell>
+                    {modelTypeFilter === "image" ? (
+                      <TableCell className="px-4 py-3 align-top">
+                        <RequestLogImageResultCell
+                          traceId={log.traceId}
+                          imageResults={log.imageResults}
+                          serviceAddr={serviceStatus.addr}
+                          onPreview={setPreviewedImage}
+                        />
+                      </TableCell>
+                    ) : null}
                     <TableCell className="px-4 py-3 text-left align-top">
                       <ErrorInfoCell
                         error={log.error}
@@ -2275,6 +2301,23 @@ function LogsPageContent() {
         confirmVariant="destructive"
         onConfirm={() => clearGatewayMutation.mutate()}
       />
+      <Dialog
+        open={Boolean(previewedImage)}
+        onOpenChange={(open) => {
+          if (!open) setPreviewedImage(null);
+        }}
+      >
+        <DialogContent className="w-auto max-w-[90vw] p-3 sm:max-w-[90vw] md:max-w-[90vw]">
+          <DialogTitle className="sr-only">生成图片预览</DialogTitle>
+          {previewedImage ? (
+            <img
+              src={previewedImage.dataUrl}
+              alt="生成图片原图"
+              className="max-h-[80vh] max-w-[90vw] object-contain"
+            />
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

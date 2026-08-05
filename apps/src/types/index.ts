@@ -256,6 +256,17 @@ export interface RequestLogAggregateApiAttemptFailure {
   error: string;
 }
 
+export interface RequestLogImageResult {
+  storageKey: string;
+  mimeType: string;
+  byteLength: number;
+}
+
+export interface RequestLogImageData {
+  storageKey: string;
+  dataUrl: string;
+}
+
 export interface RequestLog {
   id: string;
   traceId: string;
@@ -276,6 +287,7 @@ export interface RequestLog {
   modelType: string;
   imageCount: number | null;
   imageSize: string;
+  imageResults: RequestLogImageResult[];
   reasoningEffort: string;
   serviceTier: string;
   effectiveServiceTier: string;

@@ -78,6 +78,7 @@ pub(super) fn respond_total_timeout(
         None,
         model_for_log,
         504,
+        None,
         RequestLogUsage::default(),
         Some(message.as_str()),
         started_at.elapsed().as_millis(),
@@ -115,6 +116,7 @@ pub(super) fn finalize_terminal_candidate(
         last_attempt_url,
         model_for_log,
         status_code,
+        None,
         RequestLogUsage::default(),
         Some(message.as_str()),
         started_at.elapsed().as_millis(),
@@ -168,6 +170,7 @@ pub(super) fn finalize_upstream_response(
         Some(tool_name_restore_map),
         client_is_stream,
         has_more_candidates,
+        context.is_image_request(),
         Some(trace_id),
         started_at,
     )?
@@ -281,6 +284,7 @@ pub(super) fn finalize_upstream_response(
         let _ = context.mark_account_unavailable_for_gateway_error(account_id, error);
     }
 
+    let image_results_json = bridge.image_results_json.clone();
     let usage = bridge.usage;
     if gateway_failover {
         return Ok(FinalizeUpstreamResponseOutcome::Failover {
@@ -292,6 +296,7 @@ pub(super) fn finalize_upstream_response(
         last_attempt_url,
         model_for_log,
         status_for_log,
+        image_results_json.as_deref(),
         RequestLogUsage {
             input_tokens: usage.input_tokens,
             cached_input_tokens: usage.cached_input_tokens,

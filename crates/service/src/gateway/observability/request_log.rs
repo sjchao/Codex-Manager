@@ -2,6 +2,7 @@ use crate::gateway::error_log::GatewayErrorLogInput;
 use crate::gateway::ModelType;
 use codexmanager_core::storage::{now_ts, RequestLog, RequestTokenStat, Storage};
 use serde::Serialize;
+use std::path::Path;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct RequestLogUsage {
@@ -22,6 +23,28 @@ pub(crate) struct AggregateApiAttemptFailure {
     pub error: String,
 }
 
+fn cleanup_uncatalogued_image_results(image_results_json: Option<&str>) {
+    let Some(image_results_json) = image_results_json.filter(|value| !value.trim().is_empty()) else {
+        return;
+    };
+    let db_path = match std::env::var("CODEXMANAGER_DB_PATH") {
+        Ok(path) => path,
+        Err(_) => {
+            log::warn!("event=request_log_image_cleanup_skipped reason=database_path_missing");
+            return;
+        }
+    };
+    if let Err(err) = crate::requestlog::image_assets::clear_image_results(
+        Path::new(&db_path),
+        [Some(image_results_json.to_string())],
+    ) {
+        log::warn!(
+            "event=request_log_image_cleanup_failed reason=request_log_write_failed err={}",
+            err
+        );
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct RequestLogTraceContext<'a> {
     pub trace_id: Option<&'a str>,
@@ -31,6 +54,7 @@ pub(crate) struct RequestLogTraceContext<'a> {
     pub model_type: Option<ModelType>,
     pub image_count: Option<i64>,
     pub image_size: Option<&'a str>,
+    pub image_results_json: Option<&'a str>,
     pub service_tier: Option<&'a str>,
     pub effective_service_tier: Option<&'a str>,
     pub queue_wait_ms: Option<u128>,
@@ -445,6 +469,7 @@ pub(crate) fn write_request_log_with_attempts(
             model_type: Some(model_type.as_str().to_string()),
             image_count,
             image_size,
+            image_results_json: trace_context.image_results_json.map(str::to_string),
             reasoning_effort: reasoning_effort.map(|v| v.to_string()),
             service_tier: service_tier.map(str::to_string),
             effective_service_tier: effective_service_tier.map(str::to_string),
@@ -487,6 +512,7 @@ pub(crate) fn write_request_log_with_attempts(
         Ok(result) => result,
         Err(err) => {
             let err_text = err.to_string();
+            cleanup_uncatalogued_image_results(trace_context.image_results_json);
             super::metrics::record_db_error(err_text.as_str());
             log::error!(
                 "event=gateway_request_log_insert_failed path={} status={} account_id={} key_id={} err={}",

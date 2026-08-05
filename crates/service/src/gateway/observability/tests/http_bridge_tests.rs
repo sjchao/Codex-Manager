@@ -10,11 +10,13 @@ use super::{
 };
 use crate::gateway::GeminiStreamOutputMode;
 use serde_json::json;
+use std::fs;
 use std::io::{Read, Write};
-use std::net::TcpListener;
+use std::net::{Shutdown, TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use tiny_http::Server;
 
 struct EnvGuard {
     key: &'static str,
@@ -142,6 +144,81 @@ fn open_streaming_mock_http_response(
     });
     let response = reqwest::blocking::get(format!("http://{addr}")).expect("request mock upstream");
     (response, server)
+}
+
+#[test]
+fn http_bridge_caches_successful_non_stream_image_response_after_delivery() {
+    let _env_lock = crate::test_env_guard();
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock")
+        .as_nanos();
+    let temp_root = std::env::temp_dir().join(format!(
+        "codexmanager-http-bridge-image-{}-{unique}",
+        std::process::id()
+    ));
+    let db_path = temp_root.join("data").join("codexmanager.db");
+    fs::create_dir_all(db_path.parent().expect("database parent"))
+        .expect("create test data directory");
+    let _db_path_guard = EnvGuard::set("CODEXMANAGER_DB_PATH", db_path.to_string_lossy().as_ref());
+
+    let downstream_server = Server::http("127.0.0.1:0").expect("start downstream server");
+    let downstream_addr = downstream_server
+        .server_addr()
+        .to_ip()
+        .expect("downstream server IP address");
+    let mut downstream_client = TcpStream::connect(downstream_addr).expect("connect downstream");
+    downstream_client
+        .write_all(
+            b"GET /v1/images/generations HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        )
+        .expect("send downstream request");
+    downstream_client
+        .shutdown(Shutdown::Write)
+        .expect("finish downstream request");
+    let downstream_request = downstream_server
+        .recv_timeout(Duration::from_secs(2))
+        .expect("receive downstream request")
+        .expect("downstream request exists");
+    let upstream_body = r#"{"data":[{"b64_json":"iVBORw0KGgo="}]}"#;
+    let upstream = open_mock_http_response("application/json", upstream_body);
+
+    let (bridge, _) = super::respond_with_upstream(
+        downstream_request,
+        upstream,
+        crate::gateway::acquire_account_inflight("bridge-image-test"),
+        crate::gateway::ResponseAdapter::Passthrough,
+        None,
+        None,
+        "/v1/images/generations",
+        None,
+        false,
+        false,
+        true,
+        Some("trc-bridge-image"),
+        Instant::now(),
+    )
+    .expect("bridge response")
+    .into_parts();
+
+    let mut delivered = String::new();
+    downstream_client
+        .read_to_string(&mut delivered)
+        .expect("read downstream response");
+    assert!(delivered.ends_with(upstream_body));
+    assert!(!bridge.image_results_json.as_deref().unwrap_or_default().is_empty());
+    let image_root = db_path
+        .parent()
+        .expect("database parent")
+        .join("request-log-images");
+    let asset = serde_json::from_str::<Vec<codexmanager_core::rpc::types::RequestLogImageResult>>(
+        bridge.image_results_json.as_deref().expect("image metadata"),
+    )
+    .expect("parse image metadata");
+    assert_eq!(asset.len(), 1);
+    assert!(image_root.join(&asset[0].storage_key).is_file());
+
+    let _ = fs::remove_dir_all(temp_root);
 }
 
 /// 函数 `parse_usage_from_json_reads_cached_and_reasoning_details`

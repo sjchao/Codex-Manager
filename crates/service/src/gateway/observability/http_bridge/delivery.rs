@@ -1,4 +1,5 @@
 use serde_json::{json, Value};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use tiny_http::{Header, Request, Response, StatusCode};
 
@@ -20,6 +21,36 @@ use super::{
 const REQUEST_ID_HEADER_CANDIDATES: &[&str] = &["x-request-id", "x-oai-request-id"];
 const CF_RAY_HEADER_NAME: &str = "cf-ray";
 const AUTH_ERROR_HEADER_NAME: &str = "x-openai-authorization-error";
+
+fn cache_delivered_image_results(trace_id: Option<&str>, response_body: &[u8]) -> Option<String> {
+    let trace_id = trace_id.map(str::trim).filter(|value| !value.is_empty())?;
+    let db_path = match std::env::var("CODEXMANAGER_DB_PATH") {
+        Ok(path) => path,
+        Err(_) => {
+            log::warn!(
+                "event=request_log_image_cache_skipped trace_id={} reason=database_path_missing",
+                trace_id
+            );
+            return None;
+        }
+    };
+    let image_results = crate::requestlog::image_assets::cache_openai_image_results(
+        Path::new(&db_path),
+        trace_id,
+        response_body,
+    );
+    if image_results.is_empty() {
+        return None;
+    }
+    serde_json::to_string(&image_results).map(Some).unwrap_or_else(|err| {
+        log::warn!(
+            "event=request_log_image_cache_skipped trace_id={} reason=metadata_serialize_failed err={}",
+            trace_id,
+            err
+        );
+        None
+    })
+}
 
 /// 函数 `is_compact_request_path`
 ///
@@ -562,6 +593,7 @@ fn respond_synthesized_compact_error_body(
         upstream_identity_error_code: None,
         upstream_content_type: Some("application/json".to_string()),
         last_sse_event_type: None,
+        image_results_json: None,
     }
 }
 
@@ -783,6 +815,7 @@ pub(crate) fn respond_with_upstream(
     tool_name_restore_map: Option<&ToolNameRestoreMap>,
     is_stream: bool,
     allow_failover_for_deactivation: bool,
+    capture_image_results: bool,
     trace_id: Option<&str>,
     request_started_at: std::time::Instant,
 ) -> Result<UpstreamResponseBridgeOutcome, String> {
@@ -869,6 +902,7 @@ pub(crate) fn respond_with_upstream(
                                 upstream_identity_error_code: None,
                                 upstream_content_type: None,
                                 last_sse_event_type: None,
+                                image_results_json: None,
                             },
                             &upstream_request_id,
                             &upstream_cf_ray,
@@ -952,6 +986,7 @@ pub(crate) fn respond_with_upstream(
                             upstream_identity_error_code: None,
                             upstream_content_type: None,
                             last_sse_event_type: None,
+                            image_results_json: None,
                         },
                         &upstream_request_id,
                         &upstream_cf_ray,
@@ -1041,6 +1076,7 @@ pub(crate) fn respond_with_upstream(
                             upstream_identity_error_code: None,
                             upstream_content_type: None,
                             last_sse_event_type: None,
+                            image_results_json: None,
                         },
                         &upstream_request_id,
                         &upstream_cf_ray,
@@ -1059,9 +1095,18 @@ pub(crate) fn respond_with_upstream(
                     None,
                 );
                 let delivery_error = request.respond(response).err().map(|err| err.to_string());
+                let image_results_json = if capture_image_results
+                    && status.0 < 300
+                    && delivery_error.is_none()
+                {
+                    cache_delivered_image_results(trace_id, upstream_body.as_ref())
+                } else {
+                    None
+                };
                 return Ok(UpstreamResponseBridgeOutcome::Delivered(with_bridge_debug_meta(
                     UpstreamResponseBridgeResult {
                         usage,
+                        image_results_json,
                         stream_terminal_seen: true,
                         stream_terminal_error: None,
                         delivery_error,
@@ -1125,6 +1170,7 @@ pub(crate) fn respond_with_upstream(
                         upstream_identity_error_code: None,
                         upstream_content_type: None,
                         last_sse_event_type: None,
+                        image_results_json: None,
                     },
                     &upstream_request_id,
                     &upstream_cf_ray,
@@ -1176,6 +1222,7 @@ pub(crate) fn respond_with_upstream(
                         upstream_identity_error_code: None,
                         upstream_content_type: None,
                         last_sse_event_type: None,
+                        image_results_json: None,
                     },
                     &upstream_request_id,
                     &upstream_cf_ray,
@@ -1202,6 +1249,7 @@ pub(crate) fn respond_with_upstream(
                     upstream_identity_error_code: None,
                     upstream_content_type: None,
                     last_sse_event_type: None,
+                    image_results_json: None,
                 },
                 &upstream_request_id,
                 &upstream_cf_ray,
@@ -1323,6 +1371,7 @@ pub(crate) fn respond_with_upstream(
                         upstream_identity_error_code: None,
                         upstream_content_type: None,
                         last_sse_event_type: None,
+                        image_results_json: None,
                     },
                     &upstream_request_id,
                     &upstream_cf_ray,
@@ -1423,6 +1472,7 @@ pub(crate) fn respond_with_upstream(
                         upstream_identity_error_code: None,
                         upstream_content_type: None,
                         last_sse_event_type: None,
+                        image_results_json: None,
                     },
                     &upstream_request_id,
                     &upstream_cf_ray,
@@ -1449,6 +1499,7 @@ pub(crate) fn respond_with_upstream(
                     upstream_identity_error_code: None,
                     upstream_content_type: None,
                     last_sse_event_type: None,
+                    image_results_json: None,
                 },
                 &upstream_request_id,
                 &upstream_cf_ray,
@@ -1525,6 +1576,7 @@ pub(crate) fn respond_with_upstream(
                         upstream_identity_error_code: None,
                         upstream_content_type: None,
                         last_sse_event_type: None,
+                        image_results_json: None,
                     },
                     &upstream_request_id,
                     &upstream_cf_ray,
@@ -1592,6 +1644,7 @@ pub(crate) fn respond_with_upstream(
                         upstream_identity_error_code: None,
                         upstream_content_type: None,
                         last_sse_event_type: last_sse_event_type.clone(),
+                        image_results_json: None,
                     },
                     &upstream_request_id,
                     &upstream_cf_ray,
@@ -1664,6 +1717,7 @@ pub(crate) fn respond_with_upstream(
                         upstream_identity_error_code: None,
                         upstream_content_type: None,
                         last_sse_event_type: None,
+                        image_results_json: None,
                     },
                     &upstream_request_id,
                     &upstream_cf_ray,
@@ -1690,6 +1744,7 @@ pub(crate) fn respond_with_upstream(
                     upstream_identity_error_code: None,
                     upstream_content_type: None,
                     last_sse_event_type: None,
+                    image_results_json: None,
                 },
                 &upstream_request_id,
                 &upstream_cf_ray,

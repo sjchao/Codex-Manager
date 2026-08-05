@@ -579,6 +579,27 @@ pub struct RequestLogAggregateApiAttemptFailure {
     pub error: String,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RequestLogImageResult {
+    pub storage_key: String,
+    pub mime_type: String,
+    pub byte_length: u64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RequestLogImageData {
+    pub storage_key: String,
+    pub data_url: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RequestLogImageReadParams {
+    pub trace_id: String,
+}
+
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RequestLogSummary {
@@ -603,6 +624,8 @@ pub struct RequestLogSummary {
     pub model_type: String,
     pub image_count: Option<i64>,
     pub image_size: Option<String>,
+    #[serde(default)]
+    pub image_results: Vec<RequestLogImageResult>,
     pub reasoning_effort: Option<String>,
     pub service_tier: Option<String>,
     pub effective_service_tier: Option<String>,

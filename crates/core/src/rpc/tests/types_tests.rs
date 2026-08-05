@@ -2,7 +2,7 @@ use super::{
     AccountListParams, AccountListResult, AccountSummary, AggregateApiSummary,
     ApiKeySummary, ApiKeyUsageStatSummary,
     RequestLogAggregateApiAttemptFailure, RequestLogFilterSummaryResult,
-    RequestLogListParams, RequestLogListResult, RequestLogSummary,
+    RequestLogImageResult, RequestLogListParams, RequestLogListResult, RequestLogSummary,
 };
 
 /// 函数 `account_summary_serialization_matches_compact_contract`
@@ -203,6 +203,11 @@ fn request_log_summary_serialization_includes_trace_route_fields() {
         model_type: "image".to_string(),
         image_count: Some(2),
         image_size: Some("4K".to_string()),
+        image_results: vec![RequestLogImageResult {
+            storage_key: "trc_1/0.png".to_string(),
+            mime_type: "image/png".to_string(),
+            byte_length: 12,
+        }],
         reasoning_effort: Some("high".to_string()),
         effective_service_tier: Some("fast".to_string()),
         response_adapter: Some("OpenAIChatCompletionsJson".to_string()),
@@ -244,9 +249,13 @@ fn request_log_summary_serialization_includes_trace_route_fields() {
         "modelType",
         "imageCount",
         "imageSize",
+        "imageResults",
     ] {
         assert!(obj.contains_key(key), "missing key: {key}");
     }
+    assert_eq!(value["imageResults"][0]["storageKey"], "trc_1/0.png");
+    assert_eq!(value["imageResults"][0]["mimeType"], "image/png");
+    assert_eq!(value["imageResults"][0]["byteLength"], 12);
 }
 
 /// 函数 `request_log_list_params_default_to_first_page_with_twenty_items`

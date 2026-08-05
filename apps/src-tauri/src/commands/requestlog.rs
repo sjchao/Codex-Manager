@@ -79,6 +79,19 @@ pub async fn service_requestlog_clear(addr: Option<String>) -> Result<serde_json
     rpc_call_in_background("requestlog/clear", addr, None).await
 }
 
+#[tauri::command]
+pub async fn service_requestlog_images_read(
+    addr: Option<String>,
+    trace_id: String,
+) -> Result<serde_json::Value, String> {
+    rpc_call_in_background(
+        "requestlog/images/read",
+        addr,
+        Some(serde_json::json!({ "traceId": trace_id })),
+    )
+    .await
+}
+
 /// 函数 `service_requestlog_error_clear`
 ///
 /// 作者: gaohongshun

@@ -14,6 +14,27 @@ const sourcePath = path.join(
   "runtime",
   "runtime-capabilities.ts"
 );
+const normalizeSourcePath = path.join(
+  appsRoot,
+  "src",
+  "lib",
+  "api",
+  "normalize.ts"
+);
+const usageSourcePath = path.join(
+  appsRoot,
+  "src",
+  "lib",
+  "utils",
+  "usage.ts"
+);
+const transportSourcePath = path.join(
+  appsRoot,
+  "src",
+  "lib",
+  "api",
+  "transport.ts"
+);
 
 /**
  * 函数 `loadRuntimeModule`
@@ -46,7 +67,49 @@ async function loadRuntimeModule() {
   return import(pathToFileURL(tempFile).href);
 }
 
+async function loadNormalizeModule() {
+  const [normalizeSource, usageSource] = await Promise.all([
+    fs.readFile(normalizeSourcePath, "utf8"),
+    fs.readFile(usageSourcePath, "utf8"),
+  ]);
+  const tempDir = await fs.mkdtemp(
+    path.join(os.tmpdir(), "codexmanager-requestlog-images-")
+  );
+  const normalizeFile = path.join(tempDir, "normalize.mjs");
+  const usageFile = path.join(tempDir, "usage.mjs");
+  const compilerOptions = {
+    module: ts.ModuleKind.ES2022,
+    target: ts.ScriptTarget.ES2022,
+  };
+  const normalizedSource = normalizeSource.replace(
+    'from "@/lib/utils/usage"',
+    'from "./usage.mjs"'
+  );
+
+  await Promise.all([
+    fs.writeFile(
+      normalizeFile,
+      ts.transpileModule(normalizedSource, {
+        compilerOptions,
+        fileName: normalizeSourcePath,
+      }).outputText,
+      "utf8"
+    ),
+    fs.writeFile(
+      usageFile,
+      ts.transpileModule(usageSource, {
+        compilerOptions,
+        fileName: usageSourcePath,
+      }).outputText,
+      "utf8"
+    ),
+  ]);
+
+  return import(pathToFileURL(normalizeFile).href);
+}
+
 const runtime = await loadRuntimeModule();
+const normalize = await loadNormalizeModule();
 
 test("normalizeRuntimeCapabilities 为 Web 网关补齐默认能力", () => {
   const capabilities = runtime.normalizeRuntimeCapabilities(
@@ -127,4 +190,70 @@ test("resolveRuntimeCapabilityView 直接复用已探测到的 Web 网关能力"
   assert.equal(view.canManageService, false);
   assert.equal(view.canUseBrowserFileImport, true);
   assert.equal(view.canUseBrowserDownloadExport, true);
+});
+
+test("normalizeRequestLog 保留合法图片结果并忽略畸形元数据", () => {
+  const normalized = normalize.normalizeRequestLog({
+    traceId: "trace-image",
+    method: "POST",
+    requestPath: "/v1/images/generations",
+    imageResults: [
+      {
+        storageKey: "trace-image/0.png",
+        mimeType: "image/png",
+        byteLength: 12,
+      },
+      {
+        storageKey: "",
+        mimeType: "image/png",
+        byteLength: 12,
+      },
+      {
+        storageKey: "trace-image/1.png",
+        mimeType: "image/png",
+        byteLength: -1,
+      },
+    ],
+  });
+
+  assert.deepEqual(normalized?.imageResults, [
+    {
+      storageKey: "trace-image/0.png",
+      mimeType: "image/png",
+      byteLength: 12,
+    },
+  ]);
+});
+
+test("normalizeRequestLogImageData 只保留可用的数据 URL", () => {
+  const normalized = normalize.normalizeRequestLogImageData([
+    {
+      storageKey: "trace-image/0.png",
+      dataUrl: "data:image/png;base64,cG5n",
+    },
+    {
+      storageKey: "trace-image/1.png",
+      dataUrl: "https://upstream.example/image.png",
+    },
+    {
+      storageKey: "",
+      dataUrl: "data:image/png;base64,cG5n",
+    },
+  ]);
+
+  assert.deepEqual(normalized, [
+    {
+      storageKey: "trace-image/0.png",
+      dataUrl: "data:image/png;base64,cG5n",
+    },
+  ]);
+});
+
+test("Web transport exposes request-log image reads through the shared RPC command", async () => {
+  const source = await fs.readFile(transportSourcePath, "utf8");
+
+  assert.match(
+    source,
+    /service_requestlog_images_read:\s*\{\s*rpcMethod:\s*"requestlog\/images\/read"\s*\}/
+  );
 });

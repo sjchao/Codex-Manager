@@ -93,6 +93,10 @@ impl<'a> GatewayUpstreamExecutionContext<'a> {
         idx + 1 < self.candidate_count
     }
 
+    pub(in super::super) fn is_image_request(&self) -> bool {
+        self.model_type == ModelType::Image
+    }
+
     /// 函数 `should_skip_candidate`
     ///
     /// 作者: gaohongshun
@@ -249,6 +253,7 @@ impl<'a> GatewayUpstreamExecutionContext<'a> {
             upstream_url,
             self.model_for_log,
             status_code,
+            None,
             usage,
             error,
             elapsed_ms,
@@ -274,6 +279,7 @@ impl<'a> GatewayUpstreamExecutionContext<'a> {
         upstream_url: Option<&str>,
         model_for_log: Option<&str>,
         status_code: u16,
+        image_results_json: Option<&str>,
         usage: super::super::super::request_log::RequestLogUsage,
         error: Option<&str>,
         elapsed_ms: u128,
@@ -290,6 +296,7 @@ impl<'a> GatewayUpstreamExecutionContext<'a> {
                 model_type: Some(self.model_type),
                 image_count: self.image_count,
                 image_size: self.image_size,
+                image_results_json,
                 service_tier: self.service_tier_for_log,
                 effective_service_tier: self.effective_service_tier_for_log,
                 queue_wait_ms: self.queue_wait_ms,

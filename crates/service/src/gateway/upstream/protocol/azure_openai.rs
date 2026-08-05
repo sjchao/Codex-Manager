@@ -520,6 +520,7 @@ pub(in super::super) fn proxy_azure_request(
         Some(tool_name_restore_map),
         is_stream,
         false,
+        false,
         Some(trace_id),
         started_at,
     )?

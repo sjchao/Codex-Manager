@@ -3,6 +3,7 @@ import {
   normalizeAppSettings,
   normalizeGatewayErrorLogListResult,
   normalizeRequestLogFilterSummary,
+  normalizeRequestLogImageData,
   normalizeRequestLogListResult,
   normalizeStartupSnapshot,
   normalizeTodaySummary,
@@ -11,6 +12,7 @@ import {
   BackgroundTaskSettings,
   GatewayErrorLogListResult,
   RequestLogFilterSummary,
+  RequestLogImageData,
   RequestLogListResult,
   RequestLogTodaySummary,
   ServiceInitializationResult,
@@ -155,6 +157,13 @@ export const serviceClient = {
   clearGatewayErrorLogs: () =>
     invoke("service_requestlog_error_clear", withAddr()),
   clearRequestLogs: () => invoke("service_requestlog_clear", withAddr()),
+  async readRequestLogImages(traceId: string): Promise<RequestLogImageData[]> {
+    const result = await invoke<unknown>(
+      "service_requestlog_images_read",
+      withAddr({ traceId })
+    );
+    return normalizeRequestLogImageData(result);
+  },
   async getTodaySummary(): Promise<RequestLogTodaySummary> {
     const result = await invoke<unknown>(
       "service_requestlog_today_summary",
