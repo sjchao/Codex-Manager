@@ -12,6 +12,7 @@ pub(crate) struct PassthroughSseUsageReader {
     upstream: UpstreamSseFramePump,
     out_cursor: Cursor<Vec<u8>>,
     usage_collector: Arc<Mutex<PassthroughSseCollector>>,
+    captured_body: Option<Arc<Mutex<Vec<u8>>>>,
     keepalive_frame: SseKeepAliveFrame,
     protocol: PassthroughSseProtocol,
     request_started_at: Instant,
@@ -41,11 +42,17 @@ impl PassthroughSseUsageReader {
             upstream: UpstreamSseFramePump::new(upstream),
             out_cursor: Cursor::new(Vec::new()),
             usage_collector,
+            captured_body: None,
             keepalive_frame,
             protocol,
             request_started_at,
             finished: false,
         }
+    }
+
+    pub(crate) fn with_capture(mut self, captured_body: Arc<Mutex<Vec<u8>>>) -> Self {
+        self.captured_body = Some(captured_body);
+        self
     }
 
     /// 函数 `update_usage_from_frame`
@@ -114,7 +121,15 @@ impl PassthroughSseUsageReader {
             Ok(UpstreamSseFramePumpItem::Frame(frame)) => {
                 mark_first_response_ms(&self.usage_collector, self.request_started_at);
                 self.update_usage_from_frame(&frame);
-                Ok(frame.concat().into_bytes())
+                let bytes = frame.concat().into_bytes();
+                if let Some(captured_body) = &self.captured_body {
+                    if let Ok(mut captured_body) = captured_body.lock() {
+                        const MAX_CAPTURED_BODY_BYTES: usize = 64 * 1024 * 1024;
+                        let remaining = MAX_CAPTURED_BODY_BYTES.saturating_sub(captured_body.len());
+                        captured_body.extend(bytes.iter().copied().take(remaining));
+                    }
+                }
+                Ok(bytes)
             }
             Ok(UpstreamSseFramePumpItem::Eof) => {
                 if let Ok(mut collector) = self.usage_collector.lock() {

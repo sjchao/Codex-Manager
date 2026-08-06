@@ -6,7 +6,7 @@ use std::time::Duration;
 use base64::Engine;
 use codexmanager_core::rpc::types::{RequestLogImageData, RequestLogImageResult};
 use rand::RngCore;
-use serde::Deserialize;
+use serde_json::Value;
 use url::Url;
 
 const IMAGE_DIRECTORY_NAME: &str = "request-log-images";
@@ -14,16 +14,83 @@ const MAX_IMAGE_BYTES: usize = 20 * 1024 * 1024;
 const MAX_REQUEST_BYTES: usize = 64 * 1024 * 1024;
 const IMAGE_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(10);
 
-#[derive(Debug, Deserialize)]
-struct OpenAiImageResponse {
-    #[serde(default)]
-    data: Vec<OpenAiImageResponseItem>,
-}
-
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Default)]
 struct OpenAiImageResponseItem {
     b64_json: Option<String>,
     url: Option<String>,
+}
+
+fn parse_image_response_items(response_body: &[u8]) -> Result<Vec<OpenAiImageResponseItem>, String> {
+    if let Ok(value) = serde_json::from_slice::<Value>(response_body) {
+        let mut items = Vec::new();
+        collect_image_response_items(&value, &mut items);
+        return Ok(items);
+    }
+
+    let text = std::str::from_utf8(response_body)
+        .map_err(|err| format!("response is neither JSON nor UTF-8 SSE: {err}"))?;
+    let mut items = Vec::new();
+    let mut data_lines = Vec::new();
+    let mut parse_event = |data_lines: &mut Vec<&str>| {
+        if data_lines.is_empty() {
+            return;
+        }
+        let payload = data_lines.join("\n");
+        if payload.trim() != "[DONE]" {
+            if let Ok(value) = serde_json::from_str::<Value>(&payload) {
+                collect_image_response_items(&value, &mut items);
+            }
+        }
+        data_lines.clear();
+    };
+    for line in text.split('\n') {
+        let line = line.strip_suffix('\r').unwrap_or(line);
+        if line.is_empty() {
+            parse_event(&mut data_lines);
+        } else if let Some(data) = line.strip_prefix("data:") {
+            data_lines.push(data.strip_prefix(' ').unwrap_or(data));
+        }
+    }
+    parse_event(&mut data_lines);
+    if items.is_empty() {
+        Err("response is not a recognized image JSON or SSE response".to_string())
+    } else {
+        Ok(items)
+    }
+}
+
+fn collect_image_response_items(value: &Value, items: &mut Vec<OpenAiImageResponseItem>) {
+    match value {
+        Value::Object(object) => {
+            let b64_json = object
+                .get("b64_json")
+                .or_else(|| object.get("b64"))
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            let url = object
+                .get("url")
+                .or_else(|| object.get("image_url"))
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            if b64_json.is_some() || url.is_some() {
+                let duplicate = items.iter().any(|item| {
+                    item.b64_json == b64_json && item.url == url
+                });
+                if !duplicate {
+                    items.push(OpenAiImageResponseItem { b64_json, url });
+                }
+            }
+            for child in object.values() {
+                collect_image_response_items(child, items);
+            }
+        }
+        Value::Array(values) => {
+            for child in values {
+                collect_image_response_items(child, items);
+            }
+        }
+        _ => {}
+    }
 }
 
 pub(crate) fn cache_openai_image_results(
@@ -31,7 +98,16 @@ pub(crate) fn cache_openai_image_results(
     trace_id: &str,
     response_body: &[u8],
 ) -> Vec<RequestLogImageResult> {
-    let response_body = match decode_image_cache_response_body(response_body) {
+    cache_openai_image_results_with_encoding(db_path, trace_id, response_body, None)
+}
+
+pub(crate) fn cache_openai_image_results_with_encoding(
+    db_path: &Path,
+    trace_id: &str,
+    response_body: &[u8],
+    content_encoding: Option<&str>,
+) -> Vec<RequestLogImageResult> {
+    let response_body = match decode_image_cache_response_body(response_body, content_encoding) {
         Ok(response_body) => response_body,
         Err(err) => {
             log::warn!(
@@ -42,8 +118,17 @@ pub(crate) fn cache_openai_image_results(
             return Vec::new();
         }
     };
-    let response = match serde_json::from_slice::<OpenAiImageResponse>(&response_body) {
-        Ok(response) => response,
+    let response_items = match parse_image_response_items(&response_body) {
+        Ok(response_items) if !response_items.is_empty() => {
+            response_items
+        }
+        Ok(_) => {
+            log::warn!(
+                "event=request_log_image_cache_skipped trace_id={} reason=image_data_missing",
+                trace_id
+            );
+            return Vec::new();
+        }
         Err(err) => {
             if is_safe_trace_id(trace_id) {
                 if let Some(asset) = cache_raw_image_response(db_path, trace_id, &response_body) {
@@ -66,15 +151,12 @@ pub(crate) fn cache_openai_image_results(
         return Vec::new();
     }
 
-    let client = reqwest::blocking::Client::builder()
-        .timeout(IMAGE_DOWNLOAD_TIMEOUT)
-        .build()
-        .ok();
+    let client = build_image_download_client();
     let root = image_root(db_path);
     let mut assets = Vec::new();
     let mut total_bytes = 0usize;
 
-    for item in response.data {
+    for item in response_items {
         let image_bytes = match decode_image_response_item(&item, client.as_ref()) {
             Ok(bytes) => bytes,
             Err(err) => {
@@ -142,21 +224,105 @@ pub(crate) fn cache_openai_image_results(
     assets
 }
 
-fn decode_image_cache_response_body(response_body: &[u8]) -> Result<Vec<u8>, String> {
-    if !response_body.starts_with(b"\x28\xb5\x2f\xfd") {
-        return Ok(response_body.to_vec());
+fn decode_image_cache_response_body(
+    response_body: &[u8],
+    content_encoding: Option<&str>,
+) -> Result<Vec<u8>, String> {
+    let encodings = content_encoding
+        .into_iter()
+        .flat_map(|value| value.split(','))
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && !value.eq_ignore_ascii_case("identity"))
+        .collect::<Vec<_>>();
+    if !encodings.is_empty() {
+        let mut decoded = response_body.to_vec();
+        for encoding in encodings.into_iter().rev() {
+            decoded = decode_image_cache_layer(&decoded, encoding)?;
+        }
+        return Ok(decoded);
     }
-    let decoder = zstd::stream::read::Decoder::new(Cursor::new(response_body))
-        .map_err(|err| format!("create zstd decoder failed: {err}"))?;
+
+    if response_body.starts_with(b"\x28\xb5\x2f\xfd") {
+        return decode_image_cache_layer(response_body, "zstd");
+    }
+    if response_body.starts_with(b"\x1f\x8b") {
+        return decode_image_cache_layer(response_body, "gzip");
+    }
+    if response_body.starts_with(b"\x78\x01")
+        || response_body.starts_with(b"\x78\x5e")
+        || response_body.starts_with(b"\x78\x9c")
+        || response_body.starts_with(b"\x78\xda")
+    {
+        return decode_image_cache_layer(response_body, "deflate");
+    }
+    Ok(response_body.to_vec())
+}
+
+fn decode_image_cache_layer(response_body: &[u8], encoding: &str) -> Result<Vec<u8>, String> {
+    let encoding = encoding.trim().to_ascii_lowercase();
     let mut decoded = Vec::new();
-    decoder
-        .take((MAX_REQUEST_BYTES + 1) as u64)
-        .read_to_end(&mut decoded)
-        .map_err(|err| format!("decode zstd response failed: {err}"))?;
+    match encoding.as_str() {
+        "gzip" | "x-gzip" => {
+            let decoder = flate2::read::GzDecoder::new(Cursor::new(response_body));
+            decoder
+                .take((MAX_REQUEST_BYTES + 1) as u64)
+                .read_to_end(&mut decoded)
+                .map_err(|err| format!("decode gzip response failed: {err}"))?;
+        }
+        "deflate" => {
+            let mut decoder = flate2::read::ZlibDecoder::new(Cursor::new(response_body));
+            let result = decoder
+                .by_ref()
+                .take((MAX_REQUEST_BYTES + 1) as u64)
+                .read_to_end(&mut decoded);
+            if result.is_err() {
+                decoded.clear();
+                let decoder = flate2::read::DeflateDecoder::new(Cursor::new(response_body));
+                decoder
+                    .take((MAX_REQUEST_BYTES + 1) as u64)
+                    .read_to_end(&mut decoded)
+                    .map_err(|err| format!("decode deflate response failed: {err}"))?;
+            }
+        }
+        "br" => {
+            let decoder = brotli::Decompressor::new(Cursor::new(response_body), 64 * 1024);
+            decoder
+                .take((MAX_REQUEST_BYTES + 1) as u64)
+                .read_to_end(&mut decoded)
+                .map_err(|err| format!("decode brotli response failed: {err}"))?;
+        }
+        "zstd" => {
+            let decoder = zstd::stream::read::Decoder::new(Cursor::new(response_body))
+                .map_err(|err| format!("create zstd decoder failed: {err}"))?;
+            decoder
+                .take((MAX_REQUEST_BYTES + 1) as u64)
+                .read_to_end(&mut decoded)
+                .map_err(|err| format!("decode zstd response failed: {err}"))?;
+        }
+        other => return Err(format!("unsupported response content encoding: {other}")),
+    }
     if decoded.len() > MAX_REQUEST_BYTES {
         return Err("decompressed response exceeds size limit".to_string());
     }
     Ok(decoded)
+}
+
+fn build_image_download_client() -> Option<reqwest::blocking::Client> {
+    let mut builder =
+        reqwest::blocking::Client::builder().timeout(IMAGE_DOWNLOAD_TIMEOUT);
+    if let Some(proxy_url) = crate::gateway::current_upstream_proxy_url() {
+        match reqwest::Proxy::all(proxy_url.as_str()) {
+            Ok(proxy) => builder = builder.proxy(proxy),
+            Err(err) => {
+                log::warn!(
+                    "event=request_log_image_cache_proxy_ignored proxy={} err={}",
+                    proxy_url,
+                    err
+                );
+            }
+        }
+    }
+    builder.build().ok()
 }
 
 fn cache_raw_image_response(

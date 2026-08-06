@@ -22,7 +22,11 @@ const REQUEST_ID_HEADER_CANDIDATES: &[&str] = &["x-request-id", "x-oai-request-i
 const CF_RAY_HEADER_NAME: &str = "cf-ray";
 const AUTH_ERROR_HEADER_NAME: &str = "x-openai-authorization-error";
 
-fn cache_delivered_image_results(trace_id: Option<&str>, response_body: &[u8]) -> Option<String> {
+fn cache_delivered_image_results(
+    trace_id: Option<&str>,
+    response_body: &[u8],
+    content_encoding: Option<&str>,
+) -> Option<String> {
     let trace_id = trace_id.map(str::trim).filter(|value| !value.is_empty())?;
     let db_path = match std::env::var("CODEXMANAGER_DB_PATH") {
         Ok(path) => path,
@@ -34,11 +38,21 @@ fn cache_delivered_image_results(trace_id: Option<&str>, response_body: &[u8]) -
             return None;
         }
     };
-    let image_results = crate::requestlog::image_assets::cache_openai_image_results(
-        Path::new(&db_path),
-        trace_id,
-        response_body,
-    );
+    let image_results = match content_encoding {
+        Some(content_encoding) => {
+            crate::requestlog::image_assets::cache_openai_image_results_with_encoding(
+                Path::new(&db_path),
+                trace_id,
+                response_body,
+                Some(content_encoding),
+            )
+        }
+        None => crate::requestlog::image_assets::cache_openai_image_results(
+            Path::new(&db_path),
+            trace_id,
+            response_body,
+        ),
+    };
     if image_results.is_empty() {
         return None;
     }
@@ -833,6 +847,11 @@ pub(crate) fn respond_with_upstream(
         .get(reqwest::header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
         .map(|v| v.to_string());
+    let upstream_content_encoding = upstream
+        .headers()
+        .get(reqwest::header::CONTENT_ENCODING)
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.to_string());
     match response_adapter {
         ResponseAdapter::Passthrough => {
             let status = StatusCode(upstream.status().as_u16());
@@ -972,6 +991,18 @@ pub(crate) fn respond_with_upstream(
                     let response =
                         Response::new(status, headers, std::io::Cursor::new(body), len, None);
                     let delivery_error = request.respond(response).err().map(|err| err.to_string());
+                    let image_results_json = if capture_image_results
+                        && status.0 < 300
+                        && delivery_error.is_none()
+                    {
+                        cache_delivered_image_results(
+                            trace_id,
+                            upstream_body.as_ref(),
+                            upstream_content_encoding.as_deref(),
+                        )
+                    } else {
+                        None
+                    };
                     return Ok(UpstreamResponseBridgeOutcome::Delivered(with_bridge_debug_meta(
                         UpstreamResponseBridgeResult {
                             usage,
@@ -986,7 +1017,7 @@ pub(crate) fn respond_with_upstream(
                             upstream_identity_error_code: None,
                             upstream_content_type: None,
                             last_sse_event_type: None,
-                            image_results_json: None,
+                            image_results_json,
                         },
                         &upstream_request_id,
                         &upstream_cf_ray,
@@ -1099,7 +1130,11 @@ pub(crate) fn respond_with_upstream(
                     && status.0 < 300
                     && delivery_error.is_none()
                 {
-                    cache_delivered_image_results(trace_id, upstream_body.as_ref())
+                    cache_delivered_image_results(
+                        trace_id,
+                        upstream_body.as_ref(),
+                        upstream_content_encoding.as_deref(),
+                    )
                 } else {
                     None
                 };
@@ -1180,22 +1215,94 @@ pub(crate) fn respond_with_upstream(
                     None,
                 )));
             }
-            if is_sse || is_stream {
-                let usage_collector = Arc::new(Mutex::new(PassthroughSseCollector::default()));
+            // Some image providers ignore `stream=true` and still return a complete JSON
+            // image response. Buffer that response so it follows the same cache path as
+            // an explicitly non-streaming request while preserving the delivered bytes.
+            if is_stream && !is_sse && capture_image_results && status.0 < 300 {
+                let upstream_body = upstream
+                    .bytes()
+                    .map_err(|err| format!("read upstream body failed: {err}"))?;
+                let len = Some(upstream_body.len());
                 let response = Response::new(
                     status,
                     headers,
-                    PassthroughSseUsageReader::new(
-                        upstream,
-                        Arc::clone(&usage_collector),
-                        keepalive_frame,
-                        passthrough_sse_protocol,
-                        request_started_at,
-                    ),
+                    std::io::Cursor::new(upstream_body.to_vec()),
+                    len,
+                    None,
+                );
+                let delivery_error = request.respond(response).err().map(|err| err.to_string());
+                let image_results_json = if delivery_error.is_none() {
+                    cache_delivered_image_results(
+                        trace_id,
+                        upstream_body.as_ref(),
+                        upstream_content_encoding.as_deref(),
+                    )
+                } else {
+                    None
+                };
+                return Ok(UpstreamResponseBridgeOutcome::Delivered(with_bridge_debug_meta(
+                    UpstreamResponseBridgeResult {
+                        usage: UpstreamResponseUsage::default(),
+                        image_results_json,
+                        stream_terminal_seen: true,
+                        stream_terminal_error: None,
+                        delivery_error,
+                        upstream_error_hint: None,
+                        delivered_status_code: None,
+                        upstream_request_id: None,
+                        upstream_cf_ray: None,
+                        upstream_auth_error: None,
+                        upstream_identity_error_code: None,
+                        upstream_content_type: None,
+                        last_sse_event_type: None,
+                    },
+                    &upstream_request_id,
+                    &upstream_cf_ray,
+                    &upstream_auth_error,
+                    &upstream_identity_error_code,
+                    &upstream_content_type,
+                    None,
+                )));
+            }
+            if is_sse || is_stream {
+                let usage_collector = Arc::new(Mutex::new(PassthroughSseCollector::default()));
+                let captured_body = capture_image_results
+                    .then(|| Arc::new(Mutex::new(Vec::<u8>::new())));
+                let reader = PassthroughSseUsageReader::new(
+                    upstream,
+                    Arc::clone(&usage_collector),
+                    keepalive_frame,
+                    passthrough_sse_protocol,
+                    request_started_at,
+                );
+                let reader = match captured_body.as_ref() {
+                    Some(captured_body) => reader.with_capture(Arc::clone(captured_body)),
+                    None => reader,
+                };
+                let response = Response::new(
+                    status,
+                    headers,
+                    reader,
                     None,
                     None,
                 );
                 let delivery_error = request.respond(response).err().map(|err| err.to_string());
+                let image_results_json = if capture_image_results
+                    && status.0 < 300
+                    && delivery_error.is_none()
+                {
+                    let response_body = captured_body
+                        .as_ref()
+                        .and_then(|captured_body| captured_body.lock().ok().map(|body| body.clone()))
+                        .unwrap_or_default();
+                    cache_delivered_image_results(
+                        trace_id,
+                        response_body.as_ref(),
+                        upstream_content_encoding.as_deref(),
+                    )
+                } else {
+                    None
+                };
                 let collector = usage_collector
                     .lock()
                     .map(|guard| guard.clone())
@@ -1222,7 +1329,7 @@ pub(crate) fn respond_with_upstream(
                         upstream_identity_error_code: None,
                         upstream_content_type: None,
                         last_sse_event_type: None,
-                        image_results_json: None,
+                        image_results_json,
                     },
                     &upstream_request_id,
                     &upstream_cf_ray,
