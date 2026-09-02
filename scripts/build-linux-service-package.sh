@@ -45,6 +45,7 @@ FRONTEND_DIR="$ROOT/apps"
 DIST_DIR="$FRONTEND_DIR/out"
 TARGET_ROOT="${CARGO_TARGET_DIR:-$ROOT/target}"
 RELEASE_DIR="$TARGET_ROOT/release"
+PORTABLE_DIR="$ROOT/portable"
 
 if [[ "$OUTPUT_DIR" = /* ]]; then
   OUTPUT_DIR_ABS="$OUTPUT_DIR"
@@ -131,7 +132,20 @@ run_cmd \
     "$RELEASE_DIR/codexmanager-start" \
     "$OUTPUT_DIR_ABS/"
 
+run_cmd "install -d $PORTABLE_DIR" install -d "$PORTABLE_DIR"
+run_cmd \
+  "install -m 755 packaged binaries into $PORTABLE_DIR" \
+  install -m 755 \
+    "$OUTPUT_DIR_ABS/codexmanager-service" \
+    "$OUTPUT_DIR_ABS/codexmanager-web" \
+    "$OUTPUT_DIR_ABS/codexmanager-start" \
+    "$PORTABLE_DIR/"
+
 step "linux service package ready:"
 step "  $OUTPUT_DIR_ABS/codexmanager-service"
 step "  $OUTPUT_DIR_ABS/codexmanager-web"
 step "  $OUTPUT_DIR_ABS/codexmanager-start"
+step "portable binaries updated:"
+step "  $PORTABLE_DIR/codexmanager-service"
+step "  $PORTABLE_DIR/codexmanager-web"
+step "  $PORTABLE_DIR/codexmanager-start"
