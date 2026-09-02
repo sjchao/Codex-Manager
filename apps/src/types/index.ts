@@ -438,6 +438,7 @@ export interface AppSettings {
   freeAccountMaxModel: string;
   freeAccountMaxModelOptions: string[];
   aggregateApiTestModel: string;
+  claudeUserAgentVersion: string;
   imageModels: string;
   videoModels: string;
   modelForwardRules: string;

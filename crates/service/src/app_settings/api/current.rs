@@ -9,6 +9,7 @@ use super::{
     current_background_tasks_snapshot_value, current_close_to_tray_on_close_setting,
     current_env_overrides, current_gateway_account_max_inflight,
     current_gateway_aggregate_api_test_model, current_gateway_free_account_max_model,
+    current_gateway_claude_user_agent_version,
     current_gateway_image_models, current_gateway_model_forward_rules, current_gateway_originator,
     current_gateway_residency_requirement, current_gateway_sse_keepalive_interval_ms,
     current_gateway_upstream_stream_timeout_ms, current_gateway_user_agent_version,
@@ -21,6 +22,7 @@ use super::{
     sync_runtime_settings_from_storage, APP_SETTING_CLOSE_TO_TRAY_ON_CLOSE_KEY,
     APP_SETTING_GATEWAY_ACCOUNT_MAX_INFLIGHT_KEY, APP_SETTING_GATEWAY_AGGREGATE_API_TEST_MODEL_KEY,
     APP_SETTING_GATEWAY_BACKGROUND_TASKS_KEY, APP_SETTING_GATEWAY_FREE_ACCOUNT_MAX_MODEL_KEY,
+    APP_SETTING_GATEWAY_CLAUDE_USER_AGENT_VERSION_KEY,
     APP_SETTING_GATEWAY_MODEL_FORWARD_RULES_KEY, APP_SETTING_GATEWAY_ORIGINATOR_KEY,
     APP_SETTING_GATEWAY_RESIDENCY_REQUIREMENT_KEY, APP_SETTING_GATEWAY_ROUTE_STRATEGY_KEY,
     APP_SETTING_GATEWAY_SSE_KEEPALIVE_INTERVAL_MS_KEY, APP_SETTING_GATEWAY_UPSTREAM_PROXY_URL_KEY,
@@ -108,6 +110,7 @@ pub(super) fn current_app_settings_value(
     let route_strategy = crate::gateway::current_route_strategy().to_string();
     let free_account_max_model = current_gateway_free_account_max_model();
     let aggregate_api_test_model = current_gateway_aggregate_api_test_model();
+    let claude_user_agent_version = current_gateway_claude_user_agent_version();
     let image_models = current_gateway_image_models();
     let video_models = current_gateway_video_models();
     let model_forward_rules = current_gateway_model_forward_rules();
@@ -151,6 +154,7 @@ pub(super) fn current_app_settings_value(
         &route_strategy,
         &free_account_max_model,
         &aggregate_api_test_model,
+        &claude_user_agent_version,
         &model_forward_rules,
         account_max_inflight,
         &gateway_originator,
@@ -190,6 +194,7 @@ pub(super) fn current_app_settings_value(
         "routeStrategyOptions": ["ordered", "balanced"],
         "freeAccountMaxModel": free_account_max_model,
         "aggregateApiTestModel": aggregate_api_test_model,
+        "claudeUserAgentVersion": claude_user_agent_version,
         "imageModels": image_models,
         "videoModels": video_models,
         "modelForwardRules": model_forward_rules,
@@ -306,6 +311,7 @@ fn is_free_account_max_model_option(slug: &str) -> bool {
 /// - route_strategy: 参数 route_strategy
 /// - free_account_max_model: 参数 free_account_max_model
 /// - aggregate_api_test_model: 参数 aggregate_api_test_model
+/// - claude_user_agent_version: 参数 claude_user_agent_version
 /// - account_max_inflight: 参数 account_max_inflight
 /// - gateway_originator: 参数 gateway_originator
 /// - gateway_user_agent_version: 参数 gateway_user_agent_version
@@ -332,6 +338,7 @@ fn persist_current_snapshot(
     route_strategy: &str,
     free_account_max_model: &str,
     aggregate_api_test_model: &str,
+    claude_user_agent_version: &str,
     model_forward_rules: &str,
     account_max_inflight: usize,
     gateway_originator: &str,
@@ -371,6 +378,10 @@ fn persist_current_snapshot(
     let _ = save_persisted_app_setting(
         APP_SETTING_GATEWAY_AGGREGATE_API_TEST_MODEL_KEY,
         Some(aggregate_api_test_model),
+    );
+    let _ = save_persisted_app_setting(
+        APP_SETTING_GATEWAY_CLAUDE_USER_AGENT_VERSION_KEY,
+        Some(claude_user_agent_version),
     );
     let _ = save_persisted_app_setting(
         APP_SETTING_GATEWAY_MODEL_FORWARD_RULES_KEY,

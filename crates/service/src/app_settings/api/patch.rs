@@ -6,6 +6,7 @@ use super::{
     save_persisted_app_setting, set_close_to_tray_on_close_setting, set_env_overrides,
     set_gateway_account_max_inflight, set_gateway_background_tasks,
     set_gateway_aggregate_api_test_model,
+    set_gateway_claude_user_agent_version,
     apply_gateway_model_lists_patch,
     set_gateway_free_account_max_model, set_gateway_model_forward_rules,
     set_gateway_originator,
@@ -32,6 +33,7 @@ pub(super) struct AppSettingsPatch {
     route_strategy: Option<String>,
     free_account_max_model: Option<String>,
     aggregate_api_test_model: Option<String>,
+    claude_user_agent_version: Option<String>,
     image_models: Option<String>,
     video_models: Option<String>,
     model_forward_rules: Option<String>,
@@ -112,6 +114,9 @@ pub(super) fn apply_app_settings_patch(patch: AppSettingsPatch) -> Result<(), St
     }
     if let Some(model) = patch.aggregate_api_test_model {
         let _ = set_gateway_aggregate_api_test_model(&model)?;
+    }
+    if let Some(version) = patch.claude_user_agent_version {
+        let _ = set_gateway_claude_user_agent_version(&version)?;
     }
     if patch.image_models.is_some() || patch.video_models.is_some() {
         let _ = apply_gateway_model_lists_patch(

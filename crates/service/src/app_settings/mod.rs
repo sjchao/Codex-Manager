@@ -14,6 +14,7 @@ pub(crate) use env_overrides::{
 };
 pub use gateway::{
     current_gateway_account_max_inflight, current_gateway_aggregate_api_test_model,
+    current_gateway_claude_user_agent_version,
     current_gateway_free_account_max_model, current_gateway_image_model_list,
     current_gateway_image_models, current_gateway_model_forward_rules,
     current_gateway_originator, current_gateway_request_compression_enabled,
@@ -22,6 +23,7 @@ pub use gateway::{
     current_gateway_video_model_list, current_gateway_video_models,
     residency_requirement_options, set_gateway_account_max_inflight,
     set_gateway_aggregate_api_test_model, set_gateway_background_tasks,
+    set_gateway_claude_user_agent_version,
     set_gateway_free_account_max_model, set_gateway_model_forward_rules, set_gateway_model_lists,
     set_gateway_originator,
     set_gateway_request_compression_enabled, set_gateway_residency_requirement,
@@ -42,6 +44,7 @@ pub use shared::{
     APP_SETTING_CLOSE_TO_TRAY_ON_CLOSE_KEY, APP_SETTING_ENV_OVERRIDES_KEY,
     APP_SETTING_GATEWAY_ACCOUNT_MAX_INFLIGHT_KEY, APP_SETTING_GATEWAY_AGGREGATE_API_TEST_MODEL_KEY,
     APP_SETTING_GATEWAY_BACKGROUND_TASKS_KEY, APP_SETTING_GATEWAY_FREE_ACCOUNT_MAX_MODEL_KEY,
+    APP_SETTING_GATEWAY_CLAUDE_USER_AGENT_VERSION_KEY,
     APP_SETTING_GATEWAY_IMAGE_MODELS_KEY,
     APP_SETTING_GATEWAY_MODEL_FORWARD_RULES_KEY, APP_SETTING_GATEWAY_ORIGINATOR_KEY,
     APP_SETTING_GATEWAY_REQUEST_COMPRESSION_ENABLED_KEY, APP_SETTING_GATEWAY_RESIDENCY_REQUIREMENT_KEY,

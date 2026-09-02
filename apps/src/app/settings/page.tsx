@@ -610,6 +610,9 @@ export default function SettingsPage() {
   const [aggregateApiTestModelDraft, setAggregateApiTestModelDraft] = useState<
     string | null
   >(null);
+  const [claudeUserAgentVersionDraft, setClaudeUserAgentVersionDraft] = useState<
+    string | null
+  >(null);
   const [imageModelsDraft, setImageModelsDraft] = useState<string | null>(null);
   const [videoModelsDraft, setVideoModelsDraft] = useState<string | null>(null);
   const [gatewayUserAgentVersionDraft, setGatewayUserAgentVersionDraft] =
@@ -683,6 +686,9 @@ export default function SettingsPage() {
   const aggregateApiTestModelInput =
     aggregateApiTestModelDraft ??
     (snapshot?.aggregateApiTestModel || "gpt-5.6-terra");
+  const claudeUserAgentVersionInput =
+    claudeUserAgentVersionDraft ??
+    (snapshot?.claudeUserAgentVersion || "2.1.258");
   const imageModelsInput = imageModelsDraft ?? (snapshot?.imageModels || "");
   const videoModelsInput = videoModelsDraft ?? (snapshot?.videoModels || "");
   const modelForwardRulesInput =
@@ -1897,6 +1903,38 @@ export default function SettingsPage() {
                 <p className="text-[10px] text-muted-foreground">
                   后台点击聚合 API 连通性测试时，会先使用这个模型发起真实请求；
                   留空会恢复默认值 <code>gpt-5.6-terra</code>。
+                </p>
+              </div>
+
+              <div className="grid gap-2">
+                <Label>Claude User-Agent 版本</Label>
+                <Input
+                  className="h-10 max-w-md font-mono"
+                  placeholder="2.1.258"
+                  value={claudeUserAgentVersionInput}
+                  onChange={(event) =>
+                    setClaudeUserAgentVersionDraft(event.target.value)
+                  }
+                  onBlur={() => {
+                    if (claudeUserAgentVersionDraft == null) return;
+                    if (
+                      claudeUserAgentVersionInput ===
+                      (snapshot.claudeUserAgentVersion || "2.1.258")
+                    ) {
+                      setClaudeUserAgentVersionDraft(null);
+                      return;
+                    }
+                    void updateSettings
+                      .mutateAsync({
+                        claudeUserAgentVersion: claudeUserAgentVersionInput,
+                      })
+                      .then(() => setClaudeUserAgentVersionDraft(null))
+                      .catch(() => undefined);
+                  }}
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  控制 Claude 类型聚合 API 连通性测试的 <code>claude-cli</code>{" "}
+                  请求头版本。留空会恢复默认值 <code>2.1.258</code>。
                 </p>
               </div>
 

@@ -1501,6 +1501,9 @@ export function normalizeAppSettings(payload: unknown): AppSettings {
     aggregateApiTestModel:
       asString(source.aggregateApiTestModel ?? source.aggregate_api_test_model) ||
       "gpt-5.6-terra",
+    claudeUserAgentVersion:
+      asString(source.claudeUserAgentVersion ?? source.claude_user_agent_version) ||
+      "2.1.258",
     imageModels: asString(source.imageModels ?? source.image_models),
     videoModels: asString(source.videoModels ?? source.video_models),
     modelForwardRules: asString(source.modelForwardRules ?? source.model_forward_rules),

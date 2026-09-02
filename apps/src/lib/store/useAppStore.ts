@@ -52,6 +52,7 @@ export const useAppStore = create<AppState>((set) => ({
       "gpt-5.4",
     ],
     aggregateApiTestModel: "gpt-5.6-terra",
+    claudeUserAgentVersion: "2.1.258",
     imageModels: "",
     videoModels: "",
     modelForwardRules: "",

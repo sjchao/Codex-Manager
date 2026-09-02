@@ -7,6 +7,7 @@ use super::{
     get_persisted_app_setting, normalize_optional_text, save_persisted_app_setting,
     save_persisted_bool_setting, APP_SETTING_GATEWAY_ACCOUNT_MAX_INFLIGHT_KEY,
     APP_SETTING_GATEWAY_AGGREGATE_API_TEST_MODEL_KEY, APP_SETTING_GATEWAY_BACKGROUND_TASKS_KEY,
+    APP_SETTING_GATEWAY_CLAUDE_USER_AGENT_VERSION_KEY,
     APP_SETTING_GATEWAY_FREE_ACCOUNT_MAX_MODEL_KEY, APP_SETTING_GATEWAY_IMAGE_MODELS_KEY,
     APP_SETTING_GATEWAY_MODEL_FORWARD_RULES_KEY,
     APP_SETTING_GATEWAY_ORIGINATOR_KEY, APP_SETTING_GATEWAY_REQUEST_COMPRESSION_ENABLED_KEY,
@@ -33,6 +34,7 @@ pub struct BackgroundTasksInput {
 }
 
 const DEFAULT_GATEWAY_AGGREGATE_API_TEST_MODEL: &str = "gpt-5.6-terra";
+const DEFAULT_GATEWAY_CLAUDE_USER_AGENT_VERSION: &str = "2.1.258";
 
 /// 函数 `normalize_gateway_aggregate_api_test_model`
 ///
@@ -48,6 +50,18 @@ const DEFAULT_GATEWAY_AGGREGATE_API_TEST_MODEL: &str = "gpt-5.6-terra";
 fn normalize_gateway_aggregate_api_test_model(raw: Option<&str>) -> String {
     normalize_optional_text(raw)
         .unwrap_or_else(|| DEFAULT_GATEWAY_AGGREGATE_API_TEST_MODEL.to_string())
+}
+
+fn normalize_gateway_claude_user_agent_version(raw: Option<&str>) -> Result<String, String> {
+    let version = normalize_optional_text(raw)
+        .unwrap_or_else(|| DEFAULT_GATEWAY_CLAUDE_USER_AGENT_VERSION.to_string());
+    if version
+        .chars()
+        .any(|ch| !(ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_' | '+')))
+    {
+        return Err("claudeUserAgentVersion contains unsupported characters".to_string());
+    }
+    Ok(version)
 }
 
 fn normalize_gateway_model_list(raw: &str) -> String {
@@ -194,6 +208,22 @@ pub fn current_gateway_aggregate_api_test_model() -> String {
     normalize_gateway_aggregate_api_test_model(
         get_persisted_app_setting(APP_SETTING_GATEWAY_AGGREGATE_API_TEST_MODEL_KEY).as_deref(),
     )
+}
+
+pub fn set_gateway_claude_user_agent_version(version: &str) -> Result<String, String> {
+    let applied = normalize_gateway_claude_user_agent_version(Some(version))?;
+    save_persisted_app_setting(
+        APP_SETTING_GATEWAY_CLAUDE_USER_AGENT_VERSION_KEY,
+        Some(&applied),
+    )?;
+    Ok(applied)
+}
+
+pub fn current_gateway_claude_user_agent_version() -> String {
+    normalize_gateway_claude_user_agent_version(
+        get_persisted_app_setting(APP_SETTING_GATEWAY_CLAUDE_USER_AGENT_VERSION_KEY).as_deref(),
+    )
+    .unwrap_or_else(|_| DEFAULT_GATEWAY_CLAUDE_USER_AGENT_VERSION.to_string())
 }
 
 pub fn current_gateway_image_models() -> String {

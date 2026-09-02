@@ -10,7 +10,8 @@ use std::io::Read;
 use std::time::Instant;
 
 use crate::app_settings::{
-    current_gateway_aggregate_api_test_model, current_gateway_image_model_list,
+    current_gateway_aggregate_api_test_model, current_gateway_claude_user_agent_version,
+    current_gateway_image_model_list,
     current_gateway_video_model_list,
 };
 use crate::apikey_profile::normalize_upstream_base_url;
@@ -258,7 +259,8 @@ mod tests {
 
     use super::{
         action_path_or_default, backfill_empty_aggregate_api_models, build_codex_probe_body,
-        normalize_action_override, probe_accept_header, probe_codex_endpoint,
+        normalize_action_override, probe_accept_header, probe_claude_endpoint,
+        probe_codex_endpoint,
         probe_default_path_for_model_type, probe_model_for_aggregate_api, probe_model_for_type,
         refresh_aggregate_api_model_catalog,
         DEFAULT_AGGREGATE_API_WEIGHT,
@@ -648,6 +650,63 @@ mod tests {
         assert_eq!(
             payload.get("model").and_then(|value| value.as_str()),
             Some("gpt-5.4")
+        );
+
+        if let Some(value) = previous_db_path {
+            std::env::set_var("CODEXMANAGER_DB_PATH", value);
+        } else {
+            std::env::remove_var("CODEXMANAGER_DB_PATH");
+        }
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn claude_probe_uses_configured_user_agent_version() {
+        let _guard = crate::test_env_guard();
+        let db_path = unique_temp_db_path();
+        let previous_db_path = std::env::var("CODEXMANAGER_DB_PATH").ok();
+        std::env::set_var("CODEXMANAGER_DB_PATH", &db_path);
+        assert_eq!(
+            crate::app_settings::current_gateway_claude_user_agent_version(),
+            "2.1.258"
+        );
+        crate::app_settings::set_gateway_claude_user_agent_version("2.1.259")
+            .expect("save Claude user agent version");
+
+        let server = Server::http("127.0.0.1:0").expect("start mock aggregate api server");
+        let addr = format!("http://{}", server.server_addr());
+        let (tx, rx) = mpsc::channel();
+        let handle = thread::spawn(move || {
+            let request = server
+                .recv_timeout(Duration::from_secs(3))
+                .expect("receive request")
+                .expect("request present");
+            let user_agent = request
+                .headers()
+                .iter()
+                .find(|header| header.field.equiv("user-agent"))
+                .map(|header| header.value.as_str().to_string());
+            tx.send(user_agent).expect("record user agent");
+            request
+                .respond(Response::from_string(r#"{"content":[{"type":"text","text":"ok"}]}"#))
+                .expect("respond request");
+        });
+
+        let mut api = aggregate_api_with_action(None);
+        api.url = addr;
+        let client = reqwest::blocking::Client::new();
+
+        let status = probe_claude_endpoint(&client, &api, "test-secret").expect("probe success");
+        let user_agent = rx
+            .recv_timeout(Duration::from_secs(3))
+            .expect("recorded user agent");
+
+        handle.join().expect("join server");
+
+        assert_eq!(status, 200);
+        assert_eq!(
+            user_agent.as_deref(),
+            Some("claude-cli/2.1.259 (external, cli)")
         );
 
         if let Some(value) = previous_db_path {
@@ -1491,7 +1550,13 @@ fn probe_claude_endpoint(
         .header("content-type", "application/json")
         .header("accept", "application/json")
         .header("accept-encoding", "identity")
-        .header("user-agent", "claude-cli/2.1.2 (external, cli)")
+        .header(
+            "user-agent",
+            format!(
+                "claude-cli/{} (external, cli)",
+                current_gateway_claude_user_agent_version()
+            ),
+        )
         .header("x-app", "cli")
         .json(&build_claude_probe_body())
         .send()
