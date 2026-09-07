@@ -144,7 +144,8 @@ export interface AggregateApiTestResult {
   id: string;
   ok: boolean;
   statusCode: number | null;
-  message: string | null;
+  error: string | null;
+  model: string | null;
   testedAt: number;
   latencyMs: number;
 }

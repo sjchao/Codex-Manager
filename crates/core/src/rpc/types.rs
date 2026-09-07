@@ -552,7 +552,8 @@ pub struct AggregateApiTestResult {
     pub id: String,
     pub ok: bool,
     pub status_code: Option<i64>,
-    pub message: Option<String>,
+    pub error: Option<String>,
+    pub model: Option<String>,
     pub tested_at: i64,
     pub latency_ms: i64,
 }

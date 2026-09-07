@@ -1,11 +1,12 @@
 export interface RequestOptions {
   signal?: AbortSignal;
-  timeoutMs?: number;
+  timeoutMs?: number | null;
   retries?: number;
   retryDelayMs?: number;
   maxRetryDelayMs?: number;
   shouldRetry?: (error: unknown) => boolean;
   shouldRetryStatus?: (status: number) => boolean;
+  throwOnBusinessError?: boolean;
 }
 
 /**
@@ -39,7 +40,10 @@ export async function fetchWithRetry(
   let lastError: unknown;
   for (let i = 0; i <= retries; i++) {
     const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), timeoutMs);
+    const id =
+      typeof timeoutMs === "number" && Number.isFinite(timeoutMs) && timeoutMs >= 0
+        ? setTimeout(() => controller.abort(), timeoutMs)
+        : null;
     if (options.signal) {
       options.signal.addEventListener("abort", () => controller.abort());
     }
@@ -49,13 +53,13 @@ export async function fetchWithRetry(
         ...init,
         signal: controller.signal,
       });
-      clearTimeout(id);
+      if (id !== null) clearTimeout(id);
 
       if (response.ok || !shouldRetryStatus(response.status) || i === retries) {
         return response;
       }
     } catch (err: unknown) {
-      clearTimeout(id);
+      if (id !== null) clearTimeout(id);
       lastError = err;
       if (err instanceof Error && err.name === "AbortError" && !options.signal?.aborted) {
         // Timeout retry

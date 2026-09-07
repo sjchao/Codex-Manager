@@ -8,6 +8,7 @@ use super::http::parse_http_body;
 
 const RPC_CONNECT_TIMEOUT: Duration = Duration::from_millis(400);
 const RPC_DEFAULT_IO_TIMEOUT: Duration = Duration::from_secs(10);
+const RPC_AGGREGATE_API_TEST_IO_TIMEOUT: Duration = Duration::from_secs(30);
 const RPC_BULK_USAGE_REFRESH_IO_TIMEOUT: Duration = Duration::from_secs(600);
 
 /// 函数 `rpc_io_timeout`
@@ -23,6 +24,9 @@ const RPC_BULK_USAGE_REFRESH_IO_TIMEOUT: Duration = Duration::from_secs(600);
 /// # 返回
 /// 返回函数执行结果
 fn rpc_io_timeout(method: &str, params: Option<&serde_json::Value>) -> Duration {
+    if method == "aggregateApi/testConnection" {
+        return RPC_AGGREGATE_API_TEST_IO_TIMEOUT;
+    }
     if method == "account/usage/refresh"
         && params
             .and_then(|value| value.get("accountId"))
@@ -167,14 +171,15 @@ pub(crate) fn rpc_call_with_sockets(
     }
     let mut last_err =
         "Empty response from service (service not ready, exited, or port occupied)".to_string();
-    for attempt in 0..=1 {
+    let max_attempts = if method == "aggregateApi/testConnection" { 1 } else { 2 };
+    for attempt in 0..max_attempts {
         for sock in socket_addrs {
             match rpc_call_on_socket(method, addr, *sock, params.clone()) {
                 Ok(v) => return Ok(v),
                 Err(err) => last_err = err,
             }
         }
-        if attempt == 0 {
+        if attempt + 1 < max_attempts {
             std::thread::sleep(Duration::from_millis(120));
         }
     }
@@ -204,7 +209,16 @@ pub(crate) fn rpc_call(
 
 #[cfg(test)]
 mod tests {
-    use super::{rpc_io_timeout, RPC_BULK_USAGE_REFRESH_IO_TIMEOUT, RPC_DEFAULT_IO_TIMEOUT};
+    use super::{
+        rpc_io_timeout, RPC_AGGREGATE_API_TEST_IO_TIMEOUT, RPC_BULK_USAGE_REFRESH_IO_TIMEOUT,
+        RPC_DEFAULT_IO_TIMEOUT,
+    };
+
+    #[test]
+    fn aggregate_api_test_uses_extended_timeout() {
+        let timeout = rpc_io_timeout("aggregateApi/testConnection", None);
+        assert_eq!(timeout, RPC_AGGREGATE_API_TEST_IO_TIMEOUT);
+    }
 
     /// 函数 `bulk_usage_refresh_uses_extended_timeout`
     ///

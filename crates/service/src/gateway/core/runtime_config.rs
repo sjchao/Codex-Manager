@@ -147,6 +147,13 @@ pub(crate) fn fresh_upstream_client() -> Client {
     build_upstream_client()
 }
 
+/// 构造带有总请求超时的上游客户端，供需要独立超时策略的探测请求使用。
+pub(crate) fn fresh_upstream_client_with_timeout(timeout: Duration) -> Client {
+    ensure_runtime_config_loaded();
+    let proxy_url = current_upstream_proxy_url();
+    build_upstream_client_with_proxy_and_timeout(proxy_url.as_deref(), Some(timeout))
+}
+
 /// 函数 `upstream_client_for_account`
 ///
 /// 作者: gaohongshun
@@ -230,11 +237,18 @@ fn build_upstream_client() -> Client {
 /// # 返回
 /// 返回函数执行结果
 fn build_upstream_client_with_proxy(proxy_url: Option<&str>) -> Client {
+    build_upstream_client_with_proxy_and_timeout(proxy_url, None)
+}
+
+fn build_upstream_client_with_proxy_and_timeout(
+    proxy_url: Option<&str>,
+    timeout: Option<Duration>,
+) -> Client {
     let mut builder = Client::builder()
-        // 中文注释：显式关闭总超时，避免长时流式响应在客户端层被误判超时中断。
-        .timeout(None::<Duration>)
+        // 中文注释：普通网关请求关闭总超时；独立探测请求可传入有限总超时。
+        .timeout(timeout)
         // 中文注释：连接阶段设置超时，避免网络异常时线程长期卡死占满并发槽位。
-        .connect_timeout(upstream_connect_timeout_cached())
+        .connect_timeout(timeout.unwrap_or_else(upstream_connect_timeout_cached))
         .pool_max_idle_per_host(32)
         .pool_idle_timeout(Some(Duration::from_secs(90)))
         .tcp_keepalive(Some(Duration::from_secs(30)));
@@ -247,7 +261,7 @@ fn build_upstream_client_with_proxy(proxy_url: Option<&str>) -> Client {
                     proxy_url,
                     err
                 );
-                return build_upstream_client();
+                return build_upstream_client_with_proxy_and_timeout(None, timeout);
             }
         };
         builder = builder.proxy(proxy);

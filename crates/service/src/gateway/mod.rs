@@ -316,7 +316,7 @@ use request_gate::{request_gate_lock, RequestGateAcquireError};
 pub(crate) use request_log::write_request_log;
 use route_hint::apply_route_strategy;
 use route_quality::record_route_quality;
-pub(crate) use runtime_config::fresh_upstream_client;
+pub(crate) use runtime_config::{fresh_upstream_client, fresh_upstream_client_with_timeout};
 pub(crate) use runtime_config::front_proxy_max_body_bytes;
 pub(crate) use runtime_config::{account_max_inflight_limit, set_account_max_inflight_limit};
 use runtime_config::{

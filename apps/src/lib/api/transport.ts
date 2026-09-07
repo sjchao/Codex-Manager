@@ -512,11 +512,15 @@ async function postWebRpc<T>(
   }
   if (responseRecord && "result" in responseRecord) {
     const result = responseRecord.result as T;
-    throwIfBusinessError(result);
+    if (options.throwOnBusinessError !== false) {
+      throwIfBusinessError(result);
+    }
     return result;
   }
 
-  throwIfBusinessError(payload);
+  if (options.throwOnBusinessError !== false) {
+    throwIfBusinessError(payload);
+  }
   return payload as T;
 }
 
@@ -672,11 +676,15 @@ export async function invoke<T>(
 
   if (responseRecord && "result" in responseRecord) {
     const payload = responseRecord.result as T;
-    throwIfBusinessError(payload);
+    if (options.throwOnBusinessError !== false) {
+      throwIfBusinessError(payload);
+    }
     return payload;
   }
   
-  throwIfBusinessError(response);
+  if (options.throwOnBusinessError !== false) {
+    throwIfBusinessError(response);
+  }
   return response as T;
 }
 
@@ -697,19 +705,19 @@ function resolveBusinessErrorMessage(payload: unknown): string {
   const source = asRecord(payload);
   if (!source) return "";
   const error = source.error;
-  if (source.ok === false) {
-    return typeof error === "string"
-      ? error
-      : asRecord(error)?.message
-        ? String(asRecord(error)?.message)
-        : "操作失败";
-  }
-  if (error) {
-    return typeof error === "string"
+  const errorMessage =
+    typeof error === "string"
       ? error
       : asRecord(error)?.message
         ? String(asRecord(error)?.message)
         : "";
+  const fallbackMessage =
+    typeof source.message === "string" ? source.message : "";
+  if (source.ok === false) {
+    return errorMessage || fallbackMessage || "操作失败";
+  }
+  if (error) {
+    return errorMessage;
   }
   return "";
 }

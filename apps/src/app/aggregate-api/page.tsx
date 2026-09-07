@@ -190,7 +190,7 @@ export default function AggregateApiPage() {
           : api.lastTestStatus;
     const effectiveError =
       latestResult?.ok === false
-        ? latestResult.message || api.lastTestError
+        ? latestResult.error || api.lastTestError
         : api.lastTestError;
     const badge = getTestBadge({
       ...api,
@@ -226,18 +226,20 @@ export default function AggregateApiPage() {
       }));
       const latencyText = formatLatencyText(result.latencyMs);
       if (result.ok) {
+        const modelText = result.model ? `，模型 ${result.model}` : "";
         toast.success(
           latencyText
-            ? `真实模型测试成功，耗时 ${latencyText}`
-            : "真实模型测试成功",
+            ? `真实模型测试成功${modelText}，耗时 ${latencyText}`
+            : `真实模型测试成功${modelText}`,
         );
         return;
       }
+      const modelText = result.model ? `，模型 ${result.model}` : "";
       toast.error(
         `真实模型测试失败${
           latencyText ? `（耗时 ${latencyText}）` : ""
-        }: ${
-          result.message || result.statusCode || "未返回具体错误信息"
+        }${modelText}: ${
+          result.error || result.statusCode || "未返回具体错误信息"
         }`,
       );
     },
@@ -257,7 +259,8 @@ export default function AggregateApiPage() {
           id: apiId,
           ok: false,
           statusCode: null,
-          message,
+          error: message,
+          model: null,
           testedAt: Math.floor(Date.now() / 1000),
           latencyMs: Math.max(0, Date.now() - (context?.startedAt ?? Date.now())),
         },
@@ -632,7 +635,7 @@ export default function AggregateApiPage() {
                           : api.lastTestStatus;
                     const effectiveError =
                       latestResult?.ok === false
-                        ? latestResult.message || api.lastTestError
+                        ? latestResult.error || api.lastTestError
                         : api.lastTestError;
                     const isTesting = Boolean(testingApiIds[api.id]);
 
@@ -830,6 +833,11 @@ export default function AggregateApiPage() {
                           {testedAtText ? (
                             <p className="mt-1 text-[10px] text-muted-foreground">
                               {testedAtText}
+                            </p>
+                          ) : null}
+                          {latestResult?.model ? (
+                            <p className="text-[10px] text-muted-foreground">
+                              模型 {latestResult.model}
                             </p>
                           ) : null}
                           {latencyText ? (

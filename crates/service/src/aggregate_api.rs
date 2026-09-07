@@ -11,9 +11,9 @@ use std::time::Instant;
 
 use crate::app_settings::{
     current_gateway_aggregate_api_test_model, current_gateway_claude_user_agent_version,
-    current_gateway_image_model_list,
-    current_gateway_video_model_list,
 };
+#[cfg(test)]
+use crate::app_settings::{current_gateway_image_model_list, current_gateway_video_model_list};
 use crate::apikey_profile::normalize_upstream_base_url;
 use crate::gateway::{self, ModelType};
 use crate::storage_helpers::{generate_aggregate_api_id, open_storage};
@@ -25,6 +25,8 @@ pub(crate) const AGGREGATE_API_AUTH_USERPASS: &str = "userpass";
 pub(crate) const AGGREGATE_API_STATUS_ACTIVE: &str = "active";
 pub(crate) const AGGREGATE_API_STATUS_DISABLED: &str = "disabled";
 const DEFAULT_AGGREGATE_API_WEIGHT: i64 = 100;
+const AGGREGATE_API_CLAUDE_TEST_MODEL: &str = "claude-haiku-4-5-20251001";
+const AGGREGATE_API_TEST_TIMEOUT_SECS: u64 = 30;
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -474,6 +476,54 @@ mod tests {
     }
 
     #[test]
+    fn probe_model_for_aggregate_api_falls_back_to_supported_model() {
+        let _guard = crate::test_env_guard();
+        let db_path = unique_temp_db_path();
+        let previous_db_path = std::env::var("CODEXMANAGER_DB_PATH").ok();
+        std::env::set_var("CODEXMANAGER_DB_PATH", &db_path);
+        crate::app_settings::set_gateway_aggregate_api_test_model("gpt-5.6-terra")
+            .expect("save aggregate api test model");
+
+        let mut api = aggregate_api_with_action(None);
+        api.supported_models = vec!["gpt-5.4".to_string()];
+        assert_eq!(
+            probe_model_for_aggregate_api(&api).expect("supported fallback model"),
+            (ModelType::Text, "gpt-5.4".to_string())
+        );
+
+        if let Some(value) = previous_db_path {
+            std::env::set_var("CODEXMANAGER_DB_PATH", value);
+        } else {
+            std::env::remove_var("CODEXMANAGER_DB_PATH");
+        }
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn probe_model_for_aggregate_api_prefers_configured_model_when_supported() {
+        let _guard = crate::test_env_guard();
+        let db_path = unique_temp_db_path();
+        let previous_db_path = std::env::var("CODEXMANAGER_DB_PATH").ok();
+        std::env::set_var("CODEXMANAGER_DB_PATH", &db_path);
+        crate::app_settings::set_gateway_aggregate_api_test_model("gpt-5.6-terra")
+            .expect("save aggregate api test model");
+
+        let mut api = aggregate_api_with_action(None);
+        api.supported_models = vec!["gpt-5.4".to_string(), "gpt-5.6-terra".to_string()];
+        assert_eq!(
+            probe_model_for_aggregate_api(&api).expect("configured supported model"),
+            (ModelType::Text, "gpt-5.6-terra".to_string())
+        );
+
+        if let Some(value) = previous_db_path {
+            std::env::set_var("CODEXMANAGER_DB_PATH", value);
+        } else {
+            std::env::remove_var("CODEXMANAGER_DB_PATH");
+        }
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
     fn image_and_video_probes_use_generation_request_payloads() {
         let image_body = build_codex_probe_body(
             ModelType::Image,
@@ -755,7 +805,7 @@ mod tests {
     }
 
     #[test]
-    fn codex_probe_fails_after_the_first_stored_model_request() {
+    fn codex_probe_uses_configured_text_model_without_retry() {
         let _guard = crate::test_env_guard();
         let server = Server::http("127.0.0.1:0").expect("start mock aggregate api server");
         let addr = format!("http://{}", server.server_addr());
@@ -808,7 +858,7 @@ mod tests {
             serde_json::from_str(body.as_str()).expect("json body");
         assert_eq!(
             payload.get("model").and_then(|value| value.as_str()),
-            Some("stored-model")
+            Some("gpt-5.6-terra")
         );
     }
 }
@@ -1075,6 +1125,35 @@ fn read_first_chunk(mut response: reqwest::blocking::Response) -> Result<(), Str
     }
 }
 
+fn format_probe_request_error(error: &reqwest::Error, url: &str) -> String {
+    let error_text = error.to_string().to_ascii_lowercase();
+    if error.is_timeout()
+        || error_text.contains("timed out")
+        || error_text.contains("timeout")
+        || error_text.contains("deadline has elapsed")
+    {
+        return format!(
+            "请求超过 {} 秒超时（{}）",
+            AGGREGATE_API_TEST_TIMEOUT_SECS, url
+        );
+    }
+    format!("请求失败（{}）：{}", url, error)
+}
+
+fn format_probe_response_error(error: String, url: &str) -> String {
+    let normalized = error.to_ascii_lowercase();
+    if normalized.contains("timed out")
+        || normalized.contains("timeout")
+        || normalized.contains("deadline has elapsed")
+    {
+        return format!(
+            "请求超过 {} 秒超时（{}）",
+            AGGREGATE_API_TEST_TIMEOUT_SECS, url
+        );
+    }
+    format!("响应读取失败（{}）：{}", url, error)
+}
+
 fn normalize_probe_error_text(value: &str) -> Option<String> {
     let normalized = value
         .lines()
@@ -1181,7 +1260,7 @@ fn parse_codex_models_response(value: &serde_json::Value) -> Vec<String> {
 /// 返回函数执行结果
 fn build_claude_probe_body() -> serde_json::Value {
     json!({
-        "model": "claude-haiku-4-5-20251001",
+        "model": AGGREGATE_API_CLAUDE_TEST_MODEL,
         "max_tokens": 1,
         "messages": [{
             "role": "user",
@@ -1390,13 +1469,14 @@ fn probe_codex_real_endpoint(
         .header("accept", probe_accept_header(model_type, probe_path.as_str()))
         .json(&request_body)
         .send()
-        .map_err(|err| err.to_string())?;
+        .map_err(|err| format_probe_request_error(&err, url.as_str()))?;
 
     let status_code = response.status().as_u16() as i64;
     if !response.status().is_success() {
         return Err(format_probe_http_error(response, "codex probe", status_code));
     }
-    read_first_chunk(response)?;
+    read_first_chunk(response)
+        .map_err(|err| format_probe_response_error(err, url.as_str()))?;
     Ok(status_code)
 }
 
@@ -1413,6 +1493,7 @@ fn probe_codex_real_endpoint(
 ///
 /// # 返回
 /// 返回函数执行结果
+#[cfg(test)]
 fn probe_codex_endpoint(
     client: &reqwest::blocking::Client,
     api: &AggregateApi,
@@ -1423,17 +1504,31 @@ fn probe_codex_endpoint(
 }
 
 fn probe_model_for_aggregate_api(api: &AggregateApi) -> Result<(ModelType, String), String> {
-    let model = api
+    let configured_model = current_gateway_aggregate_api_test_model();
+    if let Some(stored_model) = api
         .supported_models
-        .first()
+        .iter()
+        .find(|model| model.eq_ignore_ascii_case(configured_model.as_str()))
         .cloned()
-        .unwrap_or(probe_model_for_type(ModelType::Text)?);
+    {
+        return Ok((
+            gateway::classify_model_for_gateway_settings(Some(stored_model.as_str())),
+            stored_model,
+        ));
+    }
+    if let Some(stored_model) = api.supported_models.first().cloned() {
+        return Ok((
+            gateway::classify_model_for_gateway_settings(Some(stored_model.as_str())),
+            stored_model,
+        ));
+    }
     Ok((
-        gateway::classify_model_for_gateway_settings(Some(model.as_str())),
-        model,
+        gateway::classify_model_for_gateway_settings(Some(configured_model.as_str())),
+        configured_model,
     ))
 }
 
+#[cfg(test)]
 fn probe_model_for_type(model_type: ModelType) -> Result<String, String> {
     match model_type {
         ModelType::Text => Ok(current_gateway_aggregate_api_test_model()),
@@ -1496,13 +1591,14 @@ fn probe_claude_endpoint(
         .header("x-app", "cli")
         .json(&build_claude_probe_body())
         .send()
-        .map_err(|err| err.to_string())?;
+        .map_err(|err| format_probe_request_error(&err, url.as_str()))?;
 
     let status_code = response.status().as_u16() as i64;
     if !response.status().is_success() {
         return Err(format_probe_http_error(response, "claude probe", status_code));
     }
-    read_first_chunk(response)?;
+    read_first_chunk(response)
+        .map_err(|err| format_probe_response_error(err, url.as_str()))?;
     Ok(status_code)
 }
 
@@ -1980,26 +2076,34 @@ pub(crate) fn test_aggregate_api_connection(
     let Some(secret) = secret else {
         return Err("aggregate api secret not found".to_string());
     };
-    let client = gateway::fresh_upstream_client();
+    let client = gateway::fresh_upstream_client_with_timeout(
+        std::time::Duration::from_secs(AGGREGATE_API_TEST_TIMEOUT_SECS),
+    );
     let started_at = Instant::now();
     let provider_type = normalize_provider_type_value(api.provider_type.as_str());
-    let result = if probe_codex_only_for_provider(provider_type.as_str()) {
-        probe_codex_endpoint(&client, &api, &secret)
+    let (model, result) = if probe_codex_only_for_provider(provider_type.as_str()) {
+        let (model_type, model) = probe_model_for_aggregate_api(&api)?;
+        let result = probe_codex_real_endpoint(&client, &api, &secret, model_type, model.as_str());
+        (model, result)
     } else {
-        probe_claude_endpoint(&client, &api, &secret)
+        (
+            AGGREGATE_API_CLAUDE_TEST_MODEL.to_string(),
+            probe_claude_endpoint(&client, &api, &secret),
+        )
     };
     let (ok, status_code, last_error) = match result {
         Ok(code) => (true, Some(code), None),
         Err(err) => (false, None, Some(err)),
     };
-    let message = last_error.map(|err| format!("provider={provider_type}; {err}"));
+    let error = last_error.map(|err| format!("provider={provider_type}; {err}"));
 
-    let _ = storage.update_aggregate_api_test_result(api_id, ok, status_code, message.as_deref());
+    let _ = storage.update_aggregate_api_test_result(api_id, ok, status_code, error.as_deref());
     Ok(AggregateApiTestResult {
         id: api_id.to_string(),
         ok,
         status_code,
-        message,
+        error,
+        model: Some(model),
         tested_at: now_ts(),
         latency_ms: started_at.elapsed().as_millis() as i64,
     })

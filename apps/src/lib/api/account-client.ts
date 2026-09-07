@@ -533,9 +533,19 @@ export const accountClient = {
   async testAggregateApiConnection(apiId: string): Promise<AggregateApiTestResult> {
     const result = await invoke<unknown>(
       "service_aggregate_api_test_connection",
-      withAddr({ id: apiId })
+      withAddr({ id: apiId }),
+      {
+        timeoutMs: null,
+        retries: 0,
+        shouldRetryStatus: () => false,
+        throwOnBusinessError: false,
+      }
     );
-    return normalizeAggregateApiTestResult(result);
+    const normalized = normalizeAggregateApiTestResult(result);
+    if (!normalized.id && normalized.error) {
+      throw new Error(normalized.error);
+    }
+    return normalized;
   },
   async refreshAggregateApiModels(apiId: string): Promise<AggregateApiModelCatalogResult> {
     const result = await invoke<unknown>(

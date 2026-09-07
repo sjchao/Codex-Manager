@@ -688,11 +688,17 @@ export function normalizeAggregateApiSecretResult(payload: unknown): AggregateAp
  */
 export function normalizeAggregateApiTestResult(payload: unknown): AggregateApiTestResult {
   const source = asObject(payload);
+  const errorSource = asObject(source.error);
   return {
     id: asString(source.id),
     ok: asBoolean(source.ok),
     statusCode: toNullableNumber(source.statusCode ?? source.status_code),
-    message: asString(source.message) || null,
+    error:
+      asString(source.error) ||
+      asString(errorSource.message) ||
+      asString(source.message) ||
+      null,
+    model: asString(source.model ?? source.testModel ?? source.test_model) || null,
     testedAt: asInteger(source.testedAt ?? source.tested_at, 0, 0),
     latencyMs: asInteger(source.latencyMs ?? source.latency_ms, 0, 0),
   };
