@@ -755,34 +755,24 @@ mod tests {
     }
 
     #[test]
-    fn codex_probe_falls_back_to_models_endpoint_after_gpt_5_6_terra_failure() {
+    fn codex_probe_fails_after_the_first_stored_model_request() {
         let _guard = crate::test_env_guard();
         let server = Server::http("127.0.0.1:0").expect("start mock aggregate api server");
         let addr = format!("http://{}", server.server_addr());
         let (tx, rx) = mpsc::channel();
         let handle = thread::spawn(move || {
-            for index in 0..3 {
-                let mut request = server
-                    .recv_timeout(Duration::from_secs(3))
-                    .expect("receive request")
-                    .expect("request present");
-                let path = request.url().to_string();
-                let mut body = String::new();
-                request
-                    .as_reader()
-                    .read_to_string(&mut body)
-                    .expect("read request body");
-                tx.send((path.clone(), body.clone())).expect("record request");
-                let response = if path == "/v1/models" {
-                    Response::from_string(
-                        r#"{"data":[{"id":"working-model","type":"model"}]}"#,
-                    )
-                    .with_status_code(StatusCode(200))
-                    .with_header(
-                        Header::from_bytes("Content-Type", "application/json")
-                            .expect("content-type header"),
-                    )
-                } else if index == 0 {
+            let mut request = server
+                .recv_timeout(Duration::from_secs(3))
+                .expect("receive request")
+                .expect("request present");
+            let path = request.url().to_string();
+            let mut body = String::new();
+            request
+                .as_reader()
+                .read_to_string(&mut body)
+                .expect("read request body");
+            request
+                .respond(
                     Response::from_string(
                         r#"{"error":{"message":"Service temporarily unavailable","type":"api_error"}}"#,
                     )
@@ -790,48 +780,35 @@ mod tests {
                     .with_header(
                         Header::from_bytes("Content-Type", "application/json")
                             .expect("content-type header"),
-                    )
-                } else {
-                    Response::from_string(
-                        r#"{"id":"chatcmpl-test","choices":[{"message":{"role":"assistant","content":"ok"}}]}"#,
-                    )
-                    .with_status_code(StatusCode(200))
-                    .with_header(
-                        Header::from_bytes("Content-Type", "application/json")
-                            .expect("content-type header"),
-                    )
-                };
-                request.respond(response).expect("respond request");
-            }
+                    ),
+                )
+                .expect("respond request");
+            let retried = server
+                .recv_timeout(Duration::from_millis(250))
+                .expect("wait for unexpected retry")
+                .is_some();
+            tx.send((path, body, retried)).expect("record request");
         });
 
         let mut api = aggregate_api_with_action(None);
         api.provider_type = "codex".to_string();
         api.url = addr;
+        api.supported_models = vec!["stored-model".to_string()];
         let client = reqwest::blocking::Client::new();
 
-        let status = probe_codex_endpoint(&client, &api, "test-secret").expect("probe success");
-        let first = rx.recv_timeout(Duration::from_secs(3)).expect("first request");
-        let second = rx.recv_timeout(Duration::from_secs(3)).expect("second request");
-        let third = rx.recv_timeout(Duration::from_secs(3)).expect("third request");
+        let error = probe_codex_endpoint(&client, &api, "test-secret").expect_err("probe failure");
+        let (path, body, retried) = rx.recv_timeout(Duration::from_secs(3)).expect("recorded request");
 
         handle.join().expect("join server");
 
-        assert_eq!(status, 200);
-        assert_eq!(first.0, "/v1/chat/completions");
-        assert_eq!(second.0, "/v1/models");
-        assert_eq!(third.0, "/v1/chat/completions");
+        assert!(error.contains("http_status=503"), "error = {error}");
+        assert_eq!(path, "/v1/chat/completions");
+        assert!(!retried, "the probe must not request /v1/models or retry another model");
         let payload: serde_json::Value =
-            serde_json::from_str(first.1.as_str()).expect("json body");
+            serde_json::from_str(body.as_str()).expect("json body");
         assert_eq!(
             payload.get("model").and_then(|value| value.as_str()),
-            Some("gpt-5.6-terra")
-        );
-        let retry_payload: serde_json::Value =
-            serde_json::from_str(third.1.as_str()).expect("json body");
-        assert_eq!(
-            retry_payload.get("model").and_then(|value| value.as_str()),
-            Some("working-model")
+            Some("stored-model")
         );
     }
 }
@@ -1174,20 +1151,6 @@ fn format_probe_http_error(
     format!("{prefix} http_status={status_code}")
 }
 
-fn parse_probe_http_status(error: &str) -> Option<i64> {
-    let marker = "http_status=";
-    let start = error.find(marker)? + marker.len();
-    let digits = error[start..]
-        .chars()
-        .take_while(|ch| ch.is_ascii_digit())
-        .collect::<String>();
-    digits.parse::<i64>().ok()
-}
-
-fn should_retry_codex_probe_with_models(error: &str) -> bool {
-    matches!(parse_probe_http_status(error), Some(408) | Some(500..=599))
-}
-
 fn parse_codex_models_response(value: &serde_json::Value) -> Vec<String> {
     let models = value
         .get("data")
@@ -1455,35 +1418,8 @@ fn probe_codex_endpoint(
     api: &AggregateApi,
     secret: &str,
 ) -> Result<i64, String> {
-    let (model_type, default_model) = probe_model_for_aggregate_api(api)?;
-    let initial_result =
-        probe_codex_real_endpoint(client, api, secret, model_type, default_model.as_str());
-    if let Ok(code) = initial_result {
-        return Ok(code);
-    }
-
-    let initial_error = initial_result
-        .err()
-        .unwrap_or_else(|| "codex real model probe failed".to_string());
-    if model_type != ModelType::Text || !should_retry_codex_probe_with_models(initial_error.as_str()) {
-        return Err(initial_error);
-    }
-
-    let models = match probe_codex_models_endpoint(client, api, secret) {
-        Ok(items) => items,
-        Err(models_error) => return Err(format!("{initial_error}; {models_error}")),
-    };
-    for model in models
-        .iter()
-        .filter(|model| model.as_str() != default_model.as_str())
-        .take(3)
-    {
-        if let Ok(code) = probe_codex_real_endpoint(client, api, secret, model_type, model.as_str()) {
-            return Ok(code);
-        }
-    }
-
-    Err(initial_error)
+    let (model_type, model) = probe_model_for_aggregate_api(api)?;
+    probe_codex_real_endpoint(client, api, secret, model_type, model.as_str())
 }
 
 fn probe_model_for_aggregate_api(api: &AggregateApi) -> Result<(ModelType, String), String> {

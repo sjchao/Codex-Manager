@@ -129,7 +129,7 @@ export default function AggregateApiPage() {
     Record<string, AggregateApiTestResult>
   >({});
   const [loadingSecretId, setLoadingSecretId] = useState<string | null>(null);
-  const [testingApiId, setTestingApiId] = useState<string | null>(null);
+  const [testingApiIds, setTestingApiIds] = useState<Record<string, true>>({});
 
   const { data: aggregateApis = [], isLoading } = useQuery({
     queryKey: ["aggregate-apis"],
@@ -215,8 +215,9 @@ export default function AggregateApiPage() {
   const testMutation = useMutation({
     mutationFn: (apiId: string) =>
       accountClient.testAggregateApiConnection(apiId),
-    onMutate: async (apiId) => {
-      setTestingApiId(apiId);
+    onMutate: (apiId) => {
+      setTestingApiIds((current) => ({ ...current, [apiId]: true }));
+      return { startedAt: Date.now() };
     },
     onSuccess: async (result) => {
       setLatestTestResults((current) => ({
@@ -242,11 +243,27 @@ export default function AggregateApiPage() {
     },
     onSettled: async (_result, _error, apiId) => {
       await queryClient.invalidateQueries({ queryKey: ["aggregate-apis"] });
-      setTestingApiId((current) => (current === apiId ? null : current));
+      setTestingApiIds((current) => {
+        const next = { ...current };
+        delete next[apiId];
+        return next;
+      });
     },
-    onError: (error: unknown) => {
+    onError: (error: unknown, apiId, context) => {
+      const message = error instanceof Error ? error.message : String(error);
+      setLatestTestResults((current) => ({
+        ...current,
+        [apiId]: {
+          id: apiId,
+          ok: false,
+          statusCode: null,
+          message,
+          testedAt: Math.floor(Date.now() / 1000),
+          latencyMs: Math.max(0, Date.now() - (context?.startedAt ?? Date.now())),
+        },
+      }));
       toast.error(
-        `测试失败: ${error instanceof Error ? error.message : String(error)}`,
+        `测试失败: ${message}`,
       );
     },
   });
@@ -617,6 +634,7 @@ export default function AggregateApiPage() {
                       latestResult?.ok === false
                         ? latestResult.message || api.lastTestError
                         : api.lastTestError;
+                    const isTesting = Boolean(testingApiIds[api.id]);
 
                     return (
                       <TableRow key={api.id} className="group">
@@ -794,13 +812,13 @@ export default function AggregateApiPage() {
                                 size="sm"
                                 className="h-7 gap-1.5 px-2 text-xs"
                                 disabled={
-                                  !isServiceReady || testingApiId === api.id
+                                  !isServiceReady || isTesting
                                 }
                                 onClick={() => testMutation.mutate(api.id)}
                               >
                                 <RefreshCw
                                   className={
-                                    testingApiId === api.id
+                                    isTesting
                                       ? "h-3.5 w-3.5 animate-spin"
                                       : "h-3.5 w-3.5"
                                   }
