@@ -36,10 +36,12 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
             let query = super::string_param(req, "query");
             let status_filter = super::string_param(req, "statusFilter");
             let model_type = super::string_param(req, "modelType");
+            let key_name = super::string_param(req, "keyName");
             super::value_or_error(requestlog_summary::read_request_log_filter_summary(
                 query,
                 status_filter,
                 model_type,
+                key_name,
             ))
         }
         "requestlog/images/read" => {
@@ -53,6 +55,9 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
             super::value_or_error(params.and_then(requestlog_list::read_request_log_images))
         }
         "requestlog/clear" => super::ok_or_error(requestlog_clear::clear_request_logs()),
+        "requestlog/prune" => {
+            super::value_or_error(requestlog_clear::prune_request_logs_older_than_week())
+        }
         "requestlog/error_clear" => {
             super::ok_or_error(requestlog_clear::clear_gateway_error_logs())
         }

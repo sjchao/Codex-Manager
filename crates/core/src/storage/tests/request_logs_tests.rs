@@ -1,5 +1,5 @@
 use super::{build_request_log_filters, RequestLog, RequestTokenStat, Storage};
-use crate::storage::now_ts;
+use crate::storage::{now_ts, ApiKey};
 
 /// 函数 `collect_query_plan_details`
 ///
@@ -548,26 +548,26 @@ fn request_logs_filter_by_persisted_model_type_for_page_count_and_summary() {
     }
 
     let image_logs = storage
-        .list_request_logs_paginated_by_model_type(None, None, Some("image"), 0, 20)
+        .list_request_logs_paginated_by_model_type(None, None, Some("image"), None, 0, 20)
         .expect("list image logs");
     assert_eq!(image_logs.len(), 1);
     assert_eq!(image_logs[0].trace_id.as_deref(), Some("trc-model-type-1"));
 
     assert_eq!(
         storage
-            .count_request_logs_by_model_type(None, None, Some("image"))
+            .count_request_logs_by_model_type(None, None, Some("image"), None)
             .expect("count image logs"),
         1
     );
     assert_eq!(
         storage
-            .summarize_request_logs_filtered_by_model_type(None, None, Some("image"))
+            .summarize_request_logs_filtered_by_model_type(None, None, Some("image"), None)
             .expect("summarize image logs")
             .count,
         1
     );
 
-    let filters = build_request_log_filters(None, None, Some("image"));
+    let filters = build_request_log_filters(None, None, Some("image"), None);
     assert_eq!(filters.where_clause, "WHERE r.model_type = ?");
 }
 
@@ -647,4 +647,122 @@ fn request_logs_filtered_summary_aggregates_counts_and_tokens() {
     assert_eq!(summary.error_count, 1);
     assert_eq!(summary.total_tokens, 150);
     assert_eq!(summary.actual_cost_usd, 0.03);
+}
+
+#[test]
+fn request_logs_filter_by_api_key_name_only_matches_exact_names() {
+    let storage = Storage::open_in_memory().expect("open");
+    storage.init().expect("init");
+
+    for (id, name) in [("gk-name-a", "生产密钥"), ("gk-name-b", "测试密钥")] {
+        storage
+            .insert_api_key(&ApiKey {
+                id: id.to_string(),
+                name: Some(name.to_string()),
+                group_name: None,
+                model_slug: None,
+                reasoning_effort: None,
+                service_tier: None,
+                rotation_strategy: "account_rotation".to_string(),
+                aggregate_api_id: None,
+                aggregate_api_url: None,
+                client_type: "codex".to_string(),
+                protocol_type: "openai_compat".to_string(),
+                auth_scheme: "authorization_bearer".to_string(),
+                upstream_base_url: None,
+                static_headers_json: None,
+                key_hash: format!("hash-{id}"),
+                status: "active".to_string(),
+                created_at: 1,
+                last_used_at: None,
+            })
+            .expect("insert api key");
+    }
+    for (index, key_id) in [(0_i64, "gk-name-a"), (1, "gk-name-b"), (2, "gk-unlisted")] {
+        storage
+            .insert_request_log(&RequestLog {
+                trace_id: Some(format!("trc-key-name-{index}")),
+                key_id: Some(key_id.to_string()),
+                request_path: "/v1/responses".to_string(),
+                method: "POST".to_string(),
+                status_code: Some(200),
+                created_at: 10_000 + index,
+                ..Default::default()
+            })
+            .expect("insert request log");
+    }
+
+    let logs = storage
+        .list_request_logs_paginated_by_model_type(None, None, None, Some("生产密钥"), 0, 20)
+        .expect("list logs by key name");
+    assert_eq!(logs.len(), 1);
+    assert_eq!(logs[0].trace_id.as_deref(), Some("trc-key-name-0"));
+
+    assert_eq!(
+        storage
+            .count_request_logs_by_model_type(None, None, None, Some("生产"))
+            .expect("count logs by partial key name"),
+        0
+    );
+    assert_eq!(
+        storage
+            .summarize_request_logs_filtered_by_model_type(None, None, None, Some("测试密钥"))
+            .expect("summarize logs by key name")
+            .count,
+        1
+    );
+
+    let filters = build_request_log_filters(None, None, None, Some("生产密钥"));
+    assert_eq!(
+        filters.where_clause,
+        "WHERE r.key_id IN (SELECT id FROM api_keys WHERE name = ?)"
+    );
+}
+
+#[test]
+fn delete_request_logs_before_keeps_newer_rows_and_reports_old_image_results() {
+    let storage = Storage::open_in_memory().expect("open");
+    storage.init().expect("init");
+
+    let now = now_ts();
+    let cutoff_ts = now - 7 * 24 * 60 * 60;
+    storage
+        .insert_request_log(&RequestLog {
+            trace_id: Some("trc-prune-old".to_string()),
+            request_path: "/v1/images/generations".to_string(),
+            method: "POST".to_string(),
+            image_results_json: Some(
+                r#"[{"storageKey":"trc-prune-old/0.png","mimeType":"image/png","byteLength":8}]"#
+                    .to_string(),
+            ),
+            created_at: cutoff_ts - 60,
+            ..Default::default()
+        })
+        .expect("insert old request log");
+    storage
+        .insert_request_log(&RequestLog {
+            trace_id: Some("trc-prune-new".to_string()),
+            request_path: "/v1/responses".to_string(),
+            method: "POST".to_string(),
+            created_at: cutoff_ts + 60,
+            ..Default::default()
+        })
+        .expect("insert new request log");
+
+    let old_image_results = storage
+        .list_request_log_image_results_jsons_before(cutoff_ts)
+        .expect("list old image results");
+    assert_eq!(old_image_results.len(), 1);
+
+    assert_eq!(
+        storage
+            .delete_request_logs_before(cutoff_ts)
+            .expect("delete old request logs"),
+        1
+    );
+    let remaining = storage
+        .list_request_logs(None, 20)
+        .expect("list remaining request logs");
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining[0].trace_id.as_deref(), Some("trc-prune-new"));
 }

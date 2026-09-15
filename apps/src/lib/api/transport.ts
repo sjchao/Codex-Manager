@@ -148,6 +148,7 @@ const WEB_COMMAND_MAP: Record<string, WebCommandDescriptor> = {
   service_requestlog_error_clear: { rpcMethod: "requestlog/error_clear" },
   service_requestlog_summary: { rpcMethod: "requestlog/summary" },
   service_requestlog_clear: { rpcMethod: "requestlog/clear" },
+  service_requestlog_prune: { rpcMethod: "requestlog/prune" },
   service_requestlog_images_read: { rpcMethod: "requestlog/images/read" },
   service_requestlog_today_summary: { rpcMethod: "requestlog/today_summary" },
   service_plugin_catalog_list: { rpcMethod: "plugin/catalog/list" },

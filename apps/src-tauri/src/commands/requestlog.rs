@@ -21,6 +21,7 @@ pub async fn service_requestlog_list(
     query: Option<String>,
     status_filter: Option<String>,
     model_type: Option<String>,
+    key_name: Option<String>,
     page: Option<i64>,
     page_size: Option<i64>,
 ) -> Result<serde_json::Value, String> {
@@ -28,6 +29,7 @@ pub async fn service_requestlog_list(
         "query": query,
         "statusFilter": status_filter,
         "modelType": model_type,
+        "keyName": key_name,
         "page": page,
         "pageSize": page_size
     });
@@ -77,6 +79,14 @@ pub async fn service_requestlog_error_list(
 #[tauri::command]
 pub async fn service_requestlog_clear(addr: Option<String>) -> Result<serde_json::Value, String> {
     rpc_call_in_background("requestlog/clear", addr, None).await
+}
+
+/// 函数 `service_requestlog_prune`
+///
+/// 删除一周前的请求日志，返回删除条数。
+#[tauri::command]
+pub async fn service_requestlog_prune(addr: Option<String>) -> Result<serde_json::Value, String> {
+    rpc_call_in_background("requestlog/prune", addr, None).await
 }
 
 #[tauri::command]
@@ -129,11 +139,13 @@ pub async fn service_requestlog_summary(
     query: Option<String>,
     status_filter: Option<String>,
     model_type: Option<String>,
+    key_name: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let params = serde_json::json!({
         "query": query,
         "statusFilter": status_filter,
-        "modelType": model_type
+        "modelType": model_type,
+        "keyName": key_name
     });
     rpc_call_in_background("requestlog/summary", addr, Some(params)).await
 }

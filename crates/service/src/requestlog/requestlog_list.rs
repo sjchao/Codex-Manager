@@ -80,12 +80,14 @@ pub(crate) fn read_request_log_page(
     let query = normalize_optional_text(params.query);
     let status_filter = normalize_status_filter(params.status_filter);
     let model_type = normalize_model_type_filter(params.model_type);
+    let key_name = normalize_optional_text(params.key_name);
     let page_size = normalize_page_size(params.page_size);
     let total = storage
         .count_request_logs_by_model_type(
             query.as_deref(),
             status_filter.as_deref(),
             model_type.as_deref(),
+            key_name.as_deref(),
         )
         .map_err(|err| format!("count request logs failed: {err}"))?;
     let page = clamp_page(params.page, total, page_size);
@@ -95,6 +97,7 @@ pub(crate) fn read_request_log_page(
             query.as_deref(),
             status_filter.as_deref(),
             model_type.as_deref(),
+            key_name.as_deref(),
             offset,
             page_size,
         )

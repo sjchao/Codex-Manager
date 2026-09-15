@@ -732,6 +732,7 @@ pub struct RequestLogListParams {
     pub query: Option<String>,
     pub status_filter: Option<String>,
     pub model_type: Option<String>,
+    pub key_name: Option<String>,
 }
 
 impl Default for RequestLogListParams {
@@ -753,6 +754,7 @@ impl Default for RequestLogListParams {
             query: None,
             status_filter: None,
             model_type: None,
+            key_name: None,
         }
     }
 }
@@ -780,6 +782,7 @@ impl RequestLogListParams {
             query: self.query,
             status_filter: self.status_filter,
             model_type: self.model_type,
+            key_name: self.key_name,
         }
     }
 }

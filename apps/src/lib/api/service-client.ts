@@ -109,6 +109,7 @@ export const serviceClient = {
     query?: string;
     statusFilter?: string;
     modelType?: string;
+    keyName?: string;
     page?: number;
     pageSize?: number;
   }): Promise<RequestLogListResult> {
@@ -118,6 +119,7 @@ export const serviceClient = {
         query: params?.query || "",
         statusFilter: params?.statusFilter || "all",
         modelType: params?.modelType || "all",
+        keyName: params?.keyName || "",
         page: params?.page ?? 1,
         pageSize: params?.pageSize ?? 20,
       })
@@ -128,6 +130,7 @@ export const serviceClient = {
     query?: string;
     statusFilter?: string;
     modelType?: string;
+    keyName?: string;
   }): Promise<RequestLogFilterSummary> {
     const result = await invoke<unknown>(
       "service_requestlog_summary",
@@ -135,6 +138,7 @@ export const serviceClient = {
         query: params?.query || "",
         statusFilter: params?.statusFilter || "all",
         modelType: params?.modelType || "all",
+        keyName: params?.keyName || "",
       })
     );
     return normalizeRequestLogFilterSummary(result);
@@ -157,6 +161,7 @@ export const serviceClient = {
   clearGatewayErrorLogs: () =>
     invoke("service_requestlog_error_clear", withAddr()),
   clearRequestLogs: () => invoke("service_requestlog_clear", withAddr()),
+  pruneRequestLogs: () => invoke<number>("service_requestlog_prune", withAddr()),
   async readRequestLogImages(traceId: string): Promise<RequestLogImageData[]> {
     const result = await invoke<unknown>(
       "service_requestlog_images_read",

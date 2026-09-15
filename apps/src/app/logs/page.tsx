@@ -5,7 +5,9 @@ import { useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
+  CalendarX,
   CheckCircle2,
+  ChevronDown,
   Copy,
   Database,
   FileText,
@@ -24,6 +26,17 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -1270,11 +1283,13 @@ function LogsPageContent() {
   const routeQuery = searchParams.get("query") || "";
   const [search, setSearch] = useState(routeQuery);
   const [filter, setFilter] = useState<StatusFilter>("all");
+  const [keyFilter, setKeyFilter] = useState("all");
   const [pageSize, setPageSize] = useState("10");
   const [page, setPage] = useState(1);
   const [gatewayPageSize, setGatewayPageSize] = useState("10");
   const [gatewayPage, setGatewayPage] = useState(1);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+  const [pruneConfirmOpen, setPruneConfirmOpen] = useState(false);
   const [clearGatewayConfirmOpen, setClearGatewayConfirmOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<LogsTab>("all");
   const [gatewayStageFilter, setGatewayStageFilter] = useState("all");
@@ -1296,6 +1311,7 @@ function LogsPageContent() {
     !routeQuery.trim() &&
     !search.trim() &&
     filter === "all" &&
+    keyFilter === "all" &&
     modelTypeFilter === "all" &&
     page === 1;
   const hasStartupLogsSnapshot =
@@ -1338,12 +1354,13 @@ function LogsPageContent() {
   });
 
   const { data: logsResult, isLoading, isError: isLogsError } = useQuery({
-    queryKey: ["logs", "list", search, filter, modelTypeFilter, page, pageSizeNumber],
+    queryKey: ["logs", "list", search, filter, modelTypeFilter, page, pageSizeNumber, keyFilter],
     queryFn: () =>
       serviceClient.listRequestLogs({
         query: search,
         statusFilter: filter,
         modelType: modelTypeFilter,
+        keyName: keyFilter === "all" ? "" : keyFilter,
         page,
         pageSize: pageSizeNumber,
       }),
@@ -1363,12 +1380,13 @@ function LogsPageContent() {
   });
 
   const { data: summaryResult, isError: isSummaryError } = useQuery({
-    queryKey: ["logs", "summary", search, filter, modelTypeFilter],
+    queryKey: ["logs", "summary", search, filter, modelTypeFilter, keyFilter],
     queryFn: () =>
       serviceClient.getRequestLogSummary({
         query: search,
         statusFilter: filter,
         modelType: modelTypeFilter,
+        keyName: keyFilter === "all" ? "" : keyFilter,
       }),
     enabled: areLogQueriesEnabled && isPageActive,
     refetchInterval: 5000,
@@ -1416,6 +1434,23 @@ function LogsPageContent() {
     },
   });
 
+  const pruneMutation = useMutation({
+    mutationFn: () => serviceClient.pruneRequestLogs(),
+    onSuccess: async (deleted) => {
+      setPreviewedImage(null);
+      queryClient.removeQueries({ queryKey: ["logs", "images"] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["logs"] }),
+        queryClient.invalidateQueries({ queryKey: ["today-summary"] }),
+        queryClient.invalidateQueries({ queryKey: ["startup-snapshot"] }),
+      ]);
+      toast.success(`已删除一周前的日志${deleted ? `（${deleted} 条）` : ""}`);
+    },
+    onError: (error: unknown) => {
+      toast.error(error instanceof Error ? error.message : String(error));
+    },
+  });
+
   const clearGatewayMutation = useMutation({
     mutationFn: () => serviceClient.clearGatewayErrorLogs(),
     onSuccess: async () => {
@@ -1441,6 +1476,30 @@ function LogsPageContent() {
 
   const apiKeyMap = useMemo(() => {
     return new Map((apiKeysResult || []).map((apiKey) => [apiKey.id, apiKey]));
+  }, [apiKeysResult]);
+
+  const apiKeyNameGroups = useMemo(() => {
+    const groups = new Map<string, string[]>();
+    for (const apiKey of apiKeysResult || []) {
+      const name = String(apiKey.name || "").trim();
+      if (!name) continue;
+      const groupName = String(apiKey.groupName || "").trim() || "未分组";
+      const names = groups.get(groupName) || [];
+      if (!names.includes(name)) {
+        names.push(name);
+      }
+      groups.set(groupName, names);
+    }
+    return Array.from(groups.entries())
+      .sort(([left], [right]) => {
+        if (left === "未分组") return 1;
+        if (right === "未分组") return -1;
+        return left.localeCompare(right, "zh-CN");
+      })
+      .map(([groupName, names]) => ({
+        groupName,
+        names: [...names].sort((left, right) => left.localeCompare(right, "zh-CN")),
+      }));
   }, [apiKeysResult]);
 
   const aggregateApiMap = useMemo(() => {
@@ -1614,7 +1673,7 @@ function LogsPageContent() {
           className="space-y-5"
         >
           <Card className="glass-card border-none shadow-md backdrop-blur-md">
-            <CardContent className="grid gap-3 pt-0 lg:grid-cols-[minmax(0,1fr)_auto_auto_auto] lg:items-center">
+            <CardContent className="grid gap-3 pt-0 lg:grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] lg:items-center">
               <div className="min-w-0">
                 <Input
                   placeholder="搜索路径、账号或密钥..."
@@ -1645,6 +1704,56 @@ function LogsPageContent() {
                   </button>
                 ))}
               </div>
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  className={cn(
+                    "glass-card flex h-10 w-full min-w-[180px] cursor-default items-center justify-between gap-1.5 rounded-xl px-3 text-xs outline-none select-none lg:w-auto",
+                    "focus-visible:ring-3 focus-visible:ring-ring/50 data-popup-open:border-ring",
+                  )}
+                >
+                  <span className="truncate">
+                    {keyFilter === "all" ? "全部密钥" : keyFilter}
+                  </span>
+                  <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  <DropdownMenuRadioGroup
+                    value={keyFilter}
+                    onValueChange={(value) => {
+                      setKeyFilter(String(value || "all"));
+                      setPage(1);
+                    }}
+                  >
+                    <DropdownMenuRadioItem value="all" closeOnClick>
+                      全部密钥
+                    </DropdownMenuRadioItem>
+                    {apiKeyNameGroups.length > 0 && <DropdownMenuSeparator />}
+                    {apiKeyNameGroups.map((group) => (
+                      <DropdownMenuSub key={group.groupName}>
+                        <DropdownMenuSubTrigger>
+                          <span className="flex-1 truncate">
+                            {group.groupName}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground">
+                            {group.names.length}
+                          </span>
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent className="min-w-[160px]">
+                          {group.names.map((name) => (
+                            <DropdownMenuRadioItem
+                              key={`${group.groupName}-${name}`}
+                              value={name}
+                              closeOnClick
+                            >
+                              <span className="truncate">{name}</span>
+                            </DropdownMenuRadioItem>
+                          ))}
+                        </DropdownMenuSubContent>
+                      </DropdownMenuSub>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
               <div className="flex shrink-0 items-center gap-2">
                 <Button
                   variant="outline"
@@ -1655,6 +1764,15 @@ function LogsPageContent() {
                   }
                 >
                   <RefreshCw className="mr-1.5 h-4 w-4" /> 刷新
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="glass-card h-9 rounded-xl px-3.5"
+                  onClick={() => setPruneConfirmOpen(true)}
+                  disabled={pruneMutation.isPending}
+                >
+                  <CalendarX className="mr-1.5 h-4 w-4" /> 删除一周前
                 </Button>
                 <Button
                   variant="destructive"
@@ -2306,6 +2424,15 @@ function LogsPageContent() {
         confirmText="清空"
         confirmVariant="destructive"
         onConfirm={() => clearMutation.mutate()}
+      />
+      <ConfirmDialog
+        open={pruneConfirmOpen}
+        onOpenChange={setPruneConfirmOpen}
+        title="删除一周前的日志"
+        description="确定删除一周前（7 天以前）的请求日志吗？该操作不可恢复，用量统计会保留。"
+        confirmText="删除"
+        confirmVariant="destructive"
+        onConfirm={() => pruneMutation.mutate()}
       />
       <ConfirmDialog
         open={clearGatewayConfirmOpen}

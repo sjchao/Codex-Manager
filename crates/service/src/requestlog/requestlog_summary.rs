@@ -21,19 +21,27 @@ pub(crate) fn read_request_log_filter_summary(
     query: Option<String>,
     status_filter: Option<String>,
     model_type: Option<String>,
+    key_name: Option<String>,
 ) -> Result<RequestLogFilterSummaryResult, String> {
     let storage = open_storage().ok_or_else(|| "open storage failed".to_string())?;
     let query = normalize_optional_text(query);
     let status_filter = normalize_status_filter(status_filter);
     let model_type = normalize_model_type_filter(model_type);
+    let key_name = normalize_optional_text(key_name);
     let total_count = storage
-        .count_request_logs_by_model_type(query.as_deref(), None, model_type.as_deref())
+        .count_request_logs_by_model_type(
+            query.as_deref(),
+            None,
+            model_type.as_deref(),
+            key_name.as_deref(),
+        )
         .map_err(|err| format!("count request logs failed: {err}"))?;
     let filtered = storage
         .summarize_request_logs_filtered_by_model_type(
             query.as_deref(),
             status_filter.as_deref(),
             model_type.as_deref(),
+            key_name.as_deref(),
         )
         .map_err(|err| format!("summarize request logs failed: {err}"))?;
 

@@ -1,6 +1,7 @@
 use codexmanager_core::rpc::types::JsonRpcRequest;
 use codexmanager_core::storage::{
-    now_ts, Account, Event, RequestLog, RequestTokenStat, Storage, Token, UsageSnapshotRecord,
+    now_ts, Account, ApiKey, Event, RequestLog, RequestTokenStat, Storage, Token,
+    UsageSnapshotRecord,
 };
 use std::fs;
 use std::io::{Read, Write};
@@ -2260,4 +2261,124 @@ fn rpc_accepts_loopback_origin() {
         ],
     );
     assert_eq!(status, 200, "unexpected status {status}: {body}");
+}
+
+/// 函数 `rpc_requestlog_list_filters_by_key_name_and_prune_drops_old_logs`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-09-15
+///
+/// # 参数
+/// 无
+///
+/// # 返回
+/// 无
+#[test]
+fn rpc_requestlog_list_filters_by_key_name_and_prune_drops_old_logs() {
+    let ctx = RpcTestContext::new("rpc-requestlog-key-name-prune");
+    let storage = Storage::open(ctx.db_path()).expect("open db");
+    storage.init().expect("init schema");
+
+    for (id, name) in [("gk-name-prod", "生产密钥"), ("gk-name-test", "测试密钥")] {
+        storage
+            .insert_api_key(&ApiKey {
+                id: id.to_string(),
+                name: Some(name.to_string()),
+                group_name: None,
+                model_slug: None,
+                reasoning_effort: None,
+                service_tier: None,
+                rotation_strategy: "account_rotation".to_string(),
+                aggregate_api_id: None,
+                aggregate_api_url: None,
+                client_type: "codex".to_string(),
+                protocol_type: "openai_compat".to_string(),
+                auth_scheme: "authorization_bearer".to_string(),
+                upstream_base_url: None,
+                static_headers_json: None,
+                key_hash: format!("hash-{id}"),
+                status: "active".to_string(),
+                created_at: now_ts(),
+                last_used_at: None,
+            })
+            .expect("insert api key");
+    }
+
+    let now = now_ts();
+    for (trace_id, key_id, created_at) in [
+        ("trc-prune-old", "gk-name-prod", now - 8 * 24 * 60 * 60),
+        ("trc-prune-new-prod", "gk-name-prod", now - 60),
+        ("trc-prune-new-test", "gk-name-test", now - 30),
+    ] {
+        storage
+            .insert_request_log(&RequestLog {
+                trace_id: Some(trace_id.to_string()),
+                key_id: Some(key_id.to_string()),
+                request_path: "/v1/responses".to_string(),
+                method: "POST".to_string(),
+                status_code: Some(200),
+                created_at,
+                ..Default::default()
+            })
+            .expect("insert request log");
+    }
+
+    let list_server = codexmanager_service::start_one_shot_server().expect("start list server");
+    let list_req = JsonRpcRequest {
+        id: 811.into(),
+        method: "requestlog/list".to_string(),
+        params: Some(serde_json::json!({ "keyName": "生产密钥" })),
+        trace: None,
+    };
+    let list_resp = post_rpc(
+        &list_server.addr,
+        &serde_json::to_string(&list_req).expect("serialize key name list"),
+    );
+    let list_result = list_resp.get("result").expect("requestlog list result");
+    assert_eq!(
+        list_result.get("total").and_then(|value| value.as_i64()),
+        Some(2)
+    );
+
+    let partial_server = codexmanager_service::start_one_shot_server().expect("start partial server");
+    let partial_req = JsonRpcRequest {
+        id: 812.into(),
+        method: "requestlog/list".to_string(),
+        params: Some(serde_json::json!({ "keyName": "生产" })),
+        trace: None,
+    };
+    let partial_resp = post_rpc(
+        &partial_server.addr,
+        &serde_json::to_string(&partial_req).expect("serialize partial key name list"),
+    );
+    assert_eq!(
+        partial_resp["result"]
+            .get("total")
+            .and_then(|value| value.as_i64()),
+        Some(0)
+    );
+
+    let prune_server = codexmanager_service::start_one_shot_server().expect("start prune server");
+    let prune_req = JsonRpcRequest {
+        id: 813.into(),
+        method: "requestlog/prune".to_string(),
+        params: None,
+        trace: None,
+    };
+    let prune_resp = post_rpc(
+        &prune_server.addr,
+        &serde_json::to_string(&prune_req).expect("serialize prune request"),
+    );
+    assert_eq!(
+        prune_resp.get("result").and_then(|value| value.as_i64()),
+        Some(1)
+    );
+    let remaining = storage
+        .list_request_logs(None, 20)
+        .expect("list remaining request logs");
+    assert_eq!(remaining.len(), 2);
+    assert!(remaining
+        .iter()
+        .all(|log| log.trace_id.as_deref() != Some("trc-prune-old")));
 }

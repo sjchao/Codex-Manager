@@ -273,6 +273,7 @@ impl Storage {
             query,
             status_filter,
             None,
+            None,
             offset,
             limit,
         )
@@ -283,12 +284,14 @@ impl Storage {
         query: Option<&str>,
         status_filter: Option<&str>,
         model_type_filter: Option<&str>,
+        key_name_filter: Option<&str>,
         offset: i64,
         limit: i64,
     ) -> Result<Vec<RequestLog>> {
         let normalized_limit = normalize_request_log_limit(limit);
         let normalized_offset = offset.max(0);
-        let filters = build_request_log_filters(query, status_filter, model_type_filter);
+        let filters =
+            build_request_log_filters(query, status_filter, model_type_filter, key_name_filter);
         let sql = format!(
             "SELECT
                 r.trace_id, r.key_id, r.account_id, r.initial_account_id, r.attempted_account_ids_json, r.initial_aggregate_api_id, r.aggregate_api_id, r.attempted_aggregate_api_ids_json, r.aggregate_api_attempt_failures_json,
@@ -456,7 +459,7 @@ impl Storage {
         query: Option<&str>,
         status_filter: Option<&str>,
     ) -> Result<i64> {
-        self.count_request_logs_by_model_type(query, status_filter, None)
+        self.count_request_logs_by_model_type(query, status_filter, None, None)
     }
 
     pub fn count_request_logs_by_model_type(
@@ -464,8 +467,10 @@ impl Storage {
         query: Option<&str>,
         status_filter: Option<&str>,
         model_type_filter: Option<&str>,
+        key_name_filter: Option<&str>,
     ) -> Result<i64> {
-        let filters = build_request_log_filters(query, status_filter, model_type_filter);
+        let filters =
+            build_request_log_filters(query, status_filter, model_type_filter, key_name_filter);
         let sql = format!(
             "SELECT COUNT(1)
              FROM request_logs r
@@ -497,7 +502,7 @@ impl Storage {
         query: Option<&str>,
         status_filter: Option<&str>,
     ) -> Result<RequestLogQuerySummary> {
-        self.summarize_request_logs_filtered_by_model_type(query, status_filter, None)
+        self.summarize_request_logs_filtered_by_model_type(query, status_filter, None, None)
     }
 
     pub fn summarize_request_logs_filtered_by_model_type(
@@ -505,8 +510,10 @@ impl Storage {
         query: Option<&str>,
         status_filter: Option<&str>,
         model_type_filter: Option<&str>,
+        key_name_filter: Option<&str>,
     ) -> Result<RequestLogQuerySummary> {
-        let filters = build_request_log_filters(query, status_filter, model_type_filter);
+        let filters =
+            build_request_log_filters(query, status_filter, model_type_filter, key_name_filter);
         let sql = format!(
             "SELECT
                 COUNT(1),
@@ -559,6 +566,14 @@ impl Storage {
         Ok(())
     }
 
+    pub fn delete_request_logs_before(&self, cutoff_ts: i64) -> Result<usize> {
+        // 只清理请求明细日志，保留 token 统计用于仪表盘历史用量与费用汇总。
+        self.conn.execute(
+            "DELETE FROM request_logs WHERE created_at < ?1",
+            [cutoff_ts],
+        )
+    }
+
     pub fn list_request_log_image_results_jsons(&self) -> Result<Vec<Option<String>>> {
         let mut stmt = self.conn.prepare(
             "SELECT image_results_json
@@ -566,6 +581,20 @@ impl Storage {
              WHERE image_results_json IS NOT NULL AND TRIM(image_results_json) <> ''",
         )?;
         let rows = stmt.query_map([], |row| row.get(0))?;
+        rows.collect()
+    }
+
+    pub fn list_request_log_image_results_jsons_before(
+        &self,
+        cutoff_ts: i64,
+    ) -> Result<Vec<Option<String>>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT image_results_json
+             FROM request_logs
+             WHERE created_at < ?1
+               AND image_results_json IS NOT NULL AND TRIM(image_results_json) <> ''",
+        )?;
+        let rows = stmt.query_map([cutoff_ts], |row| row.get(0))?;
         rows.collect()
     }
 
@@ -1066,6 +1095,7 @@ fn build_request_log_filters(
     query: Option<&str>,
     status_filter: Option<&str>,
     model_type_filter: Option<&str>,
+    key_name_filter: Option<&str>,
 ) -> RequestLogSqlFilters {
     let mut clauses = Vec::new();
     let mut params = Vec::new();
@@ -1077,6 +1107,7 @@ fn build_request_log_filters(
     );
     append_status_filter_clause(status_filter, &mut clauses, &mut params);
     append_model_type_filter_clause(model_type_filter, &mut clauses, &mut params);
+    append_key_name_filter_clause(key_name_filter, &mut clauses, &mut params);
 
     RequestLogSqlFilters {
         where_clause: if clauses.is_empty() {
@@ -1086,6 +1117,22 @@ fn build_request_log_filters(
         },
         params,
     }
+}
+
+fn append_key_name_filter_clause(
+    key_name_filter: Option<&str>,
+    clauses: &mut Vec<String>,
+    params: &mut Vec<Value>,
+) {
+    let Some(key_name) = key_name_filter
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return;
+    };
+    // 中文注释：日志表只存 key_id，按密钥名称筛选回查 api_keys 且只做精确匹配，避免名称模糊命中。
+    clauses.push("r.key_id IN (SELECT id FROM api_keys WHERE name = ?)".to_string());
+    params.push(Value::Text(key_name.to_string()));
 }
 
 fn append_model_type_filter_clause(
