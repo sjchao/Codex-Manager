@@ -53,7 +53,7 @@ import {
 } from "@/components/ui/tooltip";
 import { accountClient } from "@/lib/api/account-client";
 import { copyTextToClipboard } from "@/lib/utils/clipboard";
-import { formatTsFromSeconds } from "@/lib/utils/usage";
+import { formatCompactNumber, formatTsFromSeconds } from "@/lib/utils/usage";
 import { useAppStore } from "@/lib/store/useAppStore";
 import { useDesktopPageActive } from "@/hooks/useDesktopPageActive";
 import { useDeferredDesktopActivation } from "@/hooks/useDeferredDesktopActivation";
@@ -115,6 +115,17 @@ function formatLatencyText(latencyMs: number | null | undefined) {
     return null;
   }
   return `${Math.round(latencyMs)} ms`;
+}
+
+function formatCompactTokenAmount(value: number): string {
+  return formatCompactNumber(value, "0", 2, true);
+}
+
+function formatCacheHitRateLabel(rate: number | null): string {
+  if (typeof rate !== "number" || !Number.isFinite(rate)) {
+    return "-";
+  }
+  return `${(rate * 100).toFixed(1)}%`;
 }
 
 export default function AggregateApiPage() {
@@ -588,6 +599,12 @@ export default function AggregateApiPage() {
                     <TableHead className="w-[148px]">密钥</TableHead>
                     <TableHead className="w-[64px] text-center">排序</TableHead>
                     <TableHead className="w-[72px] text-center">权重</TableHead>
+                    <TableHead
+                      className="w-[104px] text-center"
+                      title="当日缓存命中率 = 缓存读取词元 / 输入词元（Token 加权）"
+                    >
+                      缓存命中率
+                    </TableHead>
                     <TableHead className="w-[112px]">状态</TableHead>
                     <TableHead className="w-[130px]">测试连通性</TableHead>
                     <TableHead className="text-center">操作</TableHead>
@@ -613,6 +630,9 @@ export default function AggregateApiPage() {
                           <Skeleton className="mx-auto h-4 w-12" />
                         </TableCell>
                         <TableCell>
+                          <Skeleton className="mx-auto h-4 w-12" />
+                        </TableCell>
+                        <TableCell>
                           <Skeleton className="h-6 w-20 rounded-full" />
                         </TableCell>
                         <TableCell>
@@ -625,7 +645,7 @@ export default function AggregateApiPage() {
                     ))
                   ) : filteredAggregateApis.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="h-48 text-center">
+                      <TableCell colSpan={9} className="h-48 text-center">
                         <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground">
                           <ShieldCheck className="h-8 w-8 opacity-20" />
                           <p>
@@ -810,6 +830,23 @@ export default function AggregateApiPage() {
                           </TableCell>
                           <TableCell className="text-center font-mono text-xs text-muted-foreground">
                             {api.weight}
+                          </TableCell>
+                          <TableCell className="text-center font-mono text-xs">
+                            {api.todayCacheHitRate == null ? (
+                              <span className="text-muted-foreground">-</span>
+                            ) : (
+                              <Tooltip>
+                                <TooltipTrigger
+                                  render={<span />}
+                                  className="cursor-help"
+                                >
+                                  {formatCacheHitRateLabel(api.todayCacheHitRate)}
+                                </TooltipTrigger>
+                                <TooltipContent className="whitespace-pre-wrap break-words">
+                                  {`当日缓存词元 ${formatCompactTokenAmount(api.todayCachedInputTokens)} / 输入词元 ${formatCompactTokenAmount(api.todayInputTokens)}`}
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
                           </TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2">

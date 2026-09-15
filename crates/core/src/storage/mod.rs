@@ -331,6 +331,13 @@ pub struct RequestLogUpstreamActualCostByKey {
 }
 
 #[derive(Debug, Clone)]
+pub struct RequestTokenUsageByAggregateApi {
+    pub aggregate_api_id: String,
+    pub input_tokens: i64,
+    pub cached_input_tokens: i64,
+}
+
+#[derive(Debug, Clone)]
 pub struct PluginInstall {
     pub plugin_id: String,
     pub source_url: Option<String>,

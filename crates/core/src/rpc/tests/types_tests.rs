@@ -135,6 +135,9 @@ fn aggregate_api_summary_serialization_includes_weight_and_supported_models() {
         usage_last_sync_status: None,
         usage_last_sync_error: None,
         sub2api_account_id: None,
+        today_input_tokens: 1234,
+        today_cached_input_tokens: 567,
+        today_cache_hit_rate: Some(0.459),
     };
 
     let value = serde_json::to_value(summary).expect("serialize aggregate api summary");
@@ -143,6 +146,15 @@ fn aggregate_api_summary_serialization_includes_weight_and_supported_models() {
     assert_eq!(
         obj.get("supportedModels"),
         Some(&serde_json::json!(["gpt-5.6-terra", "gpt-image2"]))
+    );
+    assert_eq!(obj.get("todayInputTokens"), Some(&serde_json::Value::from(1234)));
+    assert_eq!(
+        obj.get("todayCachedInputTokens"),
+        Some(&serde_json::Value::from(567))
+    );
+    assert_eq!(
+        obj.get("todayCacheHitRate"),
+        Some(&serde_json::Value::from(0.459))
     );
 }
 

@@ -428,6 +428,9 @@ pub struct AggregateApiSummary {
     pub usage_last_sync_status: Option<String>,
     pub usage_last_sync_error: Option<String>,
     pub sub2api_account_id: Option<String>,
+    pub today_input_tokens: i64,
+    pub today_cached_input_tokens: i64,
+    pub today_cache_hit_rate: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

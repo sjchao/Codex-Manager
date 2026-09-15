@@ -1,6 +1,9 @@
 use rusqlite::{params, Connection, Result};
 
-use super::{now_ts, ApiKeyTokenUsageSummary, RequestLogTodaySummary, RequestTokenStat, Storage};
+use super::{
+    now_ts, ApiKeyTokenUsageSummary, RequestLogTodaySummary, RequestTokenStat,
+    RequestTokenUsageByAggregateApi, Storage,
+};
 
 const DEEPSEEK_MODEL_FAMILY: &str = "deepseek";
 const DEFAULT_REQUEST_TOKEN_STATS_RETAIN_DAYS: i64 = 90;
@@ -288,6 +291,47 @@ impl Storage {
             reasoning_output_tokens: 0,
             actual_cost_usd: 0.0,
         })
+    }
+
+    /// 函数 `summarize_request_token_stats_by_aggregate_api`
+    ///
+    /// 作者: gaohongshun
+    ///
+    /// 时间: 2026-04-02
+    ///
+    /// # 参数
+    /// - self: 参数 self
+    ///
+    /// # 返回
+    /// 返回函数执行结果
+    pub fn summarize_request_token_stats_by_aggregate_api(
+        &self,
+        start_ts: i64,
+        end_ts: i64,
+    ) -> Result<Vec<RequestTokenUsageByAggregateApi>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT
+                r.aggregate_api_id,
+                IFNULL(SUM(CASE WHEN t.input_tokens > 0 THEN t.input_tokens ELSE 0 END), 0),
+                IFNULL(SUM(CASE WHEN t.cached_input_tokens > 0 THEN t.cached_input_tokens ELSE 0 END), 0)
+             FROM request_token_stats t
+             JOIN request_logs r ON r.id = t.request_log_id
+             WHERE t.created_at >= ?1
+               AND t.created_at < ?2
+               AND r.aggregate_api_id IS NOT NULL
+               AND TRIM(r.aggregate_api_id) <> ''
+             GROUP BY r.aggregate_api_id",
+        )?;
+        let mut rows = stmt.query((start_ts, end_ts))?;
+        let mut items = Vec::new();
+        while let Some(row) = rows.next()? {
+            items.push(RequestTokenUsageByAggregateApi {
+                aggregate_api_id: row.get(0)?,
+                input_tokens: row.get(1)?,
+                cached_input_tokens: row.get(2)?,
+            });
+        }
+        Ok(items)
     }
 
     /// 函数 `summarize_request_token_stats_by_key`
@@ -683,3 +727,7 @@ impl Storage {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "tests/request_token_stats_tests.rs"]
+mod tests;

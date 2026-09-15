@@ -14,6 +14,7 @@ use crate::app_settings::{
 };
 #[cfg(test)]
 use crate::app_settings::{current_gateway_image_model_list, current_gateway_video_model_list};
+use crate::apikey::usage_stats::local_day_bounds_ts;
 use crate::apikey_profile::normalize_upstream_base_url;
 use crate::gateway::{self, ModelType};
 use crate::storage_helpers::{generate_aggregate_api_id, open_storage};
@@ -260,7 +261,8 @@ mod tests {
     use tiny_http::{Header, Response, Server, StatusCode};
 
     use super::{
-        action_path_or_default, backfill_empty_aggregate_api_models, build_codex_probe_body,
+        action_path_or_default, aggregate_api_today_cache_usage,
+        backfill_empty_aggregate_api_models, build_codex_probe_body,
         normalize_action_override, probe_accept_header, probe_claude_endpoint,
         probe_codex_endpoint,
         probe_default_path_for_model_type, probe_model_for_aggregate_api, probe_model_for_type,
@@ -305,6 +307,23 @@ mod tests {
         let value =
             normalize_action_override(Some(false), Some("/v1/messages".to_string())).unwrap();
         assert_eq!(value, Some(None));
+    }
+
+    #[test]
+    fn cache_usage_adds_cached_tokens_for_claude_input_total() {
+        let _guard = crate::test_env_guard();
+
+        let (input_tokens, hit_rate) = aggregate_api_today_cache_usage("claude", 300, 1200);
+        assert_eq!(input_tokens, 1500);
+        assert_eq!(hit_rate, Some(0.8));
+
+        let (input_tokens, hit_rate) = aggregate_api_today_cache_usage("codex", 1500, 1200);
+        assert_eq!(input_tokens, 1500);
+        assert_eq!(hit_rate, Some(0.8));
+
+        let (input_tokens, hit_rate) = aggregate_api_today_cache_usage("codex", 0, 0);
+        assert_eq!(input_tokens, 0);
+        assert_eq!(hit_rate, None);
     }
 
     #[test]
@@ -1603,6 +1622,26 @@ fn probe_claude_endpoint(
     Ok(status_code)
 }
 
+/// Anthropic 风格上游（claude 类型）的 input_tokens 不含缓存词元，输入总量需补上缓存部分。
+fn aggregate_api_today_cache_usage(
+    provider_type: &str,
+    raw_input_tokens: i64,
+    cached_input_tokens: i64,
+) -> (i64, Option<f64>) {
+    let cached_input_tokens = cached_input_tokens.max(0);
+    let input_tokens = if provider_type.eq_ignore_ascii_case(AGGREGATE_API_PROVIDER_CLAUDE) {
+        raw_input_tokens.saturating_add(cached_input_tokens)
+    } else {
+        raw_input_tokens
+    };
+    let hit_rate = if input_tokens > 0 {
+        Some(cached_input_tokens as f64 / input_tokens as f64)
+    } else {
+        None
+    };
+    (input_tokens, hit_rate)
+}
+
 /// 函数 `list_aggregate_apis`
 ///
 /// 作者: gaohongshun
@@ -1625,10 +1664,27 @@ pub(crate) fn list_aggregate_apis() -> Result<Vec<AggregateApiSummary>, String> 
         .into_iter()
         .map(|status| (status.aggregate_api_id.clone(), status))
         .collect::<std::collections::HashMap<_, _>>();
+    let (start_ts, end_ts) = local_day_bounds_ts()?;
+    let today_token_usage_by_api_id = storage
+        .summarize_request_token_stats_by_aggregate_api(start_ts, end_ts)
+        .map_err(|err| format!("summarize aggregate api token stats failed: {err}"))?
+        .into_iter()
+        .map(|usage| (usage.aggregate_api_id.clone(), usage))
+        .collect::<std::collections::HashMap<_, _>>();
     Ok(items
         .into_iter()
         .map(|item| {
             let usage_status = usage_status_by_api_id.get(item.id.as_str());
+            let today_token_usage = today_token_usage_by_api_id.get(item.id.as_str());
+            let raw_input_tokens = today_token_usage.map(|usage| usage.input_tokens).unwrap_or(0);
+            let today_cached_input_tokens = today_token_usage
+                .map(|usage| usage.cached_input_tokens)
+                .unwrap_or(0);
+            let (today_input_tokens, today_cache_hit_rate) = aggregate_api_today_cache_usage(
+                item.provider_type.as_str(),
+                raw_input_tokens,
+                today_cached_input_tokens,
+            );
             AggregateApiSummary {
             id: item.id,
             provider_type: item.provider_type,
@@ -1656,6 +1712,9 @@ pub(crate) fn list_aggregate_apis() -> Result<Vec<AggregateApiSummary>, String> 
             usage_last_sync_status: usage_status.and_then(|status| status.last_sync_status.clone()),
             usage_last_sync_error: usage_status.and_then(|status| status.last_sync_error.clone()),
             sub2api_account_id: item.sub2api_account_id,
+            today_input_tokens,
+            today_cached_input_tokens,
+            today_cache_hit_rate,
         }
         })
         .collect())

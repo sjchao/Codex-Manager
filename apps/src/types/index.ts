@@ -125,6 +125,9 @@ export interface AggregateApi {
   usageLastSyncStatus: string | null;
   usageLastSyncError: string | null;
   sub2apiAccountId: string | null;
+  todayInputTokens: number;
+  todayCachedInputTokens: number;
+  todayCacheHitRate: number | null;
 }
 
 export interface Sub2ApiAccount {

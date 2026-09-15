@@ -620,6 +620,19 @@ export function normalizeAggregateApi(item: unknown): AggregateApi | null {
     usageLastSyncError:
       asString(source.usageLastSyncError ?? source.usage_last_sync_error) || null,
     sub2apiAccountId: asString(source.sub2apiAccountId ?? source.sub2api_account_id) || null,
+    todayInputTokens: asInteger(
+      source.todayInputTokens ?? source.today_input_tokens,
+      0,
+      0
+    ),
+    todayCachedInputTokens: asInteger(
+      source.todayCachedInputTokens ?? source.today_cached_input_tokens,
+      0,
+      0
+    ),
+    todayCacheHitRate: toNullableNumber(
+      source.todayCacheHitRate ?? source.today_cache_hit_rate
+    ),
   };
 }
 
