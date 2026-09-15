@@ -120,7 +120,7 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
       setModelSlug("");
       setReasoningEffort("");
       setServiceTier("");
-      setRotationStrategy("account_rotation");
+      setRotationStrategy("aggregate_api_rotation");
       setUpstreamBaseUrl("");
       setAzureEndpoint("");
       setAzureApiKey("");
@@ -300,35 +300,39 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
                 onChange={(e) => setGroupName(e.target.value)}
               />
             </div>
-            <div className="grid gap-2 content-start">
-              <Label>轮转策略</Label>
-              <Select
-                value={rotationStrategy}
-                onValueChange={(val) => {
-                  if (!val) return;
-                  setRotationStrategy(val);
-                }}
-                disabled={!isServiceReady}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue>
-                    {(value) =>
-                      ROTATION_STRATEGY_LABELS[String(value || "")] ||
-                      "账号轮转"
-                    }
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent align="start">
-                  <SelectItem value="account_rotation">账号轮转</SelectItem>
-                  <SelectItem value="aggregate_api_rotation">
-                    聚合API轮转
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <p className="col-span-2 -mt-1 text-[11px] text-muted-foreground">
-              账号轮转保持现有路由逻辑；聚合API轮转会直接透传请求。
-            </p>
+            {apiKey?.id ? (
+              <>
+                <div className="grid gap-2 content-start">
+                  <Label>轮转策略</Label>
+                  <Select
+                    value={rotationStrategy}
+                    onValueChange={(val) => {
+                      if (!val) return;
+                      setRotationStrategy(val);
+                    }}
+                    disabled={!isServiceReady}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue>
+                        {(value) =>
+                          ROTATION_STRATEGY_LABELS[String(value || "")] ||
+                          "账号轮转"
+                        }
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent align="start">
+                      <SelectItem value="account_rotation">账号轮转</SelectItem>
+                      <SelectItem value="aggregate_api_rotation">
+                        聚合API轮转
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <p className="col-span-2 -mt-1 text-[11px] text-muted-foreground">
+                  账号轮转保持现有路由逻辑；聚合API轮转会直接透传请求。
+                </p>
+              </>
+            ) : null}
           </div>
 
           <div className="grid grid-cols-2 gap-4">

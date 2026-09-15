@@ -3,6 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
   DollarSign,
   Copy,
   Eye,
@@ -177,6 +180,51 @@ type ApiKeyUsageOverviewItem = {
   totalCostUsd: number;
 };
 
+type UsageSortField = "todayTokens" | "todayCostUsd";
+type UsageSortDirection = "asc" | "desc";
+type UsageSortState = { field: UsageSortField; direction: UsageSortDirection } | null;
+
+/**
+ * 仅支持按"当天"使用量排序的表头按钮：
+ * 未激活 -> 降序 -> 升序 -> 未激活
+ */
+function UsageSortableHead({
+  label,
+  field,
+  title,
+  sort,
+  onSort,
+}: {
+  label: string;
+  field: UsageSortField;
+  title: string;
+  sort: UsageSortState;
+  onSort: (field: UsageSortField) => void;
+}) {
+  const active = sort?.field === field;
+  return (
+    <TableHead>
+      <button
+        type="button"
+        className="inline-flex items-center gap-1 transition-colors hover:text-primary"
+        title={title}
+        onClick={() => onSort(field)}
+      >
+        {label}
+        {active ? (
+          sort.direction === "desc" ? (
+            <ArrowDown className="h-3 w-3" />
+          ) : (
+            <ArrowUp className="h-3 w-3" />
+          )
+        ) : (
+          <ArrowUpDown className="h-3 w-3 opacity-40" />
+        )}
+      </button>
+    </TableHead>
+  );
+}
+
 export default function ApiKeysPage() {
   const serviceAddr = useAppStore((state) => state.serviceStatus.addr);
   const {
@@ -203,6 +251,7 @@ export default function ApiKeysPage() {
   const [editingKeyId, setEditingKeyId] = useState<string | null>(null);
   const [deleteKeyId, setDeleteKeyId] = useState<string | null>(null);
   const [selectedGroup, setSelectedGroup] = useState(ALL_API_KEY_GROUP_VALUE);
+  const [usageSort, setUsageSort] = useState<UsageSortState>(null);
   const [usageDayKey, setUsageDayKey] = useState(() =>
     formatLocalUsageDayKey(new Date())
   );
@@ -322,6 +371,34 @@ export default function ApiKeysPage() {
   });
   const usageByKey: Record<string, ApiKeyUsageOverviewItem> = usageOverview?.usageByKey || {};
   const showOverviewLoading = isServiceReady && isPageActive && isUsageOverviewLoading;
+
+  /**
+   * 点击表头切换排序：未激活 -> 当天用量降序 -> 升序 -> 取消排序
+   */
+  const handleUsageSort = (field: UsageSortField) => {
+    setUsageSort((current) => {
+      if (!current || current.field !== field) {
+        return { field, direction: "desc" };
+      }
+      if (current.direction === "desc") {
+        return { field, direction: "asc" };
+      }
+      return null;
+    });
+  };
+
+  // 仅按当天 Token 使用量 / 当天费用排序，无用量数据按 0 处理（稳定排序保持原序）
+  const sortedApiKeys = useMemo(() => {
+    if (!usageSort) {
+      return filteredApiKeys;
+    }
+    const { field, direction } = usageSort;
+    return [...filteredApiKeys].sort((left, right) => {
+      const leftValue = usageByKey[left.id]?.[field] ?? 0;
+      const rightValue = usageByKey[right.id]?.[field] ?? 0;
+      return direction === "desc" ? rightValue - leftValue : leftValue - rightValue;
+    });
+  }, [filteredApiKeys, usageSort, usageByKey]);
 
   /**
    * 函数 `openCreateModal`
@@ -553,8 +630,20 @@ export default function ApiKeysPage() {
                 <TableHead>协议</TableHead>
                 <TableHead>轮转策略</TableHead>
                 <TableHead>绑定模型</TableHead>
-                <TableHead>Token 使用量</TableHead>
-                <TableHead>费用</TableHead>
+                <UsageSortableHead
+                  label="Token 使用量"
+                  field="todayTokens"
+                  title="按当天 Token 使用量排序"
+                  sort={usageSort}
+                  onSort={handleUsageSort}
+                />
+                <UsageSortableHead
+                  label="费用"
+                  field="todayCostUsd"
+                  title="按当天费用排序"
+                  sort={usageSort}
+                  onSort={handleUsageSort}
+                />
                 <TableHead>状态</TableHead>
                 <TableHead className="text-center">操作</TableHead>
               </TableRow>
@@ -589,7 +678,7 @@ export default function ApiKeysPage() {
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredApiKeys.map((key) => {
+                sortedApiKeys.map((key) => {
                   const revealed = revealedSecrets[key.id];
                   const isEnabled = String(key.status).toLowerCase() !== "disabled";
 
