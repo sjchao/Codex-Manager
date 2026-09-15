@@ -835,6 +835,16 @@ export function normalizeApiKeyUsageStats(payload: unknown): ApiKeyUsageStat[] {
           0,
           toNullableNumber(current.actualCostUsd ?? current.actual_cost_usd) ?? 0
         ),
+        todayDeepseekTokens: asInteger(
+          current.todayDeepseekTokens ?? current.today_deepseek_tokens,
+          0,
+          0
+        ),
+        totalDeepseekTokens: asInteger(
+          current.totalDeepseekTokens ?? current.total_deepseek_tokens,
+          0,
+          0
+        ),
       };
     })
     .filter((item): item is ApiKeyUsageStat => Boolean(item));

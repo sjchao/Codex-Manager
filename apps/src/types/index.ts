@@ -208,6 +208,8 @@ export interface ApiKeyUsageStat {
   totalTokens: number;
   todayActualCostUsd: number;
   actualCostUsd: number;
+  todayDeepseekTokens: number;
+  totalDeepseekTokens: number;
 }
 
 export interface PluginCatalogTask {

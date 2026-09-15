@@ -206,7 +206,12 @@ impl Storage {
             ),
         ) {
             Ok(_) => match super::request_token_stats::upsert_request_token_daily_stats(&tx, stat) {
-                Ok(_) => None,
+                Ok(_) => {
+                    // 中文注释：模型维度统计是派生数据，写入失败时保留原始 token 行，避免统计归零丢数据。
+                    super::request_token_stats::upsert_request_token_daily_model_stats(&tx, stat)
+                        .err()
+                        .map(|err| err.to_string())
+                }
                 Err(err) => {
                     let _ = tx.execute(
                         "DELETE FROM request_token_stats WHERE request_log_id = ?1",

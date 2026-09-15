@@ -20,7 +20,6 @@ import {
 import { toast } from "sonner";
 import { ApiKeyModal } from "@/components/modals/api-key-modal";
 import { ConfirmDialog } from "@/components/modals/confirm-dialog";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -53,11 +52,6 @@ import {
   buildApiKeyGroupOptions,
   filterApiKeysByGroup,
 } from "./grouping";
-
-const ROTATION_STRATEGY_LABELS: Record<string, string> = {
-  account_rotation: "账号轮转",
-  aggregate_api_rotation: "聚合API轮转",
-};
 
 /**
  * 函数 `formatUsd`
@@ -178,9 +172,11 @@ type ApiKeyUsageOverviewItem = {
   totalTokens: number;
   todayCostUsd: number;
   totalCostUsd: number;
+  todayDeepseekTokens: number;
+  totalDeepseekTokens: number;
 };
 
-type UsageSortField = "todayTokens" | "todayCostUsd";
+type UsageSortField = "todayTokens" | "todayCostUsd" | "todayDeepseekTokens";
 type UsageSortDirection = "asc" | "desc";
 type UsageSortState = { field: UsageSortField; direction: UsageSortDirection } | null;
 
@@ -338,6 +334,8 @@ export default function ApiKeysPage() {
           totalTokens: Math.max(0, item.totalTokens || 0),
           todayCostUsd: Math.max(0, item.todayActualCostUsd || 0),
           totalCostUsd: Math.max(0, item.actualCostUsd || 0),
+          todayDeepseekTokens: Math.max(0, item.todayDeepseekTokens || 0),
+          totalDeepseekTokens: Math.max(0, item.totalDeepseekTokens || 0),
         };
         return result;
       }, {});
@@ -627,13 +625,17 @@ export default function ApiKeysPage() {
                 <TableHead>密钥 / ID</TableHead>
                 <TableHead>名称</TableHead>
                 <TableHead>分组</TableHead>
-                <TableHead>协议</TableHead>
-                <TableHead>轮转策略</TableHead>
-                <TableHead>绑定模型</TableHead>
                 <UsageSortableHead
                   label="Token 使用量"
                   field="todayTokens"
                   title="按当天 Token 使用量排序"
+                  sort={usageSort}
+                  onSort={handleUsageSort}
+                />
+                <UsageSortableHead
+                  label="DeepSeek 用量"
+                  field="todayDeepseekTokens"
+                  title="模型名以 deepseek 开头的请求计入 DeepSeek 用量；按当天 DeepSeek Token 使用量排序"
                   sort={usageSort}
                   onSort={handleUsageSort}
                 />
@@ -655,18 +657,16 @@ export default function ApiKeysPage() {
                       <TableCell><Skeleton className="h-4 w-32" /></TableCell>
                       <TableCell><Skeleton className="h-4 w-24" /></TableCell>
                       <TableCell><Skeleton className="h-4 w-20" /></TableCell>
-                      <TableCell><Skeleton className="h-4 w-20" /></TableCell>
-                      <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                      <TableCell><Skeleton className="h-4 w-28" /></TableCell>
                       <TableCell><Skeleton className="h-4 w-28" /></TableCell>
                       <TableCell><Skeleton className="h-4 w-20" /></TableCell>
-                      <TableCell><Skeleton className="h-4 w-16" /></TableCell>
                       <TableCell><Skeleton className="h-6 w-16 rounded-full" /></TableCell>
                       <TableCell className="text-center"><Skeleton className="mx-auto h-8 w-8" /></TableCell>
                     </TableRow>
                 ))
               ) : filteredApiKeys.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={10} className="h-48 text-center">
+                  <TableCell colSpan={8} className="h-48 text-center">
                     <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground">
                       <Plus className="h-8 w-8 opacity-20" />
                       <p>
@@ -724,30 +724,16 @@ export default function ApiKeysPage() {
                       <TableCell className="text-xs text-muted-foreground">
                         {key.groupName || "未分组"}
                       </TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="bg-accent/20 text-[10px] font-normal capitalize">
-                          {key.protocol.replace(/_/g, " ")}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="secondary" className="text-[10px] font-normal">
-                          {ROTATION_STRATEGY_LABELS[key.rotationStrategy] ||
-                            key.rotationStrategy}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-xs font-medium text-muted-foreground">
-                        {key.model ? (
-                          key.model
-                        ) : (
-                          <span title="跟随请求表示使用请求体里的实际 model；请求日志展示的是最终生效模型。">
-                            跟随请求
-                          </span>
-                        )}
-                      </TableCell>
                       <TableCell className="font-mono text-xs">
                         {formatTokenUsagePair(
                           usageByKey[key.id]?.todayTokens,
                           usageByKey[key.id]?.totalTokens,
+                        )}
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">
+                        {formatTokenUsagePair(
+                          usageByKey[key.id]?.todayDeepseekTokens,
+                          usageByKey[key.id]?.totalDeepseekTokens,
                         )}
                       </TableCell>
                       <TableCell className="font-mono text-xs">

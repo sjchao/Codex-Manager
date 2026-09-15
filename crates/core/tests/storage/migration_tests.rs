@@ -1237,3 +1237,70 @@ fn aggregate_api_supported_models_migration_preserves_supplier_secrets() {
         .supported_models
         .is_empty());
 }
+
+#[test]
+fn legacy_model_stats_table_is_rebuilt_and_backfilled_on_init() {
+    let storage = Storage::open_in_memory().expect("open in memory");
+    storage.init().expect("init");
+
+    let created_at = super::now_ts();
+    storage
+        .conn
+        .execute(
+            "INSERT INTO request_token_stats (
+                request_log_id, key_id, account_id, model,
+                input_tokens, cached_input_tokens, output_tokens, total_tokens, reasoning_output_tokens,
+                created_at
+             ) VALUES (1, 'gk_legacy', NULL, 'deepseek-chat', 40, 5, 5, 45, 0, ?1),
+                      (2, 'gk_legacy', NULL, 'gpt-5', 10, 0, 2, 12, 0, ?1)",
+            [created_at],
+        )
+        .expect("insert raw token stats");
+    storage
+        .conn
+        .execute(
+            "INSERT INTO request_token_daily_stats (
+                day_key, key_id, request_count, input_tokens, cached_input_tokens,
+                output_tokens, total_tokens, reasoning_output_tokens
+             ) VALUES (date(?1, 'unixepoch', 'localtime'), 'gk_legacy', 2, 50, 5, 7, 57, 0)",
+            [created_at],
+        )
+        .expect("insert daily stats");
+    storage
+        .conn
+        .execute_batch(
+            "DROP TABLE request_token_daily_model_stats;
+             CREATE TABLE request_token_daily_model_stats (
+                day_key TEXT NOT NULL,
+                key_id TEXT NOT NULL,
+                model TEXT NOT NULL,
+                total_tokens INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY(day_key, key_id, model)
+             );
+             INSERT INTO request_token_daily_model_stats (day_key, key_id, model, total_tokens)
+             VALUES ('2026-01-01', 'gk_legacy', 'deepseek-chat', 999);",
+        )
+        .expect("simulate legacy model stats table");
+
+    storage.init().expect("re-init heals legacy table");
+
+    assert!(storage
+        .has_column("request_token_daily_model_stats", "model_family")
+        .expect("check model_family column"));
+    assert!(!storage
+        .has_column("request_token_daily_model_stats", "model")
+        .expect("check legacy model column"));
+
+    let (rows, requests, tokens): (i64, i64, i64) = storage
+        .conn
+        .query_row(
+            "SELECT COUNT(1), IFNULL(SUM(request_count), 0), IFNULL(SUM(total_tokens), 0)
+             FROM request_token_daily_model_stats",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .expect("query rebuilt model stats");
+    assert_eq!(rows, 1);
+    assert_eq!(requests, 1);
+    assert_eq!(tokens, 45);
+}

@@ -208,6 +208,8 @@ pub struct ApiKeyTokenUsageSummary {
     pub total_tokens: i64,
     pub today_actual_cost_usd: f64,
     pub actual_cost_usd: f64,
+    pub today_deepseek_tokens: i64,
+    pub total_deepseek_tokens: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -728,6 +730,11 @@ impl Storage {
             "057_request_logs_upstream_client_request_id",
             include_str!("../../migrations/057_request_logs_upstream_client_request_id.sql"),
             |s| s.ensure_request_log_upstream_client_request_id_column(),
+        )?;
+        self.apply_sql_or_compat_migration(
+            "058_request_token_daily_model_stats",
+            include_str!("../../migrations/058_request_token_daily_model_stats.sql"),
+            |s| s.ensure_request_token_daily_model_stats_table(),
         )?;
         self.ensure_api_key_rotation_columns()?;
         self.ensure_api_key_group_name_column()?;

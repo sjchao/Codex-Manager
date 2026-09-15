@@ -2,6 +2,7 @@ use rusqlite::{params, Connection, Result};
 
 use super::{now_ts, ApiKeyTokenUsageSummary, RequestLogTodaySummary, RequestTokenStat, Storage};
 
+const DEEPSEEK_MODEL_FAMILY: &str = "deepseek";
 const DEFAULT_REQUEST_TOKEN_STATS_RETAIN_DAYS: i64 = 90;
 const REQUEST_TOKEN_STATS_RETAIN_DAYS_ENV: &str = "CODEXMANAGER_REQUEST_TOKEN_STATS_RETAIN_DAYS";
 const DEFAULT_REQUEST_TOKEN_STATS_MAINTENANCE_INTERVAL_SECONDS: i64 = 60 * 60;
@@ -79,6 +80,16 @@ fn normalized_key_id(stat: &RequestTokenStat) -> Option<&str> {
         .filter(|value| !value.is_empty())
 }
 
+fn model_family(model: Option<&str>) -> Option<&'static str> {
+    let model = model?.trim();
+    let prefix = model.get(..DEEPSEEK_MODEL_FAMILY.len())?;
+    if prefix.eq_ignore_ascii_case(DEEPSEEK_MODEL_FAMILY) {
+        Some(DEEPSEEK_MODEL_FAMILY)
+    } else {
+        None
+    }
+}
+
 pub(super) fn upsert_request_token_daily_stats(
     conn: &Connection,
     stat: &RequestTokenStat,
@@ -129,6 +140,63 @@ pub(super) fn upsert_request_token_daily_stats(
     Ok(())
 }
 
+pub(super) fn upsert_request_token_daily_model_stats(
+    conn: &Connection,
+    stat: &RequestTokenStat,
+) -> Result<()> {
+    let Some(key_id) = normalized_key_id(stat) else {
+        return Ok(());
+    };
+    let Some(family) = model_family(stat.model.as_deref()) else {
+        return Ok(());
+    };
+    conn.execute(
+        "INSERT INTO request_token_daily_model_stats (
+            day_key,
+            key_id,
+            model_family,
+            request_count,
+            input_tokens,
+            cached_input_tokens,
+            output_tokens,
+            total_tokens,
+            reasoning_output_tokens
+         ) VALUES (
+            date(?1, 'unixepoch', 'localtime'),
+            ?2,
+            ?3,
+            1,
+            ?4,
+            ?5,
+            ?6,
+            ?7,
+            ?8
+         )
+         ON CONFLICT(day_key, key_id, model_family) DO UPDATE SET
+            request_count = request_token_daily_model_stats.request_count + excluded.request_count,
+            input_tokens = request_token_daily_model_stats.input_tokens + excluded.input_tokens,
+            cached_input_tokens =
+                request_token_daily_model_stats.cached_input_tokens
+                + excluded.cached_input_tokens,
+            output_tokens = request_token_daily_model_stats.output_tokens + excluded.output_tokens,
+            total_tokens = request_token_daily_model_stats.total_tokens + excluded.total_tokens,
+            reasoning_output_tokens =
+                request_token_daily_model_stats.reasoning_output_tokens
+                + excluded.reasoning_output_tokens",
+        params![
+            stat.created_at,
+            key_id,
+            family,
+            normalized_token_value(stat.input_tokens),
+            normalized_token_value(stat.cached_input_tokens),
+            normalized_token_value(stat.output_tokens),
+            effective_total_tokens(stat),
+            normalized_token_value(stat.reasoning_output_tokens),
+        ],
+    )?;
+    Ok(())
+}
+
 fn parse_setting_i64(value: Option<String>) -> Option<i64> {
     value.and_then(|raw| raw.trim().parse::<i64>().ok())
 }
@@ -168,6 +236,7 @@ impl Storage {
             ),
         )?;
         upsert_request_token_daily_stats(&tx, stat)?;
+        upsert_request_token_daily_model_stats(&tx, stat)?;
         tx.commit()?;
         let _ = self.maintain_request_token_stats_if_due();
         Ok(())
@@ -239,34 +308,54 @@ impl Storage {
     ) -> Result<Vec<ApiKeyTokenUsageSummary>> {
         let mut stmt = self.conn.prepare(
             "SELECT
-                key_id,
+                d.key_id,
                 IFNULL(
                     SUM(
                         CASE
-                            WHEN day_key >= date(?1, 'unixepoch', 'localtime')
-                                 AND day_key <= date(?2 - 1, 'unixepoch', 'localtime')
-                                THEN total_tokens
+                            WHEN d.day_key >= date(?1, 'unixepoch', 'localtime')
+                                 AND d.day_key <= date(?2 - 1, 'unixepoch', 'localtime')
+                                THEN d.total_tokens
                             ELSE 0
                         END
                     ),
                     0
                 ) AS today_tokens,
-                IFNULL(SUM(total_tokens), 0) AS total_tokens,
+                IFNULL(SUM(d.total_tokens), 0) AS total_tokens,
                 IFNULL(
                     SUM(
                         CASE
-                            WHEN day_key >= date(?1, 'unixepoch', 'localtime')
-                                 AND day_key <= date(?2 - 1, 'unixepoch', 'localtime')
-                                THEN actual_cost_usd
+                            WHEN d.day_key >= date(?1, 'unixepoch', 'localtime')
+                                 AND d.day_key <= date(?2 - 1, 'unixepoch', 'localtime')
+                                THEN d.actual_cost_usd
                             ELSE 0.0
                         END
                     ),
                     0.0
                 ) AS today_actual_cost_usd,
-                IFNULL(SUM(actual_cost_usd), 0.0) AS actual_cost_usd
-             FROM request_token_daily_stats
-             GROUP BY key_id
-             ORDER BY total_tokens DESC, key_id ASC",
+                IFNULL(SUM(d.actual_cost_usd), 0.0) AS actual_cost_usd,
+                IFNULL(MAX(m.today_deepseek_tokens), 0) AS today_deepseek_tokens,
+                IFNULL(MAX(m.deepseek_total_tokens), 0) AS deepseek_total_tokens
+             FROM request_token_daily_stats d
+             LEFT JOIN (
+                SELECT key_id,
+                    IFNULL(
+                        SUM(
+                            CASE
+                                WHEN day_key >= date(?1, 'unixepoch', 'localtime')
+                                     AND day_key <= date(?2 - 1, 'unixepoch', 'localtime')
+                                    THEN total_tokens
+                                ELSE 0
+                            END
+                        ),
+                        0
+                    ) AS today_deepseek_tokens,
+                    IFNULL(SUM(total_tokens), 0) AS deepseek_total_tokens
+                FROM request_token_daily_model_stats
+                WHERE model_family = 'deepseek'
+                GROUP BY key_id
+             ) m ON m.key_id = d.key_id
+             GROUP BY d.key_id
+             ORDER BY total_tokens DESC, d.key_id ASC",
         )?;
         let mut rows = stmt.query((start_ts, end_ts))?;
         let mut items = Vec::new();
@@ -277,6 +366,8 @@ impl Storage {
                 total_tokens: row.get(2)?,
                 today_actual_cost_usd: row.get(3)?,
                 actual_cost_usd: row.get(4)?,
+                today_deepseek_tokens: row.get(5)?,
+                total_deepseek_tokens: row.get(6)?,
             });
         }
         Ok(items)
@@ -386,6 +477,7 @@ impl Storage {
             "actual_cost_usd",
             "REAL NOT NULL DEFAULT 0.0",
         )?;
+        self.ensure_request_token_daily_model_stats_table()?;
         if summary_rows > 0 {
             return Ok(());
         }
@@ -433,6 +525,84 @@ impl Storage {
              WHERE key_id IS NOT NULL AND TRIM(key_id) <> ''
              GROUP BY day_key, key_id",
             [],
+        )?;
+        Ok(())
+    }
+
+    pub(super) fn ensure_request_token_daily_model_stats_table(&self) -> Result<()> {
+        // 中文注释：历史版本可能用 model 列建过同名表，结构与 model_family 不兼容，需重建后回填。
+        let compatible = self.has_column("request_token_daily_model_stats", "model_family")?;
+        if !compatible {
+            self.conn
+                .execute("DROP TABLE IF EXISTS request_token_daily_model_stats", [])?;
+        }
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS request_token_daily_model_stats (
+                day_key TEXT NOT NULL,
+                key_id TEXT NOT NULL,
+                model_family TEXT NOT NULL,
+                request_count INTEGER NOT NULL DEFAULT 0,
+                input_tokens INTEGER NOT NULL DEFAULT 0,
+                cached_input_tokens INTEGER NOT NULL DEFAULT 0,
+                output_tokens INTEGER NOT NULL DEFAULT 0,
+                total_tokens INTEGER NOT NULL DEFAULT 0,
+                reasoning_output_tokens INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY(day_key, key_id, model_family)
+            )",
+            [],
+        )?;
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_request_token_daily_model_stats_key_id_day_key
+             ON request_token_daily_model_stats(key_id, day_key DESC)",
+            [],
+        )?;
+        if !compatible {
+            self.backfill_request_token_daily_model_stats()?;
+        }
+        Ok(())
+    }
+
+    fn backfill_request_token_daily_model_stats(&self) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR IGNORE INTO request_token_daily_model_stats (
+                day_key,
+                key_id,
+                model_family,
+                request_count,
+                input_tokens,
+                cached_input_tokens,
+                output_tokens,
+                total_tokens,
+                reasoning_output_tokens
+             )
+             SELECT
+                date(created_at, 'unixepoch', 'localtime') AS day_key,
+                key_id,
+                ?1 AS model_family,
+                COUNT(1) AS request_count,
+                IFNULL(SUM(CASE WHEN input_tokens > 0 THEN input_tokens ELSE 0 END), 0),
+                IFNULL(SUM(CASE WHEN cached_input_tokens > 0 THEN cached_input_tokens ELSE 0 END), 0),
+                IFNULL(SUM(CASE WHEN output_tokens > 0 THEN output_tokens ELSE 0 END), 0),
+                IFNULL(
+                    SUM(
+                        CASE
+                            WHEN IFNULL(total_tokens, 0) > 0 THEN total_tokens
+                            ELSE MAX(
+                                IFNULL(input_tokens, 0) - IFNULL(cached_input_tokens, 0) + IFNULL(output_tokens, 0),
+                                0
+                            )
+                        END
+                    ),
+                    0
+                ),
+                IFNULL(SUM(CASE WHEN reasoning_output_tokens > 0 THEN reasoning_output_tokens ELSE 0 END), 0)
+             FROM request_token_stats
+             WHERE key_id IS NOT NULL
+               AND TRIM(key_id) <> ''
+               AND model IS NOT NULL
+               AND LOWER(TRIM(model)) LIKE 'deepseek%'
+             GROUP BY day_key, key_id",
+            [DEEPSEEK_MODEL_FAMILY],
         )?;
         Ok(())
     }

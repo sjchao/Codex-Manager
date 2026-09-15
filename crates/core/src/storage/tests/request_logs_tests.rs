@@ -1,4 +1,5 @@
 use super::{build_request_log_filters, RequestLog, RequestTokenStat, Storage};
+use crate::storage::now_ts;
 
 /// 函数 `collect_query_plan_details`
 ///
@@ -179,6 +180,102 @@ fn insert_request_log_with_token_stat_is_visible_via_join() {
     assert_eq!(row.total_tokens, Some(12));
     assert_eq!(row.reasoning_output_tokens, Some(3));
     assert_eq!(row.upstream_actual_cost, Some(0.123));
+}
+
+#[test]
+fn insert_request_log_with_token_stat_records_deepseek_model_stats() {
+    let storage = Storage::open_in_memory().expect("open");
+    storage.init().expect("init");
+
+    let created_at = now_ts();
+    let log = RequestLog {
+        trace_id: Some("trc-ds".to_string()),
+        key_id: Some("gk_ds".to_string()),
+        request_path: "/v1/chat/completions".to_string(),
+        method: "POST".to_string(),
+        model: Some("deepseek-chat".to_string()),
+        created_at,
+        ..Default::default()
+    };
+    let stat = RequestTokenStat {
+        request_log_id: 0,
+        key_id: log.key_id.clone(),
+        account_id: None,
+        model: log.model.clone(),
+        input_tokens: Some(40),
+        cached_input_tokens: Some(5),
+        output_tokens: Some(5),
+        total_tokens: Some(45),
+        reasoning_output_tokens: Some(0),
+        created_at,
+    };
+
+    let (_request_log_id, token_err) = storage
+        .insert_request_log_with_token_stat(&log, &stat)
+        .expect("insert request log with token stat");
+    assert!(token_err.is_none(), "token stat should insert");
+
+    let summary = storage
+        .summarize_request_token_stats_by_key(created_at - 1, created_at + 1)
+        .expect("summarize by key");
+    assert_eq!(summary.len(), 1);
+    assert_eq!(summary[0].key_id, "gk_ds");
+    assert_eq!(summary[0].today_tokens, 45);
+    assert_eq!(summary[0].today_deepseek_tokens, 45);
+    assert_eq!(summary[0].total_deepseek_tokens, 45);
+}
+
+#[test]
+fn insert_request_log_with_token_stat_keeps_raw_stats_when_model_stats_fail() {
+    let storage = Storage::open_in_memory().expect("open");
+    storage.init().expect("init");
+    storage
+        .conn
+        .execute("DROP TABLE request_token_daily_model_stats", [])
+        .expect("drop model stats table");
+
+    let created_at = now_ts();
+    let log = RequestLog {
+        trace_id: Some("trc-model-fail".to_string()),
+        key_id: Some("gk_fail".to_string()),
+        request_path: "/v1/chat/completions".to_string(),
+        method: "POST".to_string(),
+        model: Some("deepseek-chat".to_string()),
+        created_at,
+        ..Default::default()
+    };
+    let stat = RequestTokenStat {
+        request_log_id: 0,
+        key_id: log.key_id.clone(),
+        account_id: None,
+        model: log.model.clone(),
+        input_tokens: Some(40),
+        cached_input_tokens: Some(5),
+        output_tokens: Some(5),
+        total_tokens: Some(45),
+        reasoning_output_tokens: Some(0),
+        created_at,
+    };
+
+    let (request_log_id, token_err) = storage
+        .insert_request_log_with_token_stat(&log, &stat)
+        .expect("insert request log with token stat");
+    assert!(
+        token_err.is_some(),
+        "model stats failure must surface as error"
+    );
+
+    let (raw_rows, daily_rows): (i64, i64) = storage
+        .conn
+        .query_row(
+            "SELECT (SELECT COUNT(1) FROM request_token_stats WHERE request_log_id = ?1),
+                    (SELECT COUNT(1) FROM request_token_daily_stats WHERE key_id = 'gk_fail')",
+            [request_log_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("count stats rows");
+    assert_eq!(raw_rows, 1, "raw token row must be preserved");
+    assert_eq!(daily_rows, 1);
 }
 
 #[test]

@@ -381,6 +381,8 @@ pub struct ApiKeyUsageStatSummary {
     pub total_tokens: i64,
     pub today_actual_cost_usd: f64,
     pub actual_cost_usd: f64,
+    pub today_deepseek_tokens: i64,
+    pub total_deepseek_tokens: i64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

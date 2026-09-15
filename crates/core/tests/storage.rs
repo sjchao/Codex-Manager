@@ -1427,6 +1427,69 @@ fn request_token_daily_stats_updates_with_raw_insert() {
 }
 
 #[test]
+fn request_token_daily_model_stats_track_deepseek_tokens() {
+    let storage = Storage::open_in_memory().expect("open in memory");
+    storage.init().expect("init schema");
+    let created_at = now_ts();
+    let yesterday = created_at - 86_400;
+
+    // 中文注释：deepseek 前缀（忽略大小写）都计入 DeepSeek 用量，其他模型不计入。
+    let cases = [
+        ("deepseek-chat", 100_i64, created_at, "gk_ds"),
+        ("DeepSeek-V3", 50_i64, created_at, "gk_ds"),
+        ("deepseek-reasoner", 30_i64, yesterday, "gk_ds"),
+        ("gpt-5.3-codex", 999_i64, created_at, "gk_other"),
+        ("deepseek-coder", 20_i64, created_at, "gk_other"),
+    ];
+    for (index, (model, total_tokens, stat_created_at, key_id)) in cases.iter().enumerate() {
+        let request_log_id = storage
+            .insert_request_log(&RequestLog {
+                trace_id: Some(format!("trc-model-{index}")),
+                aggregate_api_id: Some("agg-model".to_string()),
+                key_id: Some(key_id.to_string()),
+                request_path: "/v1/responses".to_string(),
+                method: "POST".to_string(),
+                created_at: *stat_created_at,
+                ..Default::default()
+            })
+            .expect("insert request log");
+        storage
+            .insert_request_token_stat(&RequestTokenStat {
+                request_log_id,
+                key_id: Some(key_id.to_string()),
+                account_id: Some("acc-model".to_string()),
+                model: Some(model.to_string()),
+                input_tokens: Some(*total_tokens),
+                cached_input_tokens: Some(0),
+                output_tokens: Some(0),
+                total_tokens: Some(*total_tokens),
+                reasoning_output_tokens: Some(0),
+                created_at: *stat_created_at,
+            })
+            .expect("insert token stat");
+    }
+
+    let summary = storage
+        .summarize_request_token_stats_by_key(created_at - 1, created_at + 1)
+        .expect("summarize by key");
+    let ds = summary
+        .iter()
+        .find(|item| item.key_id == "gk_ds")
+        .expect("deepseek key summary");
+    assert_eq!(ds.today_tokens, 150);
+    assert_eq!(ds.total_tokens, 180);
+    assert_eq!(ds.today_deepseek_tokens, 150);
+    assert_eq!(ds.total_deepseek_tokens, 180);
+    let other = summary
+        .iter()
+        .find(|item| item.key_id == "gk_other")
+        .expect("other key summary");
+    assert_eq!(other.today_tokens, 1019);
+    assert_eq!(other.today_deepseek_tokens, 20);
+    assert_eq!(other.total_deepseek_tokens, 20);
+}
+
+#[test]
 fn sub2api_usage_sync_matches_upstream_client_request_id() {
     let storage = Storage::open_in_memory().expect("open in memory");
     storage.init().expect("init schema");

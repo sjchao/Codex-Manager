@@ -52,6 +52,8 @@ pub(crate) fn read_api_key_usage_stats() -> Result<Vec<ApiKeyUsageStatSummary>, 
             total_tokens: item.total_tokens.max(0),
             today_actual_cost_usd: item.today_actual_cost_usd.max(0.0),
             actual_cost_usd: item.actual_cost_usd.max(0.0),
+            today_deepseek_tokens: item.today_deepseek_tokens.max(0),
+            total_deepseek_tokens: item.total_deepseek_tokens.max(0),
         })
         .collect())
 }

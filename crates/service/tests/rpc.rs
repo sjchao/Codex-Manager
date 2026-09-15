@@ -2094,6 +2094,73 @@ fn rpc_apikey_update_model_updates_name_with_chinese() {
     );
 }
 
+/// 函数 `rpc_apikey_usage_stats_reports_deepseek_tokens`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-02
+///
+/// # 参数
+/// 无
+///
+/// # 返回
+/// 无
+#[test]
+fn rpc_apikey_usage_stats_reports_deepseek_tokens() {
+    let ctx = RpcTestContext::new("rpc-apikey-usage-stats");
+    let storage = Storage::open(ctx.db_path()).expect("open db");
+    storage.init().expect("init schema");
+    let created_at = now_ts();
+
+    let request_log_id = storage
+        .insert_request_log(&RequestLog {
+            trace_id: Some("trc-ds-usage".to_string()),
+            key_id: Some("gk-ds-usage".to_string()),
+            request_path: "/v1/chat/completions".to_string(),
+            method: "POST".to_string(),
+            created_at,
+            ..Default::default()
+        })
+        .expect("insert request log");
+    storage
+        .insert_request_token_stat(&RequestTokenStat {
+            request_log_id,
+            key_id: Some("gk-ds-usage".to_string()),
+            account_id: None,
+            model: Some("deepseek-chat".to_string()),
+            input_tokens: Some(80),
+            cached_input_tokens: Some(0),
+            output_tokens: Some(20),
+            total_tokens: Some(100),
+            reasoning_output_tokens: Some(0),
+            created_at,
+        })
+        .expect("insert token stat");
+
+    let server = codexmanager_service::start_one_shot_server().expect("start server");
+    let request = JsonRpcRequest {
+        id: 76.into(),
+        method: "apikey/usageStats".to_string(),
+        params: None,
+        trace: None,
+    };
+    let response = post_rpc(
+        &server.addr,
+        &serde_json::to_string(&request).expect("serialize usage stats request"),
+    );
+    let items = response["result"]["items"]
+        .as_array()
+        .expect("usage stat items");
+    let item = items
+        .iter()
+        .find(|value| value["keyId"] == "gk-ds-usage")
+        .expect("deepseek key usage stat");
+    assert_eq!(item["todayTokens"].as_i64(), Some(100));
+    assert_eq!(item["totalTokens"].as_i64(), Some(100));
+    assert_eq!(item["todayDeepseekTokens"].as_i64(), Some(100));
+    assert_eq!(item["totalDeepseekTokens"].as_i64(), Some(100));
+}
+
 /// 函数 `rpc_rejects_missing_token`
 ///
 /// 作者: gaohongshun
