@@ -33,6 +33,7 @@ import {
   RequestLogListResult,
   RequestLogTodaySummary,
   StartupSnapshot,
+  Sub2ApiAccount,
   UsageAggregateSummary,
 } from "@/types";
 import {
@@ -337,7 +338,10 @@ export function normalizeTodaySummary(payload: unknown): RequestLogTodaySummary 
       Math.max(0, inputTokens - cachedInputTokens) + outputTokens,
       0
     ),
-    estimatedCost: Math.max(0, toNullableNumber(source.estimatedCost) ?? 0),
+    actualCost: Math.max(
+      0,
+      toNullableNumber(source.actualCost ?? source.actual_cost) ?? 0
+    ),
   };
 }
 
@@ -605,6 +609,98 @@ export function normalizeAggregateApi(item: unknown): AggregateApi | null {
     lastTestAt: toNullableNumber(source.lastTestAt ?? source.last_test_at),
     lastTestStatus: asString(source.lastTestStatus ?? source.last_test_status) || null,
     lastTestError: asString(source.lastTestError ?? source.last_test_error) || null,
+    usageSyncConfigured: asBoolean(
+      source.usageSyncConfigured ?? source.usage_sync_configured
+    ),
+    usageLastSyncAt: toNullableNumber(
+      source.usageLastSyncAt ?? source.usage_last_sync_at
+    ),
+    usageLastSyncStatus:
+      asString(source.usageLastSyncStatus ?? source.usage_last_sync_status) || null,
+    usageLastSyncError:
+      asString(source.usageLastSyncError ?? source.usage_last_sync_error) || null,
+    sub2apiAccountId: asString(source.sub2apiAccountId ?? source.sub2api_account_id) || null,
+  };
+}
+
+export function normalizeSub2ApiAccount(item: unknown): Sub2ApiAccount | null {
+  const source = asObject(item);
+  const id = asString(source.id);
+  if (!id) return null;
+  return {
+    id,
+    baseUrl: asString(source.baseUrl ?? source.base_url),
+    tokenExpiresAt: toNullableNumber(
+      source.tokenExpiresAt ?? source.token_expires_at
+    ),
+    accountName: asString(source.accountName ?? source.account_name) || null,
+    accountEmail: asString(source.accountEmail ?? source.account_email) || null,
+    balance: toNullableNumber(source.balance),
+    todayActualCost: toNullableNumber(source.todayActualCost ?? source.today_actual_cost),
+    todayTotalCost: toNullableNumber(source.todayTotalCost ?? source.today_total_cost),
+    todayRequestCount: toNullableNumber(source.todayRequestCount ?? source.today_request_count),
+    updatedAt: toNullableNumber(source.updatedAt ?? source.updated_at),
+    lastSyncAt: toNullableNumber(source.lastSyncAt ?? source.last_sync_at),
+    lastSyncStatus: asString(source.lastSyncStatus ?? source.last_sync_status) || null,
+    lastSyncError: asString(source.lastSyncError ?? source.last_sync_error) || null,
+  };
+}
+
+export function normalizeSub2ApiAccountList(payload: unknown): Sub2ApiAccount[] {
+  const source = asObject(payload);
+  return asArray(source.items ?? payload).map(normalizeSub2ApiAccount).filter((item): item is Sub2ApiAccount => Boolean(item));
+}
+
+export function normalizeAggregateApiUsageSummary(payload: unknown) {
+  const source = asObject(payload);
+  const items = asArray(source.items).map((item) => {
+    const current = asObject(item);
+    return {
+      aggregateApiId: asString(current.aggregateApiId ?? current.aggregate_api_id),
+      supplierName:
+        asString(current.supplierName ?? current.supplier_name) || null,
+      url: asString(current.url),
+      usageDate: asString(current.usageDate ?? current.usage_date),
+      actualCost:
+        toNullableNumber(current.actualCost ?? current.actual_cost) ?? 0,
+      totalCost: toNullableNumber(current.totalCost ?? current.total_cost),
+      requestCount: toNullableNumber(current.requestCount ?? current.request_count),
+      syncedAt: toNullableNumber(current.syncedAt ?? current.synced_at),
+      configured: asBoolean(current.configured),
+      lastSyncAt: toNullableNumber(current.lastSyncAt ?? current.last_sync_at),
+      lastSyncStatus:
+        asString(current.lastSyncStatus ?? current.last_sync_status) || null,
+      lastSyncError:
+        asString(current.lastSyncError ?? current.last_sync_error) || null,
+    };
+  });
+  const platformKeyItems = asArray(
+    source.platformKeyItems ?? source.platform_key_items
+  ).map((item) => {
+    const current = asObject(item);
+    return {
+      keyId: asString(current.keyId ?? current.key_id),
+      keyName: asString(current.keyName ?? current.key_name) || null,
+      groupName: asString(current.groupName ?? current.group_name) || null,
+      actualCost:
+        toNullableNumber(current.actualCost ?? current.actual_cost) ?? 0,
+      requestCount: asInteger(
+        current.requestCount ?? current.request_count,
+        0,
+        0
+      ),
+    };
+  });
+  return {
+    usageDate: asString(source.usageDate ?? source.usage_date),
+    totalActualCost:
+      toNullableNumber(source.totalActualCost ?? source.total_actual_cost) ?? 0,
+    mappedPlatformKeyActualCost:
+      toNullableNumber(
+        source.mappedPlatformKeyActualCost ?? source.mapped_platform_key_actual_cost
+      ) ?? 0,
+    items,
+    platformKeyItems,
   };
 }
 
@@ -729,15 +825,15 @@ export function normalizeApiKeyUsageStats(payload: unknown): ApiKeyUsageStat[] {
         keyId,
         todayTokens: asInteger(current.todayTokens ?? current.today_tokens, 0, 0),
         totalTokens: asInteger(current.totalTokens ?? current.total_tokens, 0, 0),
-        todayEstimatedCostUsd: Math.max(
+        todayActualCostUsd: Math.max(
           0,
           toNullableNumber(
-            current.todayEstimatedCostUsd ?? current.today_estimated_cost_usd
+            current.todayActualCostUsd ?? current.today_actual_cost_usd
           ) ?? 0
         ),
-        estimatedCostUsd: Math.max(
+        actualCostUsd: Math.max(
           0,
-          toNullableNumber(current.estimatedCostUsd ?? current.estimated_cost_usd) ?? 0
+          toNullableNumber(current.actualCostUsd ?? current.actual_cost_usd) ?? 0
         ),
       };
     })
@@ -1186,6 +1282,7 @@ export function normalizeRequestLog(item: unknown): RequestLog | null {
     initialAggregateApiId: asString(
       source.initialAggregateApiId ?? source.initial_aggregate_api_id
     ),
+    aggregateApiId: asString(source.aggregateApiId ?? source.aggregate_api_id),
     attemptedAggregateApiIds: asArray(
       source.attemptedAggregateApiIds ?? source.attempted_aggregate_api_ids
     )
@@ -1228,12 +1325,24 @@ export function normalizeRequestLog(item: unknown): RequestLog | null {
     reasoningOutputTokens: toNullableNumber(
       source.reasoningOutputTokens ?? source.reasoning_output_tokens
     ),
-    estimatedCostUsd: toNullableNumber(
-      source.estimatedCostUsd ?? source.estimated_cost_usd
-    ),
     durationMs,
     firstResponseMs,
     queueWaitMs,
+    upstreamActualCost: toNullableNumber(
+      source.upstreamActualCost ?? source.upstream_actual_cost
+    ),
+    upstreamTotalCost: toNullableNumber(
+      source.upstreamTotalCost ?? source.upstream_total_cost
+    ),
+    upstreamDurationMs: toNullableNumber(
+      source.upstreamDurationMs ?? source.upstream_duration_ms
+    ),
+    upstreamFirstResponseMs: toNullableNumber(
+      source.upstreamFirstResponseMs ?? source.upstream_first_response_ms
+    ),
+    upstreamUsageSyncedAt: toNullableNumber(
+      source.upstreamUsageSyncedAt ?? source.upstream_usage_synced_at
+    ),
     error: asString(source.error),
     createdAt,
   };

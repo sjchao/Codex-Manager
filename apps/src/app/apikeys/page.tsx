@@ -287,8 +287,8 @@ export default function ApiKeysPage() {
         result[keyId] = {
           todayTokens: Math.max(0, item.todayTokens || 0),
           totalTokens: Math.max(0, item.totalTokens || 0),
-          todayCostUsd: Math.max(0, item.todayEstimatedCostUsd || 0),
-          totalCostUsd: Math.max(0, item.estimatedCostUsd || 0),
+          todayCostUsd: Math.max(0, item.todayActualCostUsd || 0),
+          totalCostUsd: Math.max(0, item.actualCostUsd || 0),
         };
         return result;
       }, {});
@@ -302,11 +302,11 @@ export default function ApiKeysPage() {
         0,
       );
       const todayCostUsd = stats.reduce(
-        (sum, item) => sum + Math.max(0, item.todayEstimatedCostUsd || 0),
+        (sum, item) => sum + Math.max(0, item.todayActualCostUsd || 0),
         0,
       );
       const totalCostUsd = stats.reduce(
-        (sum, item) => sum + Math.max(0, item.estimatedCostUsd || 0),
+        (sum, item) => sum + Math.max(0, item.actualCostUsd || 0),
         0,
       );
       return {
@@ -554,6 +554,7 @@ export default function ApiKeysPage() {
                 <TableHead>轮转策略</TableHead>
                 <TableHead>绑定模型</TableHead>
                 <TableHead>Token 使用量</TableHead>
+                <TableHead>费用</TableHead>
                 <TableHead>状态</TableHead>
                 <TableHead className="text-center">操作</TableHead>
               </TableRow>
@@ -569,13 +570,14 @@ export default function ApiKeysPage() {
                       <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                       <TableCell><Skeleton className="h-4 w-28" /></TableCell>
                       <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                      <TableCell><Skeleton className="h-4 w-16" /></TableCell>
                       <TableCell><Skeleton className="h-6 w-16 rounded-full" /></TableCell>
                       <TableCell className="text-center"><Skeleton className="mx-auto h-8 w-8" /></TableCell>
                     </TableRow>
                 ))
               ) : filteredApiKeys.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="h-48 text-center">
+                  <TableCell colSpan={10} className="h-48 text-center">
                     <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground">
                       <Plus className="h-8 w-8 opacity-20" />
                       <p>
@@ -657,6 +659,12 @@ export default function ApiKeysPage() {
                         {formatTokenUsagePair(
                           usageByKey[key.id]?.todayTokens,
                           usageByKey[key.id]?.totalTokens,
+                        )}
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">
+                        {formatUsdUsagePair(
+                          usageByKey[key.id]?.todayCostUsd,
+                          usageByKey[key.id]?.totalCostUsd,
                         )}
                       </TableCell>
                       <TableCell>

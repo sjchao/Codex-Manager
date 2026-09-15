@@ -295,6 +295,7 @@ mod tests {
             last_test_at: None,
             last_test_status: None,
             last_test_error: None,
+            sub2api_account_id: None,
         }
     }
 
@@ -1618,9 +1619,17 @@ pub(crate) fn list_aggregate_apis() -> Result<Vec<AggregateApiSummary>, String> 
     let items = storage
         .list_aggregate_apis()
         .map_err(|err| format!("list aggregate apis failed: {err}"))?;
+    let usage_status_by_api_id = storage
+        .list_aggregate_api_usage_sync_statuses()
+        .map_err(|err| format!("list aggregate api usage sync status failed: {err}"))?
+        .into_iter()
+        .map(|status| (status.aggregate_api_id.clone(), status))
+        .collect::<std::collections::HashMap<_, _>>();
     Ok(items
         .into_iter()
-        .map(|item| AggregateApiSummary {
+        .map(|item| {
+            let usage_status = usage_status_by_api_id.get(item.id.as_str());
+            AggregateApiSummary {
             id: item.id,
             provider_type: item.provider_type,
             supported_models: item.supported_models,
@@ -1642,6 +1651,12 @@ pub(crate) fn list_aggregate_apis() -> Result<Vec<AggregateApiSummary>, String> 
             last_test_at: item.last_test_at,
             last_test_status: item.last_test_status,
             last_test_error: item.last_test_error,
+            usage_sync_configured: usage_status.is_some_and(|status| status.configured),
+            usage_last_sync_at: usage_status.and_then(|status| status.last_sync_at),
+            usage_last_sync_status: usage_status.and_then(|status| status.last_sync_status.clone()),
+            usage_last_sync_error: usage_status.and_then(|status| status.last_sync_error.clone()),
+            sub2api_account_id: item.sub2api_account_id,
+        }
         })
         .collect())
 }
@@ -1672,6 +1687,7 @@ pub(crate) fn create_aggregate_api(
     action: Option<String>,
     username: Option<String>,
     password: Option<String>,
+    sub2api_account_id: Option<String>,
 ) -> Result<AggregateApiCreateResult, String> {
     let storage = open_storage().ok_or_else(|| "storage unavailable".to_string())?;
     let normalized_provider_type = normalize_provider_type(provider_type)?;
@@ -1703,6 +1719,19 @@ pub(crate) fn create_aggregate_api(
         serialize_userpass_secret(username, password)?
     };
     let id = generate_aggregate_api_id();
+    let normalized_sub2api_account_id = sub2api_account_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if let Some(account_id) = normalized_sub2api_account_id {
+        if storage
+            .find_sub2api_account_by_id(account_id)
+            .map_err(|err| err.to_string())?
+            .is_none()
+        {
+            return Err("Sub2API 账号不存在".to_string());
+        }
+    }
     let created_at = now_ts();
     let record = AggregateApi {
         id: id.clone(),
@@ -1723,6 +1752,7 @@ pub(crate) fn create_aggregate_api(
         last_test_at: None,
         last_test_status: None,
         last_test_error: None,
+        sub2api_account_id: normalized_sub2api_account_id.map(str::to_string),
     };
     storage
         .insert_aggregate_api(&record)
@@ -1771,6 +1801,7 @@ pub(crate) fn update_aggregate_api(
     action: Option<String>,
     username: Option<String>,
     password: Option<String>,
+    sub2api_account_id: Option<String>,
 ) -> Result<(), String> {
     if api_id.is_empty() {
         return Err("aggregate api id required".to_string());
@@ -1833,6 +1864,13 @@ pub(crate) fn update_aggregate_api(
         storage
             .update_aggregate_api(api_id, normalized_url.as_str())
             .map_err(|err| err.to_string())?;
+    }
+    if sub2api_account_id.is_some() {
+        let account_id = sub2api_account_id.as_deref().map(str::trim).filter(|v| !v.is_empty());
+        if let Some(id) = account_id {
+            if storage.find_sub2api_account_by_id(id).map_err(|e| e.to_string())?.is_none() { return Err("Sub2API 账号不存在".to_string()); }
+        }
+        storage.update_aggregate_api_sub2api_account_id(api_id, account_id).map_err(|e| e.to_string())?;
     }
 
     if let Some(auth_params_json) =

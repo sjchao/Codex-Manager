@@ -102,7 +102,7 @@ export function useDashboardStats() {
       todayTokens: data?.requestLogTodaySummary.todayTokens || 0,
       cachedTokens: data?.requestLogTodaySummary.cachedInputTokens || 0,
       reasoningTokens: data?.requestLogTodaySummary.reasoningOutputTokens || 0,
-      todayCost: data?.requestLogTodaySummary.estimatedCost || 0,
+      todayCost: data?.requestLogTodaySummary.actualCost || 0,
       poolRemain: {
         primary: data?.usageAggregateSummary.primaryRemainPercent ?? null,
         secondary: data?.usageAggregateSummary.secondaryRemainPercent ?? null,

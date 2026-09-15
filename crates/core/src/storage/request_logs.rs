@@ -2,7 +2,7 @@ use rusqlite::{params, params_from_iter, types::Value, Result, Row};
 
 use super::{
     request_log_query, RequestLog, RequestLogQuerySummary, RequestLogTodaySummary,
-    RequestTokenStat, Storage,
+    RequestLogUpstreamActualCostByKey, RequestTokenStat, Storage,
 };
 
 impl Storage {
@@ -68,10 +68,10 @@ impl Storage {
     pub fn insert_request_log(&self, log: &RequestLog) -> Result<i64> {
         self.conn.execute(
             "INSERT INTO request_logs (
-                trace_id, key_id, account_id, initial_account_id, attempted_account_ids_json, initial_aggregate_api_id, attempted_aggregate_api_ids_json, aggregate_api_attempt_failures_json,
+                trace_id, key_id, account_id, initial_account_id, attempted_account_ids_json, initial_aggregate_api_id, aggregate_api_id, attempted_aggregate_api_ids_json, aggregate_api_attempt_failures_json,
                 request_path, original_path, adapted_path,
-                method, request_type, model, model_type, image_count, image_size, image_results_json, reasoning_effort, service_tier, effective_service_tier, response_adapter, upstream_url, aggregate_api_supplier_name, aggregate_api_url, status_code, duration_ms, first_response_ms, queue_wait_ms, error, created_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, COALESCE(NULLIF(TRIM(?15), ''), 'text'), ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31)",
+                method, request_type, model, model_type, image_count, image_size, image_results_json, reasoning_effort, service_tier, effective_service_tier, response_adapter, upstream_url, aggregate_api_supplier_name, aggregate_api_url, status_code, duration_ms, first_response_ms, queue_wait_ms, upstream_actual_cost, upstream_total_cost, upstream_duration_ms, upstream_first_response_ms, upstream_usage_synced_at, error, created_at, upstream_client_request_id
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, COALESCE(NULLIF(TRIM(?16), ''), 'text'), ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38)",
             params![
                 &log.trace_id,
                 &log.key_id,
@@ -79,6 +79,7 @@ impl Storage {
                 &log.initial_account_id,
                 &log.attempted_account_ids_json,
                 &log.initial_aggregate_api_id,
+                &log.aggregate_api_id,
                 &log.attempted_aggregate_api_ids_json,
                 &log.aggregate_api_attempt_failures_json,
                 &log.request_path,
@@ -102,8 +103,14 @@ impl Storage {
                 log.duration_ms,
                 log.first_response_ms,
                 log.queue_wait_ms,
+                log.upstream_actual_cost,
+                log.upstream_total_cost,
+                log.upstream_duration_ms,
+                log.upstream_first_response_ms,
+                log.upstream_usage_synced_at,
                 &log.error,
                 log.created_at,
+                &log.upstream_client_request_id,
             ],
         )?;
         Ok(self.conn.last_insert_rowid())
@@ -130,10 +137,10 @@ impl Storage {
         let tx = self.conn.unchecked_transaction()?;
         tx.execute(
             "INSERT INTO request_logs (
-                trace_id, key_id, account_id, initial_account_id, attempted_account_ids_json, initial_aggregate_api_id, attempted_aggregate_api_ids_json, aggregate_api_attempt_failures_json,
+                trace_id, key_id, account_id, initial_account_id, attempted_account_ids_json, initial_aggregate_api_id, aggregate_api_id, attempted_aggregate_api_ids_json, aggregate_api_attempt_failures_json,
                 request_path, original_path, adapted_path,
-                method, request_type, model, model_type, image_count, image_size, image_results_json, reasoning_effort, service_tier, effective_service_tier, response_adapter, upstream_url, aggregate_api_supplier_name, aggregate_api_url, status_code, duration_ms, first_response_ms, queue_wait_ms, error, created_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, COALESCE(NULLIF(TRIM(?15), ''), 'text'), ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31)",
+                method, request_type, model, model_type, image_count, image_size, image_results_json, reasoning_effort, service_tier, effective_service_tier, response_adapter, upstream_url, aggregate_api_supplier_name, aggregate_api_url, status_code, duration_ms, first_response_ms, queue_wait_ms, upstream_actual_cost, upstream_total_cost, upstream_duration_ms, upstream_first_response_ms, upstream_usage_synced_at, error, created_at, upstream_client_request_id
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, COALESCE(NULLIF(TRIM(?16), ''), 'text'), ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38)",
             params![
                 &log.trace_id,
                 &log.key_id,
@@ -141,6 +148,7 @@ impl Storage {
                 &log.initial_account_id,
                 &log.attempted_account_ids_json,
                 &log.initial_aggregate_api_id,
+                &log.aggregate_api_id,
                 &log.attempted_aggregate_api_ids_json,
                 &log.aggregate_api_attempt_failures_json,
                 &log.request_path,
@@ -164,8 +172,14 @@ impl Storage {
                 log.duration_ms,
                 log.first_response_ms,
                 log.queue_wait_ms,
+                log.upstream_actual_cost,
+                log.upstream_total_cost,
+                log.upstream_duration_ms,
+                log.upstream_first_response_ms,
+                log.upstream_usage_synced_at,
                 &log.error,
                 log.created_at,
+                &log.upstream_client_request_id,
             ],
         )?;
         let request_log_id = tx.last_insert_rowid();
@@ -176,8 +190,8 @@ impl Storage {
             "INSERT INTO request_token_stats (
                 request_log_id, key_id, account_id, model,
                 input_tokens, cached_input_tokens, output_tokens, total_tokens, reasoning_output_tokens,
-                estimated_cost_usd, created_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                created_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             (
                 request_log_id,
                 &stat.key_id,
@@ -188,7 +202,6 @@ impl Storage {
                 stat.output_tokens,
                 stat.total_tokens,
                 stat.reasoning_output_tokens,
-                stat.estimated_cost_usd,
                 stat.created_at,
             ),
         ) {
@@ -273,10 +286,10 @@ impl Storage {
         let filters = build_request_log_filters(query, status_filter, model_type_filter);
         let sql = format!(
             "SELECT
-                r.trace_id, r.key_id, r.account_id, r.initial_account_id, r.attempted_account_ids_json, r.initial_aggregate_api_id, r.attempted_aggregate_api_ids_json, r.aggregate_api_attempt_failures_json,
+                r.trace_id, r.key_id, r.account_id, r.initial_account_id, r.attempted_account_ids_json, r.initial_aggregate_api_id, r.aggregate_api_id, r.attempted_aggregate_api_ids_json, r.aggregate_api_attempt_failures_json,
                 r.request_path, r.original_path, r.adapted_path,
-                r.method, r.request_type, r.model, COALESCE(NULLIF(TRIM(r.model_type), ''), 'text'), r.image_count, r.image_size, r.image_results_json, r.reasoning_effort, r.service_tier, r.effective_service_tier, r.response_adapter, r.upstream_url, r.aggregate_api_supplier_name, r.aggregate_api_url, r.status_code, r.duration_ms, r.first_response_ms, r.queue_wait_ms,
-                t.input_tokens, t.cached_input_tokens, t.output_tokens, t.total_tokens, t.reasoning_output_tokens, t.estimated_cost_usd,
+                r.method, r.request_type, r.model, COALESCE(NULLIF(TRIM(r.model_type), ''), 'text'), r.image_count, r.image_size, r.image_results_json, r.reasoning_effort, r.service_tier, r.effective_service_tier, r.response_adapter, r.upstream_url, r.aggregate_api_supplier_name, r.aggregate_api_url, r.status_code, r.duration_ms, r.first_response_ms, r.queue_wait_ms, r.upstream_actual_cost, r.upstream_total_cost, r.upstream_duration_ms, r.upstream_first_response_ms, r.upstream_usage_synced_at,
+                t.input_tokens, t.cached_input_tokens, t.output_tokens, t.total_tokens, t.reasoning_output_tokens,
                 r.error, r.created_at
              FROM request_logs r
              LEFT JOIN request_token_stats t ON t.request_log_id = r.id
@@ -296,6 +309,128 @@ impl Storage {
             out.push(map_request_log_row(row)?);
         }
         Ok(out)
+    }
+
+    pub fn update_request_log_sub2api_usage_by_trace_id(
+        &self,
+        aggregate_api_id: &str,
+        trace_id: &str,
+        actual_cost: Option<f64>,
+        total_cost: Option<f64>,
+        duration_ms: Option<i64>,
+        first_response_ms: Option<i64>,
+        synced_at: i64,
+    ) -> Result<usize> {
+        let tx = self.conn.unchecked_transaction()?;
+        // 中文注释：面板可能原样回传我们的 trace id，也可能自造 client request id；
+        // 同步时同时按两者匹配，命中哪个都算同一行记录。
+        let previous_rows = {
+            let mut stmt = tx.prepare(
+                "SELECT key_id, created_at, IFNULL(upstream_actual_cost, 0.0)
+                 FROM request_logs
+                 WHERE aggregate_api_id = ?1 AND (trace_id = ?2 OR upstream_client_request_id = ?2)",
+            )?;
+            let mut rows = stmt.query(params![aggregate_api_id, trace_id])?;
+            let mut out = Vec::new();
+            while let Some(row) = rows.next()? {
+                out.push((
+                    row.get::<_, Option<String>>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, f64>(2)?,
+                ));
+            }
+            out
+        };
+        let updated = tx.execute(
+            "UPDATE request_logs
+             SET upstream_actual_cost = ?1,
+                 upstream_total_cost = ?2,
+                 upstream_duration_ms = ?3,
+                 upstream_first_response_ms = ?4,
+                 upstream_usage_synced_at = ?5
+             WHERE aggregate_api_id = ?6 AND (trace_id = ?7 OR upstream_client_request_id = ?7)",
+            params![
+                actual_cost,
+                total_cost,
+                duration_ms,
+                first_response_ms,
+                synced_at,
+                aggregate_api_id,
+                trace_id,
+            ],
+        )?;
+
+        // 中文注释：日统计表是长期保留的真实花费来源，同步时按差额累加，重复同步不会重复计费。
+        let new_cost = actual_cost.unwrap_or(0.0);
+        for (key_id, created_at, previous_cost) in previous_rows {
+            let Some(key_id) = key_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            else {
+                continue;
+            };
+            let delta = new_cost - previous_cost;
+            if delta == 0.0 {
+                continue;
+            }
+            tx.execute(
+                "INSERT INTO request_token_daily_stats (
+                    day_key,
+                    key_id,
+                    request_count,
+                    input_tokens,
+                    cached_input_tokens,
+                    output_tokens,
+                    total_tokens,
+                    reasoning_output_tokens,
+                    actual_cost_usd
+                 ) VALUES (
+                    date(?1, 'unixepoch', 'localtime'),
+                    ?2,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    ?3
+                 )
+                 ON CONFLICT(day_key, key_id) DO UPDATE SET
+                    actual_cost_usd =
+                        request_token_daily_stats.actual_cost_usd + excluded.actual_cost_usd",
+                params![created_at, key_id, delta],
+            )?;
+        }
+        tx.commit()?;
+        Ok(updated)
+    }
+
+    pub fn summarize_request_log_upstream_actual_cost_by_key(
+        &self,
+        start_at: i64,
+        end_at: i64,
+    ) -> Result<Vec<RequestLogUpstreamActualCostByKey>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT key_id, SUM(upstream_actual_cost), COUNT(1)
+             FROM request_logs
+             WHERE key_id IS NOT NULL
+               AND upstream_actual_cost IS NOT NULL
+               AND created_at >= ?1
+               AND created_at < ?2
+             GROUP BY key_id
+             ORDER BY SUM(upstream_actual_cost) DESC, key_id ASC",
+        )?;
+        let mut rows = stmt.query(params![start_at, end_at])?;
+        let mut items = Vec::new();
+        while let Some(row) = rows.next()? {
+            items.push(RequestLogUpstreamActualCostByKey {
+                key_id: row.get(0)?,
+                actual_cost: row.get::<_, Option<f64>>(1)?.unwrap_or(0.0),
+                request_count: row.get(2)?,
+            });
+        }
+        Ok(items)
     }
 
     /// 函数 `count_request_logs`
@@ -384,7 +519,7 @@ impl Storage {
                             END
                     END
                 ), 0),
-                IFNULL(SUM(IFNULL(t.estimated_cost_usd, 0.0)), 0.0)
+                IFNULL(SUM(IFNULL(r.upstream_actual_cost, 0.0)), 0.0)
              FROM request_logs r
              LEFT JOIN request_token_stats t ON t.request_log_id = r.id
              {where_clause}",
@@ -397,7 +532,7 @@ impl Storage {
                     success_count: row.get(1)?,
                     error_count: row.get(2)?,
                     total_tokens: row.get(3)?,
-                    estimated_cost_usd: row.get(4)?,
+                    actual_cost_usd: row.get(4)?,
                 })
             })
     }
@@ -471,6 +606,7 @@ impl Storage {
                 initial_account_id TEXT,
                 attempted_account_ids_json TEXT,
                 initial_aggregate_api_id TEXT,
+                aggregate_api_id TEXT,
                 attempted_aggregate_api_ids_json TEXT,
                 aggregate_api_attempt_failures_json TEXT,
                 request_path TEXT NOT NULL,
@@ -493,6 +629,11 @@ impl Storage {
                 duration_ms INTEGER,
                 first_response_ms INTEGER,
                 queue_wait_ms INTEGER,
+                upstream_actual_cost REAL,
+                upstream_total_cost REAL,
+                upstream_duration_ms INTEGER,
+                upstream_first_response_ms INTEGER,
+                upstream_usage_synced_at INTEGER,
                 error TEXT,
                 created_at INTEGER NOT NULL
             )",
@@ -500,6 +641,8 @@ impl Storage {
         )?;
         self.ensure_request_log_model_type_and_media_columns()?;
         self.ensure_request_log_image_results_column()?;
+        self.ensure_request_log_sub2api_usage_columns()?;
+        self.ensure_request_log_upstream_client_request_id_column()?;
         Ok(())
     }
 
@@ -690,6 +833,36 @@ impl Storage {
         Ok(())
     }
 
+    pub(super) fn ensure_request_log_sub2api_usage_columns(&self) -> Result<()> {
+        self.ensure_column("request_logs", "aggregate_api_id", "TEXT")?;
+        self.ensure_column("request_logs", "upstream_actual_cost", "REAL")?;
+        self.ensure_column("request_logs", "upstream_total_cost", "REAL")?;
+        self.ensure_column("request_logs", "upstream_duration_ms", "INTEGER")?;
+        self.ensure_column(
+            "request_logs",
+            "upstream_first_response_ms",
+            "INTEGER",
+        )?;
+        self.ensure_column("request_logs", "upstream_usage_synced_at", "INTEGER")?;
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_request_logs_aggregate_api_trace_id
+             ON request_logs(aggregate_api_id, trace_id)",
+            [],
+        )?;
+        Ok(())
+    }
+
+    pub(super) fn ensure_request_log_upstream_client_request_id_column(&self) -> Result<()> {
+        // 中文注释：面板会忽略客户端传入的请求 ID，回填只能靠它响应头里带回来的 client request id 对齐记录。
+        self.ensure_column("request_logs", "upstream_client_request_id", "TEXT")?;
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_request_logs_aggregate_api_upstream_client_request_id
+             ON request_logs(aggregate_api_id, upstream_client_request_id)",
+            [],
+        )?;
+        Ok(())
+    }
+
     pub(super) fn ensure_request_log_request_type_and_service_tier_columns(&self) -> Result<()> {
         self.ensure_column("request_logs", "request_type", "TEXT")?;
         self.ensure_column("request_logs", "service_tier", "TEXT")?;
@@ -808,37 +981,43 @@ fn map_request_log_row(row: &Row<'_>) -> Result<RequestLog> {
         initial_account_id: row.get(3)?,
         attempted_account_ids_json: row.get(4)?,
         initial_aggregate_api_id: row.get(5)?,
-        attempted_aggregate_api_ids_json: row.get(6)?,
-        aggregate_api_attempt_failures_json: row.get(7)?,
-        request_path: row.get(8)?,
-        original_path: row.get(9)?,
-        adapted_path: row.get(10)?,
-        method: row.get(11)?,
-        request_type: row.get(12)?,
-        model: row.get(13)?,
-        model_type: row.get(14)?,
-        image_count: row.get(15)?,
-        image_size: row.get(16)?,
-        image_results_json: row.get(17)?,
-        reasoning_effort: row.get(18)?,
-        service_tier: row.get(19)?,
-        effective_service_tier: row.get(20)?,
-        response_adapter: row.get(21)?,
-        upstream_url: row.get(22)?,
-        aggregate_api_supplier_name: row.get(23)?,
-        aggregate_api_url: row.get(24)?,
-        status_code: row.get(25)?,
-        duration_ms: row.get(26)?,
-        first_response_ms: row.get(27)?,
-        queue_wait_ms: row.get(28)?,
-        input_tokens: row.get(29)?,
-        cached_input_tokens: row.get(30)?,
-        output_tokens: row.get(31)?,
-        total_tokens: row.get(32)?,
-        reasoning_output_tokens: row.get(33)?,
-        estimated_cost_usd: row.get(34)?,
-        error: row.get(35)?,
-        created_at: row.get(36)?,
+        aggregate_api_id: row.get(6)?,
+        attempted_aggregate_api_ids_json: row.get(7)?,
+        aggregate_api_attempt_failures_json: row.get(8)?,
+        request_path: row.get(9)?,
+        original_path: row.get(10)?,
+        adapted_path: row.get(11)?,
+        method: row.get(12)?,
+        request_type: row.get(13)?,
+        model: row.get(14)?,
+        model_type: row.get(15)?,
+        image_count: row.get(16)?,
+        image_size: row.get(17)?,
+        image_results_json: row.get(18)?,
+        reasoning_effort: row.get(19)?,
+        service_tier: row.get(20)?,
+        effective_service_tier: row.get(21)?,
+        response_adapter: row.get(22)?,
+        upstream_url: row.get(23)?,
+        aggregate_api_supplier_name: row.get(24)?,
+        aggregate_api_url: row.get(25)?,
+        status_code: row.get(26)?,
+        duration_ms: row.get(27)?,
+        first_response_ms: row.get(28)?,
+        queue_wait_ms: row.get(29)?,
+        upstream_actual_cost: row.get(30)?,
+        upstream_total_cost: row.get(31)?,
+        upstream_duration_ms: row.get(32)?,
+        upstream_first_response_ms: row.get(33)?,
+        upstream_usage_synced_at: row.get(34)?,
+        upstream_client_request_id: None,
+        input_tokens: row.get(35)?,
+        cached_input_tokens: row.get(36)?,
+        output_tokens: row.get(37)?,
+        total_tokens: row.get(38)?,
+        reasoning_output_tokens: row.get(39)?,
+        error: row.get(40)?,
+        created_at: row.get(41)?,
     })
 }
 
@@ -986,7 +1165,7 @@ fn append_request_log_query_clause(
                     OR IFNULL(CAST(t.output_tokens AS TEXT),'') LIKE ?
                     OR IFNULL(CAST(t.total_tokens AS TEXT),'') LIKE ?
                     OR IFNULL(CAST(t.reasoning_output_tokens AS TEXT),'') LIKE ?
-                    OR IFNULL(CAST(t.estimated_cost_usd AS TEXT),'') LIKE ?)"
+                    OR IFNULL(CAST(r.upstream_actual_cost AS TEXT),'') LIKE ?)"
                     .to_string(),
             );
             for _ in 0..28 {

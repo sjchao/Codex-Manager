@@ -29,7 +29,7 @@ import { accountClient } from "@/lib/api/account-client";
 import { copyTextToClipboard } from "@/lib/utils/clipboard";
 import { useAppStore } from "@/lib/store/useAppStore";
 import { useRuntimeCapabilities } from "@/hooks/useRuntimeCapabilities";
-import { AggregateApi } from "@/types";
+import { AggregateApi, Sub2ApiAccount } from "@/types";
 
 const AGGREGATE_API_PROVIDER_LABELS: Record<string, string> = {
   codex: "Codex",
@@ -40,6 +40,9 @@ const AGGREGATE_API_URL_PLACEHOLDERS: Record<string, string> = {
   codex: "例如：https://api.openai.com/v1",
   claude: "例如：https://api.anthropic.com/v1",
 };
+
+const formatSub2apiAccountLabel = (account: Sub2ApiAccount) =>
+  `${account.accountName || account.accountEmail || "未命名账户"} · ${account.baseUrl}`;
 
 interface AggregateApiModalProps {
   open: boolean;
@@ -95,6 +98,8 @@ export function AggregateApiModal({
   const [actionCustomEnabled, setActionCustomEnabled] = useState(false);
   const [action, setAction] = useState("");
   const [key, setKey] = useState("");
+  const [sub2apiAccounts, setSub2apiAccounts] = useState<Sub2ApiAccount[]>([]);
+  const [sub2apiAccountId, setSub2apiAccountId] = useState("");
   const [generatedKey, setGeneratedKey] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isRefreshingModels, setIsRefreshingModels] = useState(false);
@@ -103,6 +108,13 @@ export function AggregateApiModal({
   const unavailableMessage = canAccessManagementRpc
     ? "服务未连接，聚合 API 暂不可编辑；连接恢复后可继续操作。"
     : "当前运行环境暂不支持聚合 API 管理。";
+
+  const resolveSub2apiAccountLabel = (value: unknown) => {
+    const id = String(value || "");
+    if (!id || id === "none") return "未绑定";
+    const account = sub2apiAccounts.find((item) => item.id === id);
+    return account ? formatSub2apiAccountLabel(account) : "未命名账户";
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -164,8 +176,12 @@ export function AggregateApiModal({
     setKey("");
     setUsername("");
     setPassword("");
+    setSub2apiAccountId(aggregateApi?.sub2apiAccountId || "");
     setGeneratedKey("");
-  }, [aggregateApi, defaultSort, open]);
+    if (open && isServiceReady) {
+      void accountClient.listSub2Api().then(setSub2apiAccounts).catch(() => setSub2apiAccounts([]));
+    }
+  }, [aggregateApi, defaultSort, open, isServiceReady]);
 
   const mergeModels = (models: string[]) => {
     const next: string[] = [];
@@ -338,6 +354,7 @@ export function AggregateApiModal({
           action: actionCustomEnabled ? action.trim() : null,
           username: authType === "userpass" ? username.trim() || null : null,
           password: authType === "userpass" ? password.trim() || null : null,
+          sub2apiAccountId: sub2apiAccountId || null,
         });
         toast.success("聚合 API 已更新");
         await Promise.all([
@@ -364,6 +381,7 @@ export function AggregateApiModal({
         action: actionCustomEnabled ? action.trim() : null,
         username: authType === "userpass" ? username.trim() : null,
         password: authType === "userpass" ? password.trim() : null,
+        sub2apiAccountId: sub2apiAccountId || null,
       });
       setGeneratedKey(result.key);
       toast.success("聚合 API 已创建");
@@ -640,6 +658,24 @@ export function AggregateApiModal({
                   </div>
                 </div>
               )}
+
+              <div className="grid gap-2">
+                <Label htmlFor="aggregate-api-sub2api">Sub2API 账户</Label>
+                <Select value={sub2apiAccountId || "none"} disabled={!isServiceReady} onValueChange={(value) => setSub2apiAccountId(value === "none" || !value ? "" : value)}>
+                  <SelectTrigger id="aggregate-api-sub2api" className="w-full">
+                    <SelectValue>{resolveSub2apiAccountLabel}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">未绑定</SelectItem>
+                    {sub2apiAccounts.map((account) => (
+                      <SelectItem key={account.id} value={account.id}>
+                        {formatSub2apiAccountLabel(account)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] leading-4 text-muted-foreground">用量、余额和上游耗时将从所选 Sub2API 账户同步。</p>
+              </div>
 
               <div className="grid gap-4 xl:grid-cols-2">
                 <div className="grid gap-3 rounded-xl border border-border/60 bg-muted/20 p-3">

@@ -10,6 +10,7 @@ use crate::storage_helpers;
 
 mod account;
 mod aggregate_api;
+mod sub2api;
 mod apikey;
 mod app_settings;
 mod gateway;
@@ -220,6 +221,9 @@ pub(crate) fn handle_request(req: JsonRpcRequest) -> JsonRpcMessage {
         return JsonRpcMessage::Response(resp);
     }
     if let Some(resp) = aggregate_api::try_handle(&req) {
+        return JsonRpcMessage::Response(resp);
+    }
+    if let Some(resp) = sub2api::try_handle(&req) {
         return JsonRpcMessage::Response(resp);
     }
     if let Some(resp) = apikey::try_handle(&req) {

@@ -1234,7 +1234,7 @@ function buildSummaryPlaceholder(logs: RequestLog[]): RequestLogFilterSummary {
     0
   );
   const totalCostUsd = logs.reduce(
-    (sum, item) => sum + Math.max(0, item.estimatedCostUsd || 0),
+    (sum, item) => sum + Math.max(0, item.upstreamActualCost || 0),
     0
   );
 
@@ -1721,7 +1721,7 @@ function LogsPageContent() {
               </div>
             </CardHeader>
             <CardContent className="px-0">
-              <Table className={cn("table-fixed", modelTypeFilter === "image" ? "min-w-[1580px]" : "min-w-[1450px]")}>
+              <Table className={cn("table-fixed", modelTypeFilter === "image" ? "min-w-[1620px]" : "min-w-[1490px]")}>
             <TableHeader>
               <TableRow>
                 <TableHead className="h-12 w-[150px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
@@ -1739,8 +1739,8 @@ function LogsPageContent() {
                 <TableHead className="w-[92px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
                   状态
                 </TableHead>
-                <TableHead className="w-[128px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                  用时 / 首响
+                <TableHead className="w-[168px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+                  本地 / 上游耗时·首响
                 </TableHead>
                 <TableHead className="w-[110px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
                   排队等待
@@ -1838,13 +1838,28 @@ function LogsPageContent() {
                       {getStatusBadge(resolveDisplayedStatusCode(log))}
                     </TableCell>
                     <TableCell className="px-4 py-3 align-top font-mono">
-                      <span
+                      <div
                         className="text-xs text-primary"
-                        title="首响表示从请求开始到首个上游响应片段的耗时"
+                        title="本地：Codex Manager 从接收请求到结束 / 观测到首个上游响应片段的耗时"
                       >
-                        {formatDuration(log.durationMs)}/
+                        本地 {formatDuration(log.durationMs)}/
                         {formatDuration(log.firstResponseMs)}
-                      </span>
+                      </div>
+                      <div
+                        className="mt-1 text-[10px] text-emerald-600 dark:text-emerald-400"
+                        title="上游：Sub2API usage 返回的 duration_ms / first_token_ms"
+                      >
+                        上游 {formatDuration(log.upstreamDurationMs)}/
+                        {formatDuration(log.upstreamFirstResponseMs)}
+                      </div>
+                      {log.upstreamActualCost != null ? (
+                        <div
+                          className="mt-1 text-[10px] text-muted-foreground"
+                          title="Sub2API actual_cost，真实账单金额"
+                        >
+                          真实 ${log.upstreamActualCost.toFixed(6)}
+                        </div>
+                      ) : null}
                     </TableCell>
                     <TableCell className="px-4 py-3 font-mono text-muted-foreground">
                       {formatDuration(log.queueWaitMs)}

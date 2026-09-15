@@ -6,6 +6,8 @@ import {
   normalizeAggregateApiModelCatalogResult,
   normalizeAggregateApiSecretResult,
   normalizeAggregateApiTestResult,
+  normalizeAggregateApiUsageSummary,
+  normalizeSub2ApiAccountList,
   normalizeApiKeyCreateResult,
   normalizeApiKeyList,
   normalizeApiKeyUsageStats,
@@ -23,6 +25,7 @@ import {
   AggregateApiModelCatalogResult,
   AggregateApiSecretResult,
   AggregateApiTestResult,
+  AggregateApiUsageSummary,
   ApiKey,
   ApiKeyCreateResult,
   ApiKeyUsageStat,
@@ -32,6 +35,7 @@ import {
   LoginStartResult,
   ModelOption,
   UsageAggregateSummary,
+  Sub2ApiAccount,
 } from "../../types";
 
 interface AccountImportResult {
@@ -119,6 +123,7 @@ interface AggregateApiPayload {
   action?: string | null;
   username?: string | null;
   password?: string | null;
+  sub2apiAccountId?: string | null;
 }
 
 const MAX_IMPORT_RPC_BODY_BYTES = 4 * 1024 * 1024;
@@ -486,6 +491,7 @@ export const accountClient = {
         action: params.action || null,
         username: params.username || null,
         password: params.password || null,
+        sub2apiAccountId: params.sub2apiAccountId || null,
       })
     );
     return normalizeAggregateApiCreateResult(result);
@@ -515,6 +521,7 @@ export const accountClient = {
         action: params.action || null,
         username: params.username || null,
         password: params.password || null,
+        sub2apiAccountId: params.sub2apiAccountId || null,
       })
     ),
   deleteAggregateApi: (apiId: string) =>
@@ -554,6 +561,52 @@ export const accountClient = {
     );
     return normalizeAggregateApiModelCatalogResult(result);
   },
+  async getAggregateApiUsageSummary(): Promise<AggregateApiUsageSummary> {
+    const result = await invoke<unknown>(
+      "service_aggregate_api_usage_summary",
+      withAddr()
+    );
+    return normalizeAggregateApiUsageSummary(result);
+  },
+  async syncAggregateApiUsage(): Promise<AggregateApiUsageSummary> {
+    const result = await invoke<unknown>(
+      "service_aggregate_api_usage_sync",
+      withAddr(),
+      { timeoutMs: 120_000, retries: 0 }
+    );
+    return normalizeAggregateApiUsageSummary(result);
+  },
+  updateAggregateApiUsageCredentials: (
+    apiId: string,
+    params: { authToken: string; refreshToken?: string | null; tokenExpiresAt?: number | null }
+  ) =>
+    invoke(
+      "service_aggregate_api_usage_credentials_update",
+      withAddr({
+        id: apiId,
+        authToken: params.authToken,
+        refreshToken: params.refreshToken || null,
+        tokenExpiresAt:
+          typeof params.tokenExpiresAt === "number" ? params.tokenExpiresAt : null,
+      })
+  ),
+  async listSub2Api(): Promise<Sub2ApiAccount[]> {
+    const result = await invoke<unknown>("service_sub2api_list", withAddr());
+    return normalizeSub2ApiAccountList(result);
+  },
+  async createSub2Api(params: { baseUrl: string; authToken: string; refreshToken?: string | null; tokenExpiresAt?: number | null }) {
+    const result = await invoke<unknown>("service_sub2api_create", withAddr({
+      baseUrl: params.baseUrl, authToken: params.authToken, refreshToken: params.refreshToken || null,
+      tokenExpiresAt: typeof params.tokenExpiresAt === "number" ? params.tokenExpiresAt : null,
+    }), { timeoutMs: 120_000, retries: 0 });
+    return result;
+  },
+  async updateSub2Api(id: string, params: { baseUrl: string; authToken?: string | null; refreshToken?: string | null; tokenExpiresAt?: number | null }) {
+    return invoke("service_sub2api_update", withAddr({ id, baseUrl: params.baseUrl, authToken: params.authToken || null, refreshToken: params.refreshToken || null, tokenExpiresAt: typeof params.tokenExpiresAt === "number" ? params.tokenExpiresAt : null }), { timeoutMs: 120_000, retries: 0 });
+  },
+  async deleteSub2Api(id: string) { return invoke("service_sub2api_delete", withAddr({ id })); },
+  async syncSub2Api(id: string) { return invoke("service_sub2api_sync", withAddr({ id }), { timeoutMs: 120_000, retries: 0 }); },
+  async syncAllSub2Api() { const result = await invoke<unknown>("service_sub2api_sync_all", withAddr(), { timeoutMs: 120_000, retries: 0 }); return normalizeSub2ApiAccountList(result); },
 
   async listApiKeys(): Promise<ApiKey[]> {
     const result = await invoke<unknown>("service_apikey_list", withAddr());

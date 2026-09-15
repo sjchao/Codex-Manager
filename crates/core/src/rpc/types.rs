@@ -379,8 +379,8 @@ pub struct ApiKeyUsageStatSummary {
     pub key_id: String,
     pub today_tokens: i64,
     pub total_tokens: i64,
-    pub today_estimated_cost_usd: f64,
-    pub estimated_cost_usd: f64,
+    pub today_actual_cost_usd: f64,
+    pub actual_cost_usd: f64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -421,6 +421,72 @@ pub struct AggregateApiSummary {
     pub last_test_at: Option<i64>,
     pub last_test_status: Option<String>,
     pub last_test_error: Option<String>,
+    pub usage_sync_configured: bool,
+    pub usage_last_sync_at: Option<i64>,
+    pub usage_last_sync_status: Option<String>,
+    pub usage_last_sync_error: Option<String>,
+    pub sub2api_account_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Sub2ApiAccountSummary {
+    pub id: String,
+    pub base_url: String,
+    pub token_expires_at: Option<i64>,
+    pub account_name: Option<String>,
+    pub account_email: Option<String>,
+    pub balance: Option<f64>,
+    pub today_actual_cost: Option<f64>,
+    pub today_total_cost: Option<f64>,
+    pub today_request_count: Option<i64>,
+    pub updated_at: i64,
+    pub last_sync_at: Option<i64>,
+    pub last_sync_status: Option<String>,
+    pub last_sync_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Sub2ApiAccountListResult {
+    pub items: Vec<Sub2ApiAccountSummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AggregateApiUsageDailySummary {
+    pub aggregate_api_id: String,
+    pub supplier_name: Option<String>,
+    pub url: String,
+    pub usage_date: String,
+    pub actual_cost: f64,
+    pub total_cost: Option<f64>,
+    pub request_count: Option<i64>,
+    pub synced_at: Option<i64>,
+    pub configured: bool,
+    pub last_sync_at: Option<i64>,
+    pub last_sync_status: Option<String>,
+    pub last_sync_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AggregateApiPlatformKeyUsageDailySummary {
+    pub key_id: String,
+    pub key_name: Option<String>,
+    pub group_name: Option<String>,
+    pub actual_cost: f64,
+    pub request_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AggregateApiUsageSummaryResult {
+    pub usage_date: String,
+    pub total_actual_cost: f64,
+    pub mapped_platform_key_actual_cost: f64,
+    pub items: Vec<AggregateApiUsageDailySummary>,
+    pub platform_key_items: Vec<AggregateApiPlatformKeyUsageDailySummary>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -611,6 +677,7 @@ pub struct RequestLogSummary {
     #[serde(default)]
     pub attempted_account_ids: Vec<String>,
     pub initial_aggregate_api_id: Option<String>,
+    pub aggregate_api_id: Option<String>,
     #[serde(default)]
     pub attempted_aggregate_api_ids: Vec<String>,
     #[serde(default)]
@@ -638,12 +705,16 @@ pub struct RequestLogSummary {
     pub duration_ms: Option<i64>,
     pub first_response_ms: Option<i64>,
     pub queue_wait_ms: Option<i64>,
+    pub upstream_actual_cost: Option<f64>,
+    pub upstream_total_cost: Option<f64>,
+    pub upstream_duration_ms: Option<i64>,
+    pub upstream_first_response_ms: Option<i64>,
+    pub upstream_usage_synced_at: Option<i64>,
     pub input_tokens: Option<i64>,
     pub cached_input_tokens: Option<i64>,
     pub output_tokens: Option<i64>,
     pub total_tokens: Option<i64>,
     pub reasoning_output_tokens: Option<i64>,
-    pub estimated_cost_usd: Option<f64>,
     pub error: Option<String>,
     pub created_at: i64,
 }
@@ -798,7 +869,7 @@ pub struct RequestLogTodaySummaryResult {
     pub output_tokens: i64,
     pub reasoning_output_tokens: i64,
     pub today_tokens: i64,
-    pub estimated_cost: f64,
+    pub actual_cost: f64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

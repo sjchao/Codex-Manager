@@ -65,6 +65,6 @@ pub(crate) fn read_requestlog_today_summary() -> Result<RequestLogTodaySummaryRe
         output_tokens,
         reasoning_output_tokens,
         today_tokens: non_cached_input_tokens.saturating_add(output_tokens),
-        estimated_cost: summary.estimated_cost_usd.max(0.0),
+        actual_cost: summary.actual_cost_usd.max(0.0),
     })
 }

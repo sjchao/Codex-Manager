@@ -3,7 +3,8 @@ use codexmanager_core::rpc::types::{AggregateApiListResult, JsonRpcRequest, Json
 use crate::{
     create_aggregate_api, delete_aggregate_api, disable_aggregate_api, enable_aggregate_api,
     list_aggregate_apis, read_aggregate_api_secret, test_aggregate_api_connection,
-    refresh_aggregate_api_model_catalog, update_aggregate_api,
+    read_aggregate_api_usage_summary, refresh_aggregate_api_model_catalog,
+    save_aggregate_api_usage_credentials, sync_all_aggregate_api_usage, update_aggregate_api,
 };
 
 /// 函数 `api_id_param`
@@ -56,6 +57,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
             let action = super::string_param(req, "action");
             let username = super::string_param(req, "username");
             let password = super::string_param(req, "password");
+            let sub2api_account_id = super::string_param(req, "sub2apiAccountId");
             super::value_or_error(create_aggregate_api(
                 url,
                 key,
@@ -71,6 +73,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 action,
                 username,
                 password,
+                sub2api_account_id,
             ))
         }
         "aggregateApi/update" => {
@@ -93,6 +96,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
             let action = super::string_param(req, "action");
             let username = super::string_param(req, "username");
             let password = super::string_param(req, "password");
+            let sub2api_account_id = super::string_param(req, "sub2apiAccountId");
             super::ok_or_error(update_aggregate_api(
                 api_id,
                 url,
@@ -109,6 +113,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 action,
                 username,
                 password,
+                sub2api_account_id,
             ))
         }
         "aggregateApi/readSecret" => {
@@ -134,6 +139,20 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
         "aggregateApi/refreshModels" => {
             let api_id = api_id_param(req).unwrap_or("");
             super::value_or_error(refresh_aggregate_api_model_catalog(api_id))
+        }
+        "aggregateApi/usageSummary" => super::value_or_error(read_aggregate_api_usage_summary()),
+        "aggregateApi/usageSync" => super::value_or_error(sync_all_aggregate_api_usage()),
+        "aggregateApi/usageCredentials/update" => {
+            let api_id = api_id_param(req).unwrap_or("");
+            let auth_token = super::string_param(req, "authToken");
+            let refresh_token = super::string_param(req, "refreshToken");
+            let token_expires_at = super::i64_param(req, "tokenExpiresAt");
+            super::ok_or_error(save_aggregate_api_usage_credentials(
+                api_id,
+                auth_token,
+                refresh_token,
+                token_expires_at,
+            ))
         }
         _ => return None,
     };

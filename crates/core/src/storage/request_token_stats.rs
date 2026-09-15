@@ -61,10 +61,6 @@ fn normalized_token_value(value: Option<i64>) -> i64 {
     value.unwrap_or(0).max(0)
 }
 
-fn normalized_cost_value(value: Option<f64>) -> f64 {
-    value.unwrap_or(0.0).max(0.0)
-}
-
 fn effective_total_tokens(stat: &RequestTokenStat) -> i64 {
     let total_tokens = normalized_token_value(stat.total_tokens);
     if total_tokens > 0 {
@@ -99,8 +95,7 @@ pub(super) fn upsert_request_token_daily_stats(
             cached_input_tokens,
             output_tokens,
             total_tokens,
-            reasoning_output_tokens,
-            estimated_cost_usd
+            reasoning_output_tokens
          ) VALUES (
             date(?1, 'unixepoch', 'localtime'),
             ?2,
@@ -109,8 +104,7 @@ pub(super) fn upsert_request_token_daily_stats(
             ?4,
             ?5,
             ?6,
-            ?7,
-            ?8
+            ?7
          )
          ON CONFLICT(day_key, key_id) DO UPDATE SET
             request_count = request_token_daily_stats.request_count + excluded.request_count,
@@ -121,9 +115,7 @@ pub(super) fn upsert_request_token_daily_stats(
             total_tokens = request_token_daily_stats.total_tokens + excluded.total_tokens,
             reasoning_output_tokens =
                 request_token_daily_stats.reasoning_output_tokens
-                + excluded.reasoning_output_tokens,
-            estimated_cost_usd =
-                request_token_daily_stats.estimated_cost_usd + excluded.estimated_cost_usd",
+                + excluded.reasoning_output_tokens",
         params![
             stat.created_at,
             key_id,
@@ -132,7 +124,6 @@ pub(super) fn upsert_request_token_daily_stats(
             normalized_token_value(stat.output_tokens),
             effective_total_tokens(stat),
             normalized_token_value(stat.reasoning_output_tokens),
-            normalized_cost_value(stat.estimated_cost_usd),
         ],
     )?;
     Ok(())
@@ -161,8 +152,8 @@ impl Storage {
             "INSERT INTO request_token_stats (
                 request_log_id, key_id, account_id, model,
                 input_tokens, cached_input_tokens, output_tokens, total_tokens, reasoning_output_tokens,
-                estimated_cost_usd, created_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                created_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             (
                 stat.request_log_id,
                 &stat.key_id,
@@ -173,7 +164,6 @@ impl Storage {
                 stat.output_tokens,
                 stat.total_tokens,
                 stat.reasoning_output_tokens,
-                stat.estimated_cost_usd,
                 stat.created_at,
             ),
         )?;
@@ -203,13 +193,14 @@ impl Storage {
     ) -> Result<RequestLogTodaySummary> {
         let mut stmt = self.conn.prepare(
             "SELECT
-                IFNULL(SUM(input_tokens), 0),
-                IFNULL(SUM(cached_input_tokens), 0),
-                IFNULL(SUM(output_tokens), 0),
-                IFNULL(SUM(reasoning_output_tokens), 0),
-                IFNULL(SUM(estimated_cost_usd), 0.0)
-             FROM request_token_stats
-             WHERE created_at >= ?1 AND created_at < ?2",
+                IFNULL(SUM(t.input_tokens), 0),
+                IFNULL(SUM(t.cached_input_tokens), 0),
+                IFNULL(SUM(t.output_tokens), 0),
+                IFNULL(SUM(t.reasoning_output_tokens), 0),
+                IFNULL(SUM(IFNULL(r.upstream_actual_cost, 0.0)), 0.0)
+             FROM request_token_stats t
+             LEFT JOIN request_logs r ON r.id = t.request_log_id
+             WHERE t.created_at >= ?1 AND t.created_at < ?2",
         )?;
         let mut rows = stmt.query((start_ts, end_ts))?;
         if let Some(row) = rows.next()? {
@@ -218,7 +209,7 @@ impl Storage {
                 cached_input_tokens: row.get(1)?,
                 output_tokens: row.get(2)?,
                 reasoning_output_tokens: row.get(3)?,
-                estimated_cost_usd: row.get(4)?,
+                actual_cost_usd: row.get(4)?,
             });
         }
         Ok(RequestLogTodaySummary {
@@ -226,7 +217,7 @@ impl Storage {
             cached_input_tokens: 0,
             output_tokens: 0,
             reasoning_output_tokens: 0,
-            estimated_cost_usd: 0.0,
+            actual_cost_usd: 0.0,
         })
     }
 
@@ -266,13 +257,13 @@ impl Storage {
                         CASE
                             WHEN day_key >= date(?1, 'unixepoch', 'localtime')
                                  AND day_key <= date(?2 - 1, 'unixepoch', 'localtime')
-                                THEN estimated_cost_usd
+                                THEN actual_cost_usd
                             ELSE 0.0
                         END
                     ),
                     0.0
-                ) AS today_estimated_cost_usd,
-                IFNULL(SUM(estimated_cost_usd), 0.0) AS estimated_cost_usd
+                ) AS today_actual_cost_usd,
+                IFNULL(SUM(actual_cost_usd), 0.0) AS actual_cost_usd
              FROM request_token_daily_stats
              GROUP BY key_id
              ORDER BY total_tokens DESC, key_id ASC",
@@ -284,8 +275,8 @@ impl Storage {
                 key_id: row.get(0)?,
                 today_tokens: row.get(1)?,
                 total_tokens: row.get(2)?,
-                today_estimated_cost_usd: row.get(3)?,
-                estimated_cost_usd: row.get(4)?,
+                today_actual_cost_usd: row.get(3)?,
+                actual_cost_usd: row.get(4)?,
             });
         }
         Ok(items)
@@ -369,6 +360,7 @@ impl Storage {
                 total_tokens INTEGER NOT NULL DEFAULT 0,
                 reasoning_output_tokens INTEGER NOT NULL DEFAULT 0,
                 estimated_cost_usd REAL NOT NULL DEFAULT 0.0,
+                actual_cost_usd REAL NOT NULL DEFAULT 0.0,
                 PRIMARY KEY(day_key, key_id)
             )",
             [],
@@ -388,6 +380,11 @@ impl Storage {
             "SELECT COUNT(1) FROM request_token_daily_stats",
             [],
             |row| row.get(0),
+        )?;
+        self.ensure_column(
+            "request_token_daily_stats",
+            "actual_cost_usd",
+            "REAL NOT NULL DEFAULT 0.0",
         )?;
         if summary_rows > 0 {
             return Ok(());

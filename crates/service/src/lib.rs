@@ -3,6 +3,7 @@ use codexmanager_core::rpc::types::{JsonRpcMessage, JsonRpcRequest};
 mod account;
 mod account_identity;
 mod aggregate_api;
+mod aggregate_api_usage;
 mod apikey;
 pub(crate) mod app_settings;
 mod auth;
@@ -15,6 +16,7 @@ mod requestlog;
 mod rpc_dispatch;
 mod runtime;
 mod startup_snapshot;
+mod sub2api;
 mod storage;
 mod usage;
 
@@ -32,6 +34,14 @@ pub(crate) use aggregate_api::{
     create_aggregate_api, delete_aggregate_api, disable_aggregate_api, enable_aggregate_api,
     list_aggregate_apis, read_aggregate_api_secret, refresh_aggregate_api_model_catalog,
     schedule_empty_aggregate_api_models_backfill, test_aggregate_api_connection, update_aggregate_api,
+};
+pub(crate) use aggregate_api_usage::{
+    ensure_aggregate_api_usage_polling, read_aggregate_api_usage_summary,
+    save_aggregate_api_usage_credentials, sync_all_aggregate_api_usage,
+};
+pub(crate) use sub2api::{
+    delete_sub2api_account, ensure_sub2api_token_refresh_polling, list_sub2api_accounts,
+    save_sub2api_account, sync_all_sub2api_accounts, sync_sub2api_account,
 };
 pub(crate) use apikey::create as apikey_create;
 pub(crate) use apikey::delete as apikey_delete;

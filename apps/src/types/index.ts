@@ -120,6 +120,58 @@ export interface AggregateApi {
   lastTestAt: number | null;
   lastTestStatus: string | null;
   lastTestError: string | null;
+  usageSyncConfigured: boolean;
+  usageLastSyncAt: number | null;
+  usageLastSyncStatus: string | null;
+  usageLastSyncError: string | null;
+  sub2apiAccountId: string | null;
+}
+
+export interface Sub2ApiAccount {
+  id: string;
+  baseUrl: string;
+  tokenExpiresAt: number | null;
+  accountName: string | null;
+  accountEmail: string | null;
+  balance: number | null;
+  todayActualCost: number | null;
+  todayTotalCost: number | null;
+  todayRequestCount: number | null;
+  updatedAt: number | null;
+  lastSyncAt: number | null;
+  lastSyncStatus: string | null;
+  lastSyncError: string | null;
+}
+
+export interface AggregateApiUsageDailySummary {
+  aggregateApiId: string;
+  supplierName: string | null;
+  url: string;
+  usageDate: string;
+  actualCost: number;
+  totalCost: number | null;
+  requestCount: number | null;
+  syncedAt: number | null;
+  configured: boolean;
+  lastSyncAt: number | null;
+  lastSyncStatus: string | null;
+  lastSyncError: string | null;
+}
+
+export interface AggregateApiPlatformKeyUsageDailySummary {
+  keyId: string;
+  keyName: string | null;
+  groupName: string | null;
+  actualCost: number;
+  requestCount: number;
+}
+
+export interface AggregateApiUsageSummary {
+  usageDate: string;
+  totalActualCost: number;
+  mappedPlatformKeyActualCost: number;
+  items: AggregateApiUsageDailySummary[];
+  platformKeyItems: AggregateApiPlatformKeyUsageDailySummary[];
 }
 
 export interface AggregateApiModelCatalogResult {
@@ -154,8 +206,8 @@ export interface ApiKeyUsageStat {
   keyId: string;
   todayTokens: number;
   totalTokens: number;
-  todayEstimatedCostUsd: number;
-  estimatedCostUsd: number;
+  todayActualCostUsd: number;
+  actualCostUsd: number;
 }
 
 export interface PluginCatalogTask {
@@ -276,6 +328,7 @@ export interface RequestLog {
   initialAccountId: string;
   attemptedAccountIds: string[];
   initialAggregateApiId: string;
+  aggregateApiId: string;
   attemptedAggregateApiIds: string[];
   aggregateApiAttemptFailures: RequestLogAggregateApiAttemptFailure[];
   requestPath: string;
@@ -302,10 +355,14 @@ export interface RequestLog {
   outputTokens: number | null;
   totalTokens: number | null;
   reasoningOutputTokens: number | null;
-  estimatedCostUsd: number | null;
   durationMs: number | null;
   firstResponseMs: number | null;
   queueWaitMs: number | null;
+  upstreamActualCost: number | null;
+  upstreamTotalCost: number | null;
+  upstreamDurationMs: number | null;
+  upstreamFirstResponseMs: number | null;
+  upstreamUsageSyncedAt: number | null;
   error: string;
   createdAt: number | null;
 }
@@ -362,7 +419,7 @@ export interface RequestLogTodaySummary {
   outputTokens: number;
   reasoningOutputTokens: number;
   todayTokens: number;
-  estimatedCost: number;
+  actualCost: number;
 }
 
 export interface DeviceAuthInfo {

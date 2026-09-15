@@ -51,6 +51,7 @@ pub async fn service_aggregate_api_create(
     action: Option<String>,
     username: Option<String>,
     password: Option<String>,
+    sub2api_account_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let params = serde_json::json!({
         "providerType": provider_type,
@@ -67,6 +68,7 @@ pub async fn service_aggregate_api_create(
         "action": action,
         "username": username,
         "password": password,
+        "sub2apiAccountId": sub2api_account_id,
     });
     rpc_call_in_background("aggregateApi/create", addr, Some(params)).await
 }
@@ -106,6 +108,7 @@ pub async fn service_aggregate_api_update(
     action: Option<String>,
     username: Option<String>,
     password: Option<String>,
+    sub2api_account_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let params = serde_json::json!({
         "id": id,
@@ -123,6 +126,7 @@ pub async fn service_aggregate_api_update(
         "action": action,
         "username": username,
         "password": password,
+        "sub2apiAccountId": sub2api_account_id,
     });
     rpc_call_in_background("aggregateApi/update", addr, Some(params)).await
 }
@@ -215,4 +219,77 @@ pub async fn service_aggregate_api_refresh_models(
 ) -> Result<serde_json::Value, String> {
     let params = serde_json::json!({ "id": id });
     rpc_call_in_background("aggregateApi/refreshModels", addr, Some(params)).await
+}
+
+#[tauri::command]
+pub async fn service_aggregate_api_usage_summary(
+    addr: Option<String>,
+) -> Result<serde_json::Value, String> {
+    rpc_call_in_background("aggregateApi/usageSummary", addr, None).await
+}
+
+#[tauri::command]
+pub async fn service_aggregate_api_usage_sync(
+    addr: Option<String>,
+) -> Result<serde_json::Value, String> {
+    rpc_call_in_background("aggregateApi/usageSync", addr, None).await
+}
+
+#[tauri::command]
+pub async fn service_aggregate_api_usage_credentials_update(
+    addr: Option<String>,
+    id: String,
+    auth_token: String,
+    refresh_token: Option<String>,
+    token_expires_at: Option<i64>,
+) -> Result<serde_json::Value, String> {
+    let params = serde_json::json!({
+        "id": id,
+        "authToken": auth_token,
+        "refreshToken": refresh_token,
+        "tokenExpiresAt": token_expires_at,
+    });
+    rpc_call_in_background("aggregateApi/usageCredentials/update", addr, Some(params)).await
+}
+
+#[tauri::command]
+pub async fn service_sub2api_list(addr: Option<String>) -> Result<serde_json::Value, String> {
+    rpc_call_in_background("sub2api/list", addr, None).await
+}
+
+#[tauri::command]
+pub async fn service_sub2api_create(
+    addr: Option<String>, base_url: String, auth_token: String,
+    refresh_token: Option<String>, token_expires_at: Option<i64>,
+) -> Result<serde_json::Value, String> {
+    rpc_call_in_background("sub2api/create", addr, Some(serde_json::json!({
+        "baseUrl": base_url, "authToken": auth_token, "refreshToken": refresh_token,
+        "tokenExpiresAt": token_expires_at,
+    }))).await
+}
+
+#[tauri::command]
+pub async fn service_sub2api_update(
+    addr: Option<String>, id: String, base_url: String, auth_token: Option<String>,
+    refresh_token: Option<String>, token_expires_at: Option<i64>,
+) -> Result<serde_json::Value, String> {
+    rpc_call_in_background("sub2api/update", addr, Some(serde_json::json!({
+        "id": id, "baseUrl": base_url, "authToken": auth_token, "refreshToken": refresh_token,
+        "tokenExpiresAt": token_expires_at,
+    }))).await
+}
+
+#[tauri::command]
+pub async fn service_sub2api_delete(addr: Option<String>, id: String) -> Result<serde_json::Value, String> {
+    rpc_call_in_background("sub2api/delete", addr, Some(serde_json::json!({"id": id}))).await
+}
+
+#[tauri::command]
+pub async fn service_sub2api_sync(addr: Option<String>, id: String) -> Result<serde_json::Value, String> {
+    rpc_call_in_background("sub2api/sync", addr, Some(serde_json::json!({"id": id}))).await
+}
+
+#[tauri::command]
+pub async fn service_sub2api_sync_all(addr: Option<String>) -> Result<serde_json::Value, String> {
+    rpc_call_in_background("sub2api/syncAll", addr, None).await
 }

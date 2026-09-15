@@ -43,6 +43,6 @@ pub(crate) fn read_request_log_filter_summary(
         success_count: filtered.success_count,
         error_count: filtered.error_count,
         total_tokens: filtered.total_tokens,
-        total_cost_usd: filtered.estimated_cost_usd,
+        total_cost_usd: filtered.actual_cost_usd,
     })
 }

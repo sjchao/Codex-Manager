@@ -68,6 +68,12 @@ const WEB_COMMAND_MAP: Record<string, WebCommandDescriptor> = {
     rpcMethod: "aggregateApi/testConnection",
   },
   service_aggregate_api_refresh_models: { rpcMethod: "aggregateApi/refreshModels" },
+  service_sub2api_list: { rpcMethod: "sub2api/list" },
+  service_sub2api_create: { rpcMethod: "sub2api/create" },
+  service_sub2api_update: { rpcMethod: "sub2api/update" },
+  service_sub2api_delete: { rpcMethod: "sub2api/delete" },
+  service_sub2api_sync: { rpcMethod: "sub2api/sync" },
+  service_sub2api_sync_all: { rpcMethod: "sub2api/syncAll" },
   service_login_start: {
     rpcMethod: "account/login/start",
     mapParams: (params) => ({

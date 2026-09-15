@@ -1871,7 +1871,8 @@ fn aggregate_api_models_return_the_enabled_supported_model_union() {
                 updated_at: now,
                 last_test_at: None,
                 last_test_status: None,
-                last_test_error: None,
+            last_test_error: None,
+            sub2api_account_id: None,
             })
             .expect("insert aggregate api");
     }

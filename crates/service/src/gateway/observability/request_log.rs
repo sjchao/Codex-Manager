@@ -61,127 +61,10 @@ pub(crate) struct RequestLogTraceContext<'a> {
     pub response_adapter: Option<super::ResponseAdapter>,
     pub aggregate_api_supplier_name: Option<&'a str>,
     pub aggregate_api_url: Option<&'a str>,
+    pub aggregate_api_id: Option<&'a str>,
+    pub upstream_client_request_id: Option<&'a str>,
     pub attempted_aggregate_api_ids: Option<&'a [String]>,
     pub aggregate_api_attempt_failures: Option<&'a [AggregateApiAttemptFailure]>,
-}
-
-const MODEL_PRICE_PER_1K_TOKENS: &[(&str, f64, f64, f64)] = &[
-    // OpenAI 官方价格（单位：USD / 1K tokens）。按模型前缀匹配，越具体越靠前。
-    // GPT-5.4 mini 官方价格。
-    ("gpt-5.4-mini", 0.00075, 0.000075, 0.0045),
-    // GPT-5.4 pro 官方未提供 cached input 单价，这里按普通输入价计算，避免低估费用。
-    ("gpt-5.4-pro", 0.03, 0.03, 0.18),
-    ("gpt-5.4", 0.0025, 0.00025, 0.015),
-    // gpt-5.3-codex 作为 Anthropic 改写后的统一计费模型。
-    ("gpt-5.3-codex", 0.00175, 0.000175, 0.014),
-    // GPT-5.2 / GPT-5.2 pro 官方价格。
-    ("gpt-5.2-pro", 0.021, 0.021, 0.168),
-    ("gpt-5.2-codex", 0.00175, 0.000175, 0.014),
-    ("gpt-5.2", 0.00175, 0.000175, 0.014),
-    // GPT-5.1 Codex mini / gpt-5-codex-mini 同价。
-    ("gpt-5.1-codex-mini", 0.00025, 0.000025, 0.002),
-    ("gpt-5-codex-mini", 0.00025, 0.000025, 0.002),
-    ("gpt-5.1-codex-max", 0.00125, 0.000125, 0.01),
-    ("gpt-5.1-codex", 0.00125, 0.000125, 0.01),
-    ("gpt-5.1", 0.00125, 0.000125, 0.01),
-    ("gpt-5-mini", 0.00025, 0.000025, 0.002),
-    ("gpt-5-nano", 0.00005, 0.000005, 0.0004),
-    ("gpt-5-codex", 0.00125, 0.000125, 0.01),
-    ("gpt-5", 0.00125, 0.000125, 0.01),
-    ("gpt-4.1-nano", 0.0001, 0.000025, 0.0004),
-    ("gpt-4.1-mini", 0.0004, 0.0001, 0.0016),
-    ("gpt-4.1", 0.002, 0.0005, 0.008),
-    ("gpt-4o-mini", 0.00015, 0.000075, 0.0006),
-    // 2024-05-13 版本没有公开 cached input 单价，这里按输入同价处理，避免低估费用。
-    ("gpt-4o-2024-05-13", 0.005, 0.005, 0.015),
-    ("gpt-4o", 0.0025, 0.00125, 0.01),
-    // 兼容旧模型：缓存输入按输入同价处理，保持历史口径稳定。
-    ("gpt-4", 0.03, 0.03, 0.06),
-    // o3 / o3-mini / o3-pro / o3-deep-research 官方价格。
-    ("o3-deep-research", 0.01, 0.0025, 0.04),
-    ("o3-pro", 0.02, 0.02, 0.08),
-    ("o3-mini", 0.0011, 0.00055, 0.0044),
-    ("o3", 0.002, 0.0005, 0.008),
-    ("claude-3-7", 0.003, 0.003, 0.015),
-    ("claude-3-5", 0.003, 0.003, 0.015),
-    ("claude-3", 0.003, 0.003, 0.015),
-];
-
-/// 函数 `resolve_model_price_per_1k`
-///
-/// 作者: gaohongshun
-///
-/// 时间: 2026-04-02
-///
-/// # 参数
-/// - normalized: 参数 normalized
-/// - input_tokens_total: 参数 input_tokens_total
-///
-/// # 返回
-/// 返回函数执行结果
-fn resolve_model_price_per_1k(
-    normalized: &str,
-    input_tokens_total: i64,
-) -> Option<(f64, f64, f64)> {
-    // OpenAI 官方定价：gpt-5.4 / gpt-5.4-pro 在输入超过 272K 时切换到更高档位。
-    if normalized.starts_with("gpt-5.4-pro") {
-        if input_tokens_total > 272_000 {
-            return Some((0.06, 0.06, 0.27));
-        }
-        return Some((0.03, 0.03, 0.18));
-    }
-    if normalized == "gpt-5.4" {
-        if input_tokens_total > 272_000 {
-            return Some((0.005, 0.0005, 0.0225));
-        }
-        return Some((0.0025, 0.00025, 0.015));
-    }
-    MODEL_PRICE_PER_1K_TOKENS
-        .iter()
-        .find(|(prefix, _, _, _)| normalized.starts_with(prefix))
-        .map(|(_, input, cached_input, output)| (*input, *cached_input, *output))
-}
-
-/// 函数 `estimate_cost_usd`
-///
-/// 作者: gaohongshun
-///
-/// 时间: 2026-04-02
-///
-/// # 参数
-/// - model: 参数 model
-/// - input_tokens: 参数 input_tokens
-/// - cached_input_tokens: 参数 cached_input_tokens
-/// - output_tokens: 参数 output_tokens
-///
-/// # 返回
-/// 返回函数执行结果
-fn estimate_cost_usd(
-    model: Option<&str>,
-    input_tokens: Option<i64>,
-    cached_input_tokens: Option<i64>,
-    output_tokens: Option<i64>,
-) -> f64 {
-    let normalized = model
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(|value| value.to_ascii_lowercase());
-    let Some(normalized) = normalized else {
-        return 0.0;
-    };
-    let input_tokens_total = input_tokens.unwrap_or(0).max(0);
-    let Some((in_per_1k, cached_in_per_1k, out_per_1k)) =
-        resolve_model_price_per_1k(&normalized, input_tokens_total)
-    else {
-        return 0.0;
-    };
-    let in_tokens_total = input_tokens_total as f64;
-    let cached_in_tokens = (cached_input_tokens.unwrap_or(0).max(0) as f64).min(in_tokens_total);
-    let billable_in_tokens = (in_tokens_total - cached_in_tokens).max(0.0);
-    let out_tokens = output_tokens.unwrap_or(0).max(0) as f64;
-    (billable_in_tokens / 1000.0) * in_per_1k
-        + (cached_in_tokens / 1000.0) * cached_in_per_1k
-        + (out_tokens / 1000.0) * out_per_1k
 }
 
 /// 函数 `normalize_token`
@@ -378,8 +261,6 @@ pub(crate) fn write_request_log_with_attempts(
     let first_response_ms = usage.first_response_ms.map(|value| value.max(0));
     let queue_wait_ms = normalize_duration_ms(trace_context.queue_wait_ms);
     let created_at = now_ts();
-    let estimated_cost_usd =
-        estimate_cost_usd(model, input_tokens, cached_input_tokens, output_tokens);
     let request_type = trace_context
         .request_type
         .map(str::trim)
@@ -458,6 +339,7 @@ pub(crate) fn write_request_log_with_attempts(
             initial_account_id: initial_account_id.map(str::to_string),
             attempted_account_ids_json,
             initial_aggregate_api_id: initial_aggregate_api_id.map(str::to_string),
+            aggregate_api_id: trace_context.aggregate_api_id.map(str::to_string),
             attempted_aggregate_api_ids_json,
             aggregate_api_attempt_failures_json,
             request_path: request_path.to_string(),
@@ -486,12 +368,19 @@ pub(crate) fn write_request_log_with_attempts(
             duration_ms,
             first_response_ms,
             queue_wait_ms,
+            upstream_actual_cost: None,
+            upstream_total_cost: None,
+            upstream_duration_ms: None,
+            upstream_first_response_ms: None,
+            upstream_usage_synced_at: None,
+            upstream_client_request_id: trace_context
+                .upstream_client_request_id
+                .map(str::to_string),
             input_tokens: None,
             cached_input_tokens: None,
             output_tokens: None,
             total_tokens: None,
             reasoning_output_tokens: None,
-            estimated_cost_usd: None,
             error: error.map(|v| v.to_string()),
             created_at,
         },
@@ -505,7 +394,6 @@ pub(crate) fn write_request_log_with_attempts(
             output_tokens,
             total_tokens,
             reasoning_output_tokens,
-            estimated_cost_usd: Some(estimated_cost_usd),
             created_at,
         },
     ) {

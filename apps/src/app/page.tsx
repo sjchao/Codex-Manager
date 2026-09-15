@@ -363,11 +363,11 @@ export default function DashboardPage() {
             sub: "大模型思考过程",
           },
           {
-            title: "预计费用",
+            title: "今日消费",
             value: `$${Number(stats.todayCost || 0).toFixed(2)}`,
             icon: DollarSign,
             color: "text-emerald-500",
-            sub: "按官价估算",
+            sub: "Sub2API 真实花费",
           },
         ].map((card) => (
           isLoading ? (

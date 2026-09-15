@@ -130,6 +130,11 @@ fn aggregate_api_summary_serialization_includes_weight_and_supported_models() {
         last_test_at: None,
         last_test_status: None,
         last_test_error: None,
+        usage_sync_configured: false,
+        usage_last_sync_at: None,
+        usage_last_sync_status: None,
+        usage_last_sync_error: None,
+        sub2api_account_id: None,
     };
 
     let value = serde_json::to_value(summary).expect("serialize aggregate api summary");
@@ -223,7 +228,6 @@ fn request_log_summary_serialization_includes_trace_route_fields() {
         output_tokens: Some(3),
         total_tokens: Some(13),
         reasoning_output_tokens: Some(1),
-        estimated_cost_usd: Some(0.12),
         error: Some("internal_error".to_string()),
         created_at: 1,
         ..Default::default()
@@ -337,7 +341,6 @@ fn request_log_list_result_serialization_includes_pagination_fields() {
             output_tokens: Some(2),
             total_tokens: Some(12),
             reasoning_output_tokens: Some(1),
-            estimated_cost_usd: Some(0.12),
             error: None,
             created_at: 1,
             ..Default::default()
@@ -409,8 +412,8 @@ fn api_key_usage_stat_summary_serialization_uses_camel_case() {
         key_id: "gk_test".to_string(),
         today_tokens: 12,
         total_tokens: 123,
-        today_estimated_cost_usd: 0.45,
-        estimated_cost_usd: 4.56,
+        today_actual_cost_usd: 0.45,
+        actual_cost_usd: 4.56,
     };
 
     let value = serde_json::to_value(result).expect("serialize api key usage stat summary");
@@ -421,8 +424,8 @@ fn api_key_usage_stat_summary_serialization_uses_camel_case() {
         "keyId",
         "todayTokens",
         "totalTokens",
-        "todayEstimatedCostUsd",
-        "estimatedCostUsd",
+        "todayActualCostUsd",
+        "actualCostUsd",
     ] {
         assert!(obj.contains_key(key), "missing key: {key}");
     }

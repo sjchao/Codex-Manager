@@ -277,7 +277,19 @@ fn init_tracks_schema_migrations_and_is_idempotent() {
         )
         .expect("count 049 migration");
     assert_eq!(applied_049, 1);
+    let applied_056: i64 = storage
+        .conn
+        .query_row(
+            "SELECT COUNT(1) FROM schema_migrations WHERE version = '056_request_token_daily_stats_actual_cost'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count 056 migration");
+    assert_eq!(applied_056, 1);
 
+    assert!(storage
+        .has_column("request_token_daily_stats", "actual_cost_usd")
+        .expect("check request_token_daily_stats.actual_cost_usd"));
     assert!(!storage
         .has_column("accounts", "note")
         .expect("check accounts.note"));

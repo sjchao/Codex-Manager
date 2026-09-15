@@ -676,6 +676,7 @@ fn build_aggregate_api_request(
     secret: &str,
     auth_config: &AggregateApiAuthConfig,
     injected_headers: &HashSet<String>,
+    trace_id: &str,
     request_deadline: Option<Instant>,
     is_stream: bool,
 ) -> Result<reqwest::blocking::RequestBuilder, String> {
@@ -687,6 +688,10 @@ fn build_aggregate_api_request(
     }
     let request_headers = request.headers().to_vec();
     for header in &request_headers {
+        let normalized_name = normalize_header_key(header.field.as_str().into());
+        if matches!(normalized_name.as_str(), "x-request-id" | "x-client-request-id") {
+            continue;
+        }
         if should_skip_forward_header_with_overrides(
             header.field.as_str().into(),
             injected_headers,
@@ -700,6 +705,9 @@ fn build_aggregate_api_request(
             builder = builder.header(name, value);
         }
     }
+    builder = builder
+        .header("x-request-id", trace_id)
+        .header("x-client-request-id", trace_id);
 
     let secret_trimmed = secret.trim();
     match auth_config {
@@ -894,12 +902,17 @@ pub(in super::super) fn proxy_aggregate_request(
     let mut aggregate_api_attempt_failures = Vec::new();
     let mut last_attempt_url: Option<String> = None;
     let mut last_attempt_supplier_name: Option<String> = None;
+    let mut last_attempt_aggregate_api_id: Option<String> = None;
     let mut last_attempt_error: Option<String> = None;
+    // 中文注释：Sub2API 面板不认我们发出的 x-client-request-id，会自造一个并回填到用量记录里，
+    // 所以从响应头把它收下来存进请求日志，供后续按条回填真实成本时对齐。
+    let mut last_attempt_upstream_client_request_id: Option<String> = None;
     let mut last_failure_status = 502u16;
 
     let total_candidates = aggregate_api_candidates.len();
     for (candidate_idx, candidate) in aggregate_api_candidates.into_iter().enumerate() {
         attempted_aggregate_api_ids.push(candidate.id.clone());
+        last_attempt_aggregate_api_id = Some(candidate.id.clone());
         let candidate_supplier_name = candidate.supplier_name.clone();
         let candidate_url = candidate.url.clone();
         let Some(secret) = storage
@@ -982,6 +995,7 @@ pub(in super::super) fn proxy_aggregate_request(
                         effective_service_tier: effective_service_tier_for_log,
                         aggregate_api_supplier_name: candidate_supplier_name.as_deref(),
                         aggregate_api_url: Some(candidate_url.as_str()),
+                        aggregate_api_id: Some(candidate.id.as_str()),
                         attempted_aggregate_api_ids: Some(attempted_aggregate_api_ids.as_slice()),
                         aggregate_api_attempt_failures: (!aggregate_api_attempt_failures
                             .is_empty())
@@ -1042,6 +1056,7 @@ pub(in super::super) fn proxy_aggregate_request(
                 secret.as_str(),
                 &auth_config,
                 &injected_headers,
+                trace_id,
                 request_deadline,
                 is_stream,
             )?;
@@ -1087,6 +1102,8 @@ pub(in super::super) fn proxy_aggregate_request(
                     break;
                 }
             };
+            last_attempt_upstream_client_request_id =
+                first_upstream_header(upstream.headers(), &["x-client-request-id"]);
 
             if !upstream.status().is_success() {
                 let status_code = upstream.status().as_u16();
@@ -1244,10 +1261,13 @@ pub(in super::super) fn proxy_aggregate_request(
                     effective_service_tier: effective_service_tier_for_log,
                     aggregate_api_supplier_name: candidate_supplier_name.as_deref(),
                     aggregate_api_url: Some(candidate_url.as_str()),
+                    aggregate_api_id: Some(candidate.id.as_str()),
                     attempted_aggregate_api_ids: Some(attempted_aggregate_api_ids.as_slice()),
                     aggregate_api_attempt_failures: (!aggregate_api_attempt_failures
                         .is_empty())
                         .then_some(aggregate_api_attempt_failures.as_slice()),
+                    upstream_client_request_id: last_attempt_upstream_client_request_id
+                        .as_deref(),
                     ..Default::default()
                 },
                 Some(key_id),
@@ -1319,9 +1339,11 @@ pub(in super::super) fn proxy_aggregate_request(
             effective_service_tier: effective_service_tier_for_log,
             aggregate_api_supplier_name: last_attempt_supplier_name.as_deref(),
             aggregate_api_url: last_attempt_url.as_deref(),
+            aggregate_api_id: last_attempt_aggregate_api_id.as_deref(),
             attempted_aggregate_api_ids: Some(attempted_aggregate_api_ids.as_slice()),
             aggregate_api_attempt_failures: (!aggregate_api_attempt_failures.is_empty())
                 .then_some(aggregate_api_attempt_failures.as_slice()),
+            upstream_client_request_id: last_attempt_upstream_client_request_id.as_deref(),
             ..Default::default()
         },
         Some(key_id),
@@ -1378,6 +1400,7 @@ mod bridge_tests {
             last_test_at: None,
             last_test_status: None,
             last_test_error: None,
+            sub2api_account_id: None,
         }
     }
 
@@ -1582,6 +1605,7 @@ mod tests {
             last_test_at: None,
             last_test_status: None,
             last_test_error: None,
+            sub2api_account_id: None,
         }
     }
 

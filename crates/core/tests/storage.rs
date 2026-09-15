@@ -140,6 +140,7 @@ fn storage_aggregate_api_weight_roundtrip() {
         last_test_at: None,
         last_test_status: None,
         last_test_error: None,
+        sub2api_account_id: None,
     };
     storage
         .insert_aggregate_api(&aggregate_api)
@@ -197,6 +198,7 @@ fn storage_aggregate_api_list_uses_created_at_as_tiebreaker() {
             last_test_at: None,
             last_test_status: None,
             last_test_error: None,
+            sub2api_account_id: None,
         })
         .expect("insert older aggregate api");
 
@@ -218,6 +220,7 @@ fn storage_aggregate_api_list_uses_created_at_as_tiebreaker() {
             last_test_at: None,
             last_test_status: None,
             last_test_error: None,
+            sub2api_account_id: None,
         })
         .expect("insert newer aggregate api");
 
@@ -878,7 +881,6 @@ fn request_logs_support_prefixed_query_filters() {
             output_tokens: Some(7),
             total_tokens: Some(18),
             reasoning_output_tokens: Some(2),
-            estimated_cost_usd: Some(0.0),
             error: None,
             created_at: now_ts() - 2,
             ..Default::default()
@@ -909,7 +911,6 @@ fn request_logs_support_prefixed_query_filters() {
             output_tokens: Some(5),
             total_tokens: Some(14),
             reasoning_output_tokens: Some(1),
-            estimated_cost_usd: Some(0.0),
             error: None,
             created_at: now_ts() - 1,
             ..Default::default()
@@ -940,7 +941,6 @@ fn request_logs_support_prefixed_query_filters() {
             output_tokens: None,
             total_tokens: None,
             reasoning_output_tokens: None,
-            estimated_cost_usd: Some(0.0),
             error: Some("upstream timeout".to_string()),
             created_at: now_ts(),
             ..Default::default()
@@ -1053,7 +1053,7 @@ fn request_log_today_summary_reads_from_token_stats_table() {
             output_tokens: None,
             total_tokens: None,
             reasoning_output_tokens: None,
-            estimated_cost_usd: None,
+            upstream_actual_cost: Some(0.33),
             error: None,
             created_at,
             ..Default::default()
@@ -1071,7 +1071,6 @@ fn request_log_today_summary_reads_from_token_stats_table() {
             output_tokens: Some(22),
             total_tokens: Some(142),
             reasoning_output_tokens: Some(9),
-            estimated_cost_usd: Some(0.33),
             created_at,
         })
         .expect("insert token stat");
@@ -1083,7 +1082,7 @@ fn request_log_today_summary_reads_from_token_stats_table() {
     assert_eq!(summary.cached_input_tokens, 80);
     assert_eq!(summary.output_tokens, 22);
     assert_eq!(summary.reasoning_output_tokens, 9);
-    assert!(summary.estimated_cost_usd > 0.32);
+    assert!((summary.actual_cost_usd - 0.33).abs() < f64::EPSILON);
 }
 
 /// 函数 `insert_request_log_with_token_stat_writes_both_tables_in_one_call`
@@ -1128,7 +1127,7 @@ fn insert_request_log_with_token_stat_writes_both_tables_in_one_call() {
                 output_tokens: None,
                 total_tokens: None,
                 reasoning_output_tokens: None,
-                estimated_cost_usd: None,
+                upstream_actual_cost: Some(0.01),
                 error: None,
                 created_at,
                 ..Default::default()
@@ -1143,7 +1142,6 @@ fn insert_request_log_with_token_stat_writes_both_tables_in_one_call() {
                 output_tokens: Some(5),
                 total_tokens: Some(15),
                 reasoning_output_tokens: Some(1),
-                estimated_cost_usd: Some(0.01),
                 created_at,
             },
         )
@@ -1166,6 +1164,7 @@ fn insert_request_log_with_token_stat_writes_both_tables_in_one_call() {
     assert_eq!(logs[0].output_tokens, Some(5));
     assert_eq!(logs[0].total_tokens, Some(15));
     assert_eq!(logs[0].reasoning_output_tokens, Some(1));
+    assert_eq!(logs[0].upstream_actual_cost, Some(0.01));
 }
 
 /// 函数 `clear_request_logs_keeps_token_stats_for_usage_summary`
@@ -1208,7 +1207,7 @@ fn clear_request_logs_keeps_token_stats_for_usage_summary() {
             output_tokens: None,
             total_tokens: None,
             reasoning_output_tokens: None,
-            estimated_cost_usd: None,
+            upstream_actual_cost: Some(0.12),
             error: None,
             created_at,
             ..Default::default()
@@ -1225,7 +1224,6 @@ fn clear_request_logs_keeps_token_stats_for_usage_summary() {
             output_tokens: Some(20),
             total_tokens: Some(120),
             reasoning_output_tokens: Some(5),
-            estimated_cost_usd: Some(0.12),
             created_at,
         })
         .expect("insert token stat");
@@ -1242,7 +1240,7 @@ fn clear_request_logs_keeps_token_stats_for_usage_summary() {
     assert_eq!(summary.cached_input_tokens, 30);
     assert_eq!(summary.output_tokens, 20);
     assert_eq!(summary.reasoning_output_tokens, 5);
-    assert!(summary.estimated_cost_usd > 0.11);
+    assert_eq!(summary.actual_cost_usd, 0.0);
 }
 
 /// 函数 `request_token_stats_can_summarize_total_tokens_by_key`
@@ -1265,17 +1263,18 @@ fn request_token_stats_can_summarize_total_tokens_by_key() {
     let today_end = created_at + 2;
 
     for (
-        request_log_id,
-        key_id,
-        total_tokens,
-        input_tokens,
-        cached_input_tokens,
-        output_tokens,
-        estimated_cost_usd,
-        current_created_at,
+        index,
+        (
+            key_id,
+            total_tokens,
+            input_tokens,
+            cached_input_tokens,
+            output_tokens,
+            upstream_actual_cost,
+            current_created_at,
+        ),
     ) in [
         (
-            101_i64,
             "gk_alpha",
             Some(120_i64),
             None,
@@ -1285,7 +1284,6 @@ fn request_token_stats_can_summarize_total_tokens_by_key() {
             created_at,
         ),
         (
-            102_i64,
             "gk_alpha",
             None,
             Some(90_i64),
@@ -1295,7 +1293,6 @@ fn request_token_stats_can_summarize_total_tokens_by_key() {
             created_at - 86_400,
         ),
         (
-            103_i64,
             "gk_beta",
             Some(75_i64),
             None,
@@ -1304,17 +1301,27 @@ fn request_token_stats_can_summarize_total_tokens_by_key() {
             Some(0.78),
             created_at,
         ),
-        (
-            104_i64,
-            "",
-            Some(999_i64),
-            None,
-            None,
-            None,
-            Some(9.99),
-            created_at,
-        ),
-    ] {
+        ("", Some(999_i64), None, None, None, Some(9.99), created_at),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let trace_id = format!("trc-by-key-{index}");
+        let request_log_id = storage
+            .insert_request_log(&RequestLog {
+                trace_id: Some(trace_id.clone()),
+                aggregate_api_id: Some("agg-by-key".to_string()),
+                key_id: if key_id.is_empty() {
+                    None
+                } else {
+                    Some(key_id.to_string())
+                },
+                request_path: "/v1/responses".to_string(),
+                method: "POST".to_string(),
+                created_at: current_created_at,
+                ..Default::default()
+            })
+            .expect("insert request log");
         storage
             .insert_request_token_stat(&RequestTokenStat {
                 request_log_id,
@@ -1330,10 +1337,20 @@ fn request_token_stats_can_summarize_total_tokens_by_key() {
                 output_tokens,
                 total_tokens,
                 reasoning_output_tokens: Some(0),
-                estimated_cost_usd,
                 created_at: current_created_at,
             })
             .expect("insert token stat");
+        storage
+            .update_request_log_sub2api_usage_by_trace_id(
+                "agg-by-key",
+                trace_id.as_str(),
+                upstream_actual_cost,
+                None,
+                None,
+                None,
+                current_created_at,
+            )
+            .expect("sync sub2api usage");
     }
 
     let summary = storage
@@ -1344,13 +1361,13 @@ fn request_token_stats_can_summarize_total_tokens_by_key() {
     assert_eq!(summary[0].key_id, "gk_alpha");
     assert_eq!(summary[0].today_tokens, 120);
     assert_eq!(summary[0].total_tokens, 205);
-    assert!((summary[0].today_estimated_cost_usd - 0.12).abs() < f64::EPSILON);
-    assert!((summary[0].estimated_cost_usd - 0.46).abs() < f64::EPSILON);
+    assert!((summary[0].today_actual_cost_usd - 0.12).abs() < f64::EPSILON);
+    assert!((summary[0].actual_cost_usd - 0.46).abs() < f64::EPSILON);
     assert_eq!(summary[1].key_id, "gk_beta");
     assert_eq!(summary[1].today_tokens, 75);
     assert_eq!(summary[1].total_tokens, 75);
-    assert!((summary[1].today_estimated_cost_usd - 0.78).abs() < f64::EPSILON);
-    assert!((summary[1].estimated_cost_usd - 0.78).abs() < f64::EPSILON);
+    assert!((summary[1].today_actual_cost_usd - 0.78).abs() < f64::EPSILON);
+    assert!((summary[1].actual_cost_usd - 0.78).abs() < f64::EPSILON);
 }
 
 #[test]
@@ -1359,9 +1376,21 @@ fn request_token_daily_stats_updates_with_raw_insert() {
     storage.init().expect("init schema");
     let created_at = now_ts();
 
+    let request_log_id = storage
+        .insert_request_log(&RequestLog {
+            trace_id: Some("trc-daily-raw".to_string()),
+            aggregate_api_id: Some("agg-daily".to_string()),
+            key_id: Some("gk_daily".to_string()),
+            request_path: "/v1/responses".to_string(),
+            method: "POST".to_string(),
+            created_at,
+            ..Default::default()
+        })
+        .expect("insert request log");
+
     storage
         .insert_request_token_stat(&RequestTokenStat {
-            request_log_id: 201,
+            request_log_id,
             key_id: Some("gk_daily".to_string()),
             account_id: Some("acc-daily".to_string()),
             model: Some("gpt-5.3-codex".to_string()),
@@ -1370,10 +1399,21 @@ fn request_token_daily_stats_updates_with_raw_insert() {
             output_tokens: Some(20),
             total_tokens: None,
             reasoning_output_tokens: Some(4),
-            estimated_cost_usd: Some(0.21),
             created_at,
         })
         .expect("insert raw token stat");
+
+    storage
+        .update_request_log_sub2api_usage_by_trace_id(
+            "agg-daily",
+            "trc-daily-raw",
+            Some(0.21),
+            None,
+            None,
+            None,
+            created_at,
+        )
+        .expect("sync sub2api usage");
 
     let summary = storage
         .summarize_request_token_stats_by_key(created_at - 1, created_at + 1)
@@ -1382,8 +1422,66 @@ fn request_token_daily_stats_updates_with_raw_insert() {
     assert_eq!(summary[0].key_id, "gk_daily");
     assert_eq!(summary[0].today_tokens, 60);
     assert_eq!(summary[0].total_tokens, 60);
-    assert!((summary[0].today_estimated_cost_usd - 0.21).abs() < f64::EPSILON);
-    assert!((summary[0].estimated_cost_usd - 0.21).abs() < f64::EPSILON);
+    assert!((summary[0].today_actual_cost_usd - 0.21).abs() < f64::EPSILON);
+    assert!((summary[0].actual_cost_usd - 0.21).abs() < f64::EPSILON);
+}
+
+#[test]
+fn sub2api_usage_sync_matches_upstream_client_request_id() {
+    let storage = Storage::open_in_memory().expect("open in memory");
+    storage.init().expect("init schema");
+    let created_at = now_ts();
+
+    let request_log_id = storage
+        .insert_request_log(&RequestLog {
+            trace_id: Some("trc-panel-uuid".to_string()),
+            aggregate_api_id: Some("agg-uuid".to_string()),
+            key_id: Some("gk_uuid".to_string()),
+            request_path: "/v1/chat/completions".to_string(),
+            method: "POST".to_string(),
+            upstream_client_request_id: Some(
+                "d6f0c8a0-1f2e-4b3c-9d4e-5a6b7c8d9e0f".to_string(),
+            ),
+            created_at,
+            ..Default::default()
+        })
+        .expect("insert request log");
+    storage
+        .insert_request_token_stat(&RequestTokenStat {
+            request_log_id,
+            key_id: Some("gk_uuid".to_string()),
+            account_id: Some("acc-uuid".to_string()),
+            model: Some("gpt-5.3-codex".to_string()),
+            input_tokens: Some(30),
+            cached_input_tokens: None,
+            output_tokens: Some(30),
+            total_tokens: None,
+            reasoning_output_tokens: None,
+            created_at,
+        })
+        .expect("insert token stat");
+
+    // 中文注释：面板自造的 request_id 形如 client:<uuid>，同步剥离前缀后应命中 upstream_client_request_id。
+    let matched = storage
+        .update_request_log_sub2api_usage_by_trace_id(
+            "agg-uuid",
+            "d6f0c8a0-1f2e-4b3c-9d4e-5a6b7c8d9e0f",
+            Some(0.33),
+            Some(0.4),
+            Some(1200),
+            Some(300),
+            created_at,
+        )
+        .expect("sync by upstream client request id");
+    assert_eq!(matched, 1);
+
+    let summary = storage
+        .summarize_request_token_stats_by_key(created_at - 1, created_at + 1)
+        .expect("summarize by key");
+    assert_eq!(summary.len(), 1);
+    assert_eq!(summary[0].key_id, "gk_uuid");
+    assert!((summary[0].today_actual_cost_usd - 0.33).abs() < f64::EPSILON);
+    assert!((summary[0].actual_cost_usd - 0.33).abs() < f64::EPSILON);
 }
 
 #[test]
@@ -1395,9 +1493,20 @@ fn request_token_stats_prune_old_raw_rows_keeps_daily_summary_totals() {
     let old_created_at = now - 100 * 24 * 60 * 60;
     let recent_created_at = now - 10 * 24 * 60 * 60;
 
+    let old_request_log_id = storage
+        .insert_request_log(&RequestLog {
+            trace_id: Some("trc-retained-old".to_string()),
+            aggregate_api_id: Some("agg-retained".to_string()),
+            key_id: Some("gk_retained".to_string()),
+            request_path: "/v1/responses".to_string(),
+            method: "POST".to_string(),
+            created_at: old_created_at,
+            ..Default::default()
+        })
+        .expect("insert old request log");
     storage
         .insert_request_token_stat(&RequestTokenStat {
-            request_log_id: 301,
+            request_log_id: old_request_log_id,
             key_id: Some("gk_retained".to_string()),
             account_id: Some("acc-retained".to_string()),
             model: Some("gpt-5.3-codex".to_string()),
@@ -1406,13 +1515,34 @@ fn request_token_stats_prune_old_raw_rows_keeps_daily_summary_totals() {
             output_tokens: None,
             total_tokens: Some(120),
             reasoning_output_tokens: Some(2),
-            estimated_cost_usd: Some(0.12),
             created_at: old_created_at,
         })
         .expect("insert old token stat");
     storage
+        .update_request_log_sub2api_usage_by_trace_id(
+            "agg-retained",
+            "trc-retained-old",
+            Some(0.12),
+            None,
+            None,
+            None,
+            old_created_at,
+        )
+        .expect("sync old sub2api usage");
+    let recent_request_log_id = storage
+        .insert_request_log(&RequestLog {
+            trace_id: Some("trc-retained-recent".to_string()),
+            aggregate_api_id: Some("agg-retained".to_string()),
+            key_id: Some("gk_retained".to_string()),
+            request_path: "/v1/responses".to_string(),
+            method: "POST".to_string(),
+            created_at: recent_created_at,
+            ..Default::default()
+        })
+        .expect("insert recent request log");
+    storage
         .insert_request_token_stat(&RequestTokenStat {
-            request_log_id: 302,
+            request_log_id: recent_request_log_id,
             key_id: Some("gk_retained".to_string()),
             account_id: Some("acc-retained".to_string()),
             model: Some("gpt-5.3-codex".to_string()),
@@ -1421,10 +1551,20 @@ fn request_token_stats_prune_old_raw_rows_keeps_daily_summary_totals() {
             output_tokens: None,
             total_tokens: Some(75),
             reasoning_output_tokens: Some(1),
-            estimated_cost_usd: Some(0.34),
             created_at: recent_created_at,
         })
         .expect("insert recent token stat");
+    storage
+        .update_request_log_sub2api_usage_by_trace_id(
+            "agg-retained",
+            "trc-retained-recent",
+            Some(0.34),
+            None,
+            None,
+            None,
+            recent_created_at,
+        )
+        .expect("sync recent sub2api usage");
 
     let deleted = storage
         .maintain_request_token_stats(now)
@@ -1440,8 +1580,114 @@ fn request_token_stats_prune_old_raw_rows_keeps_daily_summary_totals() {
     assert_eq!(summary[0].key_id, "gk_retained");
     assert_eq!(summary[0].today_tokens, 75);
     assert_eq!(summary[0].total_tokens, 195);
-    assert!((summary[0].today_estimated_cost_usd - 0.34).abs() < f64::EPSILON);
-    assert!((summary[0].estimated_cost_usd - 0.46).abs() < f64::EPSILON);
+    assert!((summary[0].today_actual_cost_usd - 0.34).abs() < f64::EPSILON);
+    assert!((summary[0].actual_cost_usd - 0.46).abs() < f64::EPSILON);
+}
+
+#[test]
+fn request_token_daily_stats_accumulates_cost_delta_on_repeated_sync() {
+    let storage = Storage::open_in_memory().expect("open in memory");
+    storage.init().expect("init schema");
+    let created_at = now_ts();
+
+    let request_log_id = storage
+        .insert_request_log(&RequestLog {
+            trace_id: Some("trc-daily-delta".to_string()),
+            aggregate_api_id: Some("agg-delta".to_string()),
+            key_id: Some("gk_delta".to_string()),
+            request_path: "/v1/responses".to_string(),
+            method: "POST".to_string(),
+            created_at,
+            ..Default::default()
+        })
+        .expect("insert request log");
+    storage
+        .insert_request_token_stat(&RequestTokenStat {
+            request_log_id,
+            key_id: Some("gk_delta".to_string()),
+            account_id: Some("acc-delta".to_string()),
+            model: Some("gpt-5.3-codex".to_string()),
+            input_tokens: None,
+            cached_input_tokens: None,
+            output_tokens: None,
+            total_tokens: Some(40),
+            reasoning_output_tokens: None,
+            created_at,
+        })
+        .expect("insert token stat");
+
+    let sync = |cost: f64| {
+        storage
+            .update_request_log_sub2api_usage_by_trace_id(
+                "agg-delta",
+                "trc-daily-delta",
+                Some(cost),
+                None,
+                None,
+                None,
+                created_at,
+            )
+            .expect("sync sub2api usage");
+    };
+    let cost_for = |storage: &Storage| {
+        storage
+            .summarize_request_token_stats_by_key(created_at - 1, created_at + 1)
+            .expect("summarize daily stats")
+    };
+
+    sync(0.5);
+    let summary = cost_for(&storage);
+    assert!((summary[0].actual_cost_usd - 0.5).abs() < f64::EPSILON);
+
+    sync(0.5);
+    let summary = cost_for(&storage);
+    assert!((summary[0].actual_cost_usd - 0.5).abs() < f64::EPSILON);
+
+    sync(0.8);
+    let summary = cost_for(&storage);
+    assert!((summary[0].actual_cost_usd - 0.8).abs() < f64::EPSILON);
+    assert_eq!(summary[0].total_tokens, 40);
+}
+
+#[test]
+fn request_token_daily_stats_records_cost_for_log_without_token_stat() {
+    let storage = Storage::open_in_memory().expect("open in memory");
+    storage.init().expect("init schema");
+    let created_at = now_ts();
+
+    storage
+        .insert_request_log(&RequestLog {
+            trace_id: Some("trc-daily-no-stat".to_string()),
+            aggregate_api_id: Some("agg-no-stat".to_string()),
+            key_id: Some("gk_no_stat".to_string()),
+            request_path: "/v1/responses".to_string(),
+            method: "POST".to_string(),
+            created_at,
+            ..Default::default()
+        })
+        .expect("insert request log");
+
+    storage
+        .update_request_log_sub2api_usage_by_trace_id(
+            "agg-no-stat",
+            "trc-daily-no-stat",
+            Some(0.25),
+            None,
+            None,
+            None,
+            created_at,
+        )
+        .expect("sync sub2api usage");
+
+    let summary = storage
+        .summarize_request_token_stats_by_key(created_at - 1, created_at + 1)
+        .expect("summarize daily stats");
+    assert_eq!(summary.len(), 1);
+    assert_eq!(summary[0].key_id, "gk_no_stat");
+    assert_eq!(summary[0].today_tokens, 0);
+    assert_eq!(summary[0].total_tokens, 0);
+    assert!((summary[0].today_actual_cost_usd - 0.25).abs() < f64::EPSILON);
+    assert!((summary[0].actual_cost_usd - 0.25).abs() < f64::EPSILON);
 }
 
 /// 函数 `usage_snapshots_can_prune_history_per_account`
@@ -1646,4 +1892,46 @@ fn request_log_image_results_round_trip_through_storage() {
 
     assert_eq!(logs.len(), 1);
     assert_eq!(logs[0].image_results_json.as_deref(), Some(image_results_json));
+}
+
+/// 函数 `sub2api_accounts_stay_ordered_by_created_at_after_sync`
+///
+/// # 参数
+/// 无
+///
+/// # 返回
+/// 无
+#[test]
+fn sub2api_accounts_stay_ordered_by_created_at_after_sync() {
+    let storage = Storage::open_in_memory().expect("open in memory");
+    storage.init().expect("init schema");
+    let now = now_ts();
+    let older_id = format!("sub2api_{}_1", now - 3600);
+    let newer_id = format!("sub2api_{}_2", now);
+
+    storage
+        .upsert_sub2api_account(&older_id, "https://old.example.com", "old-token", Some("old-refresh"), None)
+        .expect("upsert older account");
+    storage
+        .upsert_sub2api_account(&newer_id, "https://new.example.com", "new-token", Some("new-refresh"), None)
+        .expect("upsert newer account");
+
+    // 中文注释：同步与刷新会更新 updated_at，列表顺序应保持不变。
+    storage
+        .update_sub2api_account_sync(&older_id, Some("旧账户"), None, Some(1.0), Some(0.5), None, Some(1), "success", None)
+        .expect("update older account sync");
+    storage
+        .update_sub2api_account_tokens(&newer_id, "rotated-token", Some("rotated-refresh"), Some(now + 7200))
+        .expect("rotate newer account token");
+
+    let accounts = storage.list_sub2api_accounts().expect("list accounts");
+    assert_eq!(accounts.len(), 2);
+    assert_eq!(accounts[0].id, older_id);
+    assert_eq!(accounts[1].id, newer_id);
+    assert!(accounts[0].created_at.is_some());
+    assert!(accounts[0].created_at <= accounts[1].created_at);
+    assert_eq!(accounts[0].account_name.as_deref(), Some("旧账户"));
+    assert_eq!(accounts[1].auth_token, "rotated-token");
+    assert_eq!(accounts[1].refresh_token.as_deref(), Some("rotated-refresh"));
+    assert_eq!(accounts[1].token_expires_at, Some(now + 7200));
 }

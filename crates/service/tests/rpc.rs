@@ -1794,7 +1794,7 @@ fn rpc_requestlog_list_and_summary_support_pagination() {
                 output_tokens: None,
                 total_tokens: None,
                 reasoning_output_tokens: None,
-                estimated_cost_usd: None,
+                upstream_actual_cost: Some(0.01),
                 error: if status_code == Some(502) {
                     Some("stream interrupted".to_string())
                 } else {
@@ -1815,7 +1815,6 @@ fn rpc_requestlog_list_and_summary_support_pagination() {
                 output_tokens: Some(2),
                 total_tokens: Some(20 + index),
                 reasoning_output_tokens: Some(0),
-                estimated_cost_usd: Some(0.01),
                 created_at,
             })
             .expect("insert token stat");

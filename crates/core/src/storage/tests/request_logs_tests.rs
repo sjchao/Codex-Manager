@@ -126,7 +126,7 @@ fn insert_request_log_with_token_stat_is_visible_via_join() {
         output_tokens: None,
         total_tokens: None,
         reasoning_output_tokens: None,
-        estimated_cost_usd: None,
+        upstream_actual_cost: Some(0.123),
         error: None,
         created_at,
         ..Default::default()
@@ -142,7 +142,6 @@ fn insert_request_log_with_token_stat_is_visible_via_join() {
         output_tokens: Some(2),
         total_tokens: Some(12),
         reasoning_output_tokens: Some(3),
-        estimated_cost_usd: Some(0.123),
         created_at,
     };
 
@@ -179,7 +178,7 @@ fn insert_request_log_with_token_stat_is_visible_via_join() {
     assert_eq!(row.output_tokens, Some(2));
     assert_eq!(row.total_tokens, Some(12));
     assert_eq!(row.reasoning_output_tokens, Some(3));
-    assert_eq!(row.estimated_cost_usd, Some(0.123));
+    assert_eq!(row.upstream_actual_cost, Some(0.123));
 }
 
 #[test]
@@ -317,7 +316,6 @@ fn token_stat_failure_still_commits_request_log() {
         output_tokens: None,
         total_tokens: None,
         reasoning_output_tokens: None,
-        estimated_cost_usd: None,
         error: None,
         created_at,
         ..Default::default()
@@ -333,7 +331,6 @@ fn token_stat_failure_still_commits_request_log() {
         output_tokens: None,
         total_tokens: None,
         reasoning_output_tokens: None,
-        estimated_cost_usd: None,
         created_at,
     };
 
@@ -401,7 +398,6 @@ fn request_logs_support_backend_pagination_and_status_filters() {
                 output_tokens: None,
                 total_tokens: None,
                 reasoning_output_tokens: None,
-                estimated_cost_usd: None,
                 error,
                 created_at,
                 ..Default::default()
@@ -418,7 +414,6 @@ fn request_logs_support_backend_pagination_and_status_filters() {
                 output_tokens: Some(2),
                 total_tokens: Some(20 + index),
                 reasoning_output_tokens: Some(0),
-                estimated_cost_usd: Some(0.01),
                 created_at,
             })
             .expect("insert token stat");
@@ -525,7 +520,7 @@ fn request_logs_filtered_summary_aggregates_counts_and_tokens() {
                 output_tokens: None,
                 total_tokens: None,
                 reasoning_output_tokens: None,
-                estimated_cost_usd: None,
+                upstream_actual_cost: Some(0.01),
                 error: error.map(|value| value.to_string()),
                 created_at,
                 ..Default::default()
@@ -542,7 +537,6 @@ fn request_logs_filtered_summary_aggregates_counts_and_tokens() {
                 output_tokens: None,
                 total_tokens,
                 reasoning_output_tokens: Some(0),
-                estimated_cost_usd: Some(0.01),
                 created_at,
             })
             .expect("insert token stat");
@@ -555,5 +549,5 @@ fn request_logs_filtered_summary_aggregates_counts_and_tokens() {
     assert_eq!(summary.success_count, 2);
     assert_eq!(summary.error_count, 1);
     assert_eq!(summary.total_tokens, 150);
-    assert_eq!(summary.estimated_cost_usd, 0.03);
+    assert_eq!(summary.actual_cost_usd, 0.03);
 }

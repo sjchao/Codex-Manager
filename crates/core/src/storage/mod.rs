@@ -112,6 +112,7 @@ pub struct RequestLog {
     pub initial_account_id: Option<String>,
     pub attempted_account_ids_json: Option<String>,
     pub initial_aggregate_api_id: Option<String>,
+    pub aggregate_api_id: Option<String>,
     pub attempted_aggregate_api_ids_json: Option<String>,
     pub aggregate_api_attempt_failures_json: Option<String>,
     pub request_path: String,
@@ -135,12 +136,17 @@ pub struct RequestLog {
     pub duration_ms: Option<i64>,
     pub first_response_ms: Option<i64>,
     pub queue_wait_ms: Option<i64>,
+    pub upstream_actual_cost: Option<f64>,
+    pub upstream_total_cost: Option<f64>,
+    pub upstream_duration_ms: Option<i64>,
+    pub upstream_first_response_ms: Option<i64>,
+    pub upstream_usage_synced_at: Option<i64>,
+    pub upstream_client_request_id: Option<String>,
     pub input_tokens: Option<i64>,
     pub cached_input_tokens: Option<i64>,
     pub output_tokens: Option<i64>,
     pub total_tokens: Option<i64>,
     pub reasoning_output_tokens: Option<i64>,
-    pub estimated_cost_usd: Option<f64>,
     pub error: Option<String>,
     pub created_at: i64,
 }
@@ -156,7 +162,6 @@ pub struct RequestTokenStat {
     pub output_tokens: Option<i64>,
     pub total_tokens: Option<i64>,
     pub reasoning_output_tokens: Option<i64>,
-    pub estimated_cost_usd: Option<f64>,
     pub created_at: i64,
 }
 
@@ -166,7 +171,7 @@ pub struct RequestLogTodaySummary {
     pub cached_input_tokens: i64,
     pub output_tokens: i64,
     pub reasoning_output_tokens: i64,
-    pub estimated_cost_usd: f64,
+    pub actual_cost_usd: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -175,7 +180,7 @@ pub struct RequestLogQuerySummary {
     pub success_count: i64,
     pub error_count: i64,
     pub total_tokens: i64,
-    pub estimated_cost_usd: f64,
+    pub actual_cost_usd: f64,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -201,8 +206,8 @@ pub struct ApiKeyTokenUsageSummary {
     pub key_id: String,
     pub today_tokens: i64,
     pub total_tokens: i64,
-    pub today_estimated_cost_usd: f64,
-    pub estimated_cost_usd: f64,
+    pub today_actual_cost_usd: f64,
+    pub actual_cost_usd: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -245,6 +250,82 @@ pub struct AggregateApi {
     pub last_test_at: Option<i64>,
     pub last_test_status: Option<String>,
     pub last_test_error: Option<String>,
+    pub sub2api_account_id: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Sub2ApiAccount {
+    pub id: String,
+    pub base_url: String,
+    pub auth_token: String,
+    pub refresh_token: Option<String>,
+    pub token_expires_at: Option<i64>,
+    pub account_name: Option<String>,
+    pub account_email: Option<String>,
+    pub balance: Option<f64>,
+    pub today_actual_cost: Option<f64>,
+    pub today_total_cost: Option<f64>,
+    pub today_request_count: Option<i64>,
+    pub created_at: Option<i64>,
+    pub updated_at: i64,
+    pub last_sync_at: Option<i64>,
+    pub last_sync_status: Option<String>,
+    pub last_sync_error: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Sub2ApiAccountSummary {
+    pub id: String,
+    pub base_url: String,
+    pub token_expires_at: Option<i64>,
+    pub account_name: Option<String>,
+    pub account_email: Option<String>,
+    pub balance: Option<f64>,
+    pub today_actual_cost: Option<f64>,
+    pub today_total_cost: Option<f64>,
+    pub today_request_count: Option<i64>,
+    pub updated_at: i64,
+    pub last_sync_at: Option<i64>,
+    pub last_sync_status: Option<String>,
+    pub last_sync_error: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AggregateApiUsageCredential {
+    pub aggregate_api_id: String,
+    pub auth_token: String,
+    pub refresh_token: Option<String>,
+    pub token_expires_at: Option<i64>,
+    pub updated_at: i64,
+    pub last_sync_at: Option<i64>,
+    pub last_sync_status: Option<String>,
+    pub last_sync_error: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AggregateApiUsageSyncStatus {
+    pub aggregate_api_id: String,
+    pub configured: bool,
+    pub last_sync_at: Option<i64>,
+    pub last_sync_status: Option<String>,
+    pub last_sync_error: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AggregateApiDailyUsage {
+    pub aggregate_api_id: String,
+    pub usage_date: String,
+    pub actual_cost: f64,
+    pub total_cost: Option<f64>,
+    pub request_count: Option<i64>,
+    pub synced_at: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct RequestLogUpstreamActualCostByKey {
+    pub key_id: String,
+    pub actual_cost: f64,
+    pub request_count: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -617,9 +698,41 @@ impl Storage {
             include_str!("../../migrations/052_request_log_image_results.sql"),
             |s| s.ensure_request_log_image_results_column(),
         )?;
+        self.apply_sql_or_compat_migration(
+            "053_sub2api_usage_sync",
+            include_str!("../../migrations/053_sub2api_usage_sync.sql"),
+            |s| {
+                s.ensure_aggregate_api_usage_tables()?;
+                s.ensure_request_log_sub2api_usage_columns()
+            },
+        )?;
+        self.apply_sql_or_compat_migration(
+            "054_sub2api_accounts",
+            include_str!("../../migrations/054_sub2api_accounts.sql"),
+            |s| {
+                s.ensure_sub2api_accounts_table()?;
+                s.ensure_aggregate_apis_table()
+            },
+        )?;
+        self.apply_sql_or_compat_migration(
+            "055_sub2api_accounts_created_at",
+            include_str!("../../migrations/055_sub2api_accounts_created_at.sql"),
+            |s| s.ensure_sub2api_accounts_created_at_column(),
+        )?;
+        self.apply_sql_or_compat_migration(
+            "056_request_token_daily_stats_actual_cost",
+            include_str!("../../migrations/056_request_token_daily_stats_actual_cost.sql"),
+            |s| s.ensure_request_token_daily_stats_table(),
+        )?;
+        self.apply_sql_or_compat_migration(
+            "057_request_logs_upstream_client_request_id",
+            include_str!("../../migrations/057_request_logs_upstream_client_request_id.sql"),
+            |s| s.ensure_request_log_upstream_client_request_id_column(),
+        )?;
         self.ensure_api_key_rotation_columns()?;
         self.ensure_api_key_group_name_column()?;
         self.ensure_aggregate_apis_table()?;
+        self.ensure_sub2api_accounts_table()?;
         self.ensure_aggregate_api_secrets_table()?;
         self.ensure_request_token_stats_table()?;
         self.ensure_request_token_daily_stats_table()?;
@@ -630,6 +743,8 @@ impl Storage {
         self.ensure_request_log_queue_wait_column()?;
         self.ensure_request_log_first_response_column()?;
         self.ensure_request_log_model_type_and_media_columns()?;
+        self.ensure_aggregate_api_usage_tables()?;
+        self.ensure_request_log_sub2api_usage_columns()?;
         let _ = self.maintain_request_token_stats_if_due();
         Ok(())
     }
