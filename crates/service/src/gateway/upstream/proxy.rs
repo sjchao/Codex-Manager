@@ -112,6 +112,7 @@ pub(in super::super) fn proxy_validated_request(
         service_tier_for_log,
         effective_service_tier_for_log,
         method,
+        ..
     } = validated;
     let started_at = Instant::now();
     let client_is_stream = is_stream;

@@ -103,6 +103,33 @@ fn fallback_model_options(model_for_log: Option<&str>) -> Vec<ModelOption> {
     }]
 }
 
+/// 函数 `filter_allowed_models`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-09-17
+///
+/// # 参数
+/// - items: 参数 items
+/// - allowed_models: 参数 allowed_models
+///
+/// # 返回
+/// 返回函数执行结果
+fn filter_allowed_models(items: Vec<ModelOption>, allowed_models: &[String]) -> Vec<ModelOption> {
+    if allowed_models.is_empty() {
+        return items;
+    }
+    items
+        .into_iter()
+        .filter(|item| {
+            let slug = item.slug.trim();
+            allowed_models
+                .iter()
+                .any(|allowed| allowed.trim().eq_ignore_ascii_case(slug))
+        })
+        .collect()
+}
+
 fn aggregate_api_provider_type(value: &str) -> &'static str {
     match value.trim().to_ascii_lowercase().replace('-', "_").as_str() {
         "claude" | "anthropic" | "anthropic_native" | "claude_code" => {
@@ -121,6 +148,20 @@ fn aggregate_api_model_options(
     } else {
         AGGREGATE_API_PROVIDER_CODEX
     };
+    collect_aggregate_api_model_options(storage, Some(provider_type))
+}
+
+/// 收集全部启用聚合 API 的模型列表（不区分供应商），供模型选择器使用。
+pub(crate) fn aggregate_api_model_options_all(
+    storage: &codexmanager_core::storage::Storage,
+) -> Vec<ModelOption> {
+    collect_aggregate_api_model_options(storage, None)
+}
+
+fn collect_aggregate_api_model_options(
+    storage: &codexmanager_core::storage::Storage,
+    provider_type: Option<&str>,
+) -> Vec<ModelOption> {
     let mut seen = HashSet::new();
     let mut items = Vec::new();
     let apis = match storage.list_aggregate_apis() {
@@ -131,9 +172,12 @@ fn aggregate_api_model_options(
         }
     };
     for api in apis {
-        if !api.status.eq_ignore_ascii_case(AGGREGATE_API_STATUS_ACTIVE)
-            || aggregate_api_provider_type(api.provider_type.as_str()) != provider_type
-        {
+        if !api.status.eq_ignore_ascii_case(AGGREGATE_API_STATUS_ACTIVE) {
+            continue;
+        }
+        if provider_type.is_some_and(|provider_type| {
+            aggregate_api_provider_type(api.provider_type.as_str()) != provider_type
+        }) {
             continue;
         }
         for model in api.supported_models {
@@ -172,6 +216,7 @@ pub(super) fn maybe_respond_local_models(
     rotation_strategy: &str,
     model_for_log: Option<&str>,
     reasoning_for_log: Option<&str>,
+    allowed_models: &[String],
     queue_wait_ms: Option<u128>,
     storage: &codexmanager_core::storage::Storage,
 ) -> Result<Option<tiny_http::Request>, String> {
@@ -267,6 +312,7 @@ pub(super) fn maybe_respond_local_models(
         }
     };
 
+    let items = filter_allowed_models(items, allowed_models);
     let output = build_openai_models_list(&items);
     super::trace_log::log_attempt_result(trace_id, "-", None, 200, None);
     super::trace_log::log_request_final(trace_id, 200, None, None, None, 0);

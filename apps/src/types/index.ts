@@ -93,6 +93,7 @@ export interface ApiKey {
   authScheme: string;
   upstreamBaseUrl: string;
   staticHeadersJson: string;
+  allowedModels: string[];
   status: string;
   createdAt: number | null;
   lastUsedAt: number | null;

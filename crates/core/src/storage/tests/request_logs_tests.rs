@@ -672,6 +672,7 @@ fn request_logs_filter_by_api_key_name_only_matches_exact_names() {
                 upstream_base_url: None,
                 static_headers_json: None,
                 key_hash: format!("hash-{id}"),
+                allowed_models: Vec::new(),
                 status: "active".to_string(),
                 created_at: 1,
                 last_used_at: None,

@@ -234,6 +234,7 @@ fn insert_api_key_record(
             upstream_base_url,
             static_headers_json: None,
             key_hash: crate::storage_helpers::hash_platform_key(platform_key),
+            allowed_models: Vec::new(),
             status: "active".to_string(),
             created_at: now,
             last_used_at: None,

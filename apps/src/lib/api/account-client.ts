@@ -106,6 +106,7 @@ interface ApiKeyPayload {
   staticHeadersJson?: string | null;
   rotationStrategy?: string | null;
   aggregateApiId?: string | null;
+  allowedModels?: string[] | null;
 }
 
 interface AggregateApiPayload {
@@ -626,6 +627,7 @@ export const accountClient = {
         staticHeadersJson: params.staticHeadersJson || null,
         rotationStrategy: params.rotationStrategy || null,
         aggregateApiId: params.aggregateApiId || null,
+        allowedModels: params.allowedModels ?? null,
       })
     );
     return normalizeApiKeyCreateResult(result);
@@ -651,6 +653,7 @@ export const accountClient = {
         staticHeadersJson: params.staticHeadersJson || null,
         rotationStrategy: params.rotationStrategy || null,
         aggregateApiId: params.aggregateApiId || null,
+        allowedModels: params.allowedModels ?? null,
       })
     ),
   disableApiKey: (keyId: string) =>
@@ -662,7 +665,20 @@ export const accountClient = {
       "service_apikey_models",
       withAddr({ refreshRemote })
     );
-    return normalizeModelOptions(result);
+    const items = normalizeModelOptions(result);
+    if (refreshRemote || items.length > 0) {
+      return items;
+    }
+    // 本地缓存为空时回源拉取一次，避免模型选择器无模型可选。
+    try {
+      const remote = await invoke<unknown>(
+        "service_apikey_models",
+        withAddr({ refreshRemote: true })
+      );
+      return normalizeModelOptions(remote);
+    } catch {
+      return items;
+    }
   },
   async readApiKeySecret(keyId: string): Promise<string> {
     const result = await invoke<{ key?: string }>(

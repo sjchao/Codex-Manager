@@ -23,7 +23,9 @@ const MODEL_CACHE_SCOPE_DEFAULT: &str = "default";
 pub(crate) fn read_model_options(refresh_remote: bool) -> Result<ApiKeyModelListResult, String> {
     let cached = read_cached_model_options()?;
     if !refresh_remote {
-        return Ok(ApiKeyModelListResult { items: cached });
+        return Ok(ApiKeyModelListResult {
+            items: with_aggregate_api_models(cached),
+        });
     }
 
     match gateway::fetch_models_for_picker() {
@@ -33,16 +35,34 @@ pub(crate) fn read_model_options(refresh_remote: bool) -> Result<ApiKeyModelList
                 let _ = save_model_options_cache(&merged_items);
             }
             Ok(ApiKeyModelListResult {
-                items: merged_items,
+                items: with_aggregate_api_models(merged_items),
             })
         }
         Err(err) => {
-            if !cached.is_empty() {
-                return Ok(ApiKeyModelListResult { items: cached });
+            let items = with_aggregate_api_models(cached);
+            if items.is_empty() {
+                return Err(err);
             }
-            Err(err)
+            Ok(ApiKeyModelListResult { items })
         }
     }
+}
+
+/// 追加启用聚合 API 的模型，避免只配置聚合 API 时模型选择器为空。
+fn with_aggregate_api_models(mut items: Vec<ModelOption>) -> Vec<ModelOption> {
+    let Some(storage) = storage_helpers::open_storage() else {
+        return items;
+    };
+    let mut seen = items
+        .iter()
+        .map(|item| item.slug.trim().to_ascii_lowercase())
+        .collect::<HashSet<_>>();
+    for item in gateway::aggregate_api_model_options_all(&storage) {
+        if seen.insert(item.slug.trim().to_ascii_lowercase()) {
+            items.push(item);
+        }
+    }
+    items
 }
 
 /// 函数 `save_model_options_cache`

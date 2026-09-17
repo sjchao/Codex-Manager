@@ -36,6 +36,7 @@ pub(crate) fn read_api_keys() -> Result<Vec<ApiKeySummary>, String> {
             auth_scheme: key.auth_scheme,
             upstream_base_url: key.upstream_base_url,
             static_headers_json: key.static_headers_json,
+            allowed_models: key.allowed_models,
             status: key.status,
             created_at: key.created_at,
             last_used_at: key.last_used_at,

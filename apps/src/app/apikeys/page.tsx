@@ -742,7 +742,19 @@ export default function ApiKeysPage() {
                           </Button>
                         </div>
                       </TableCell>
-                      <TableCell className="text-sm font-semibold">{key.name || "未命名"}</TableCell>
+                      <TableCell className="text-sm font-semibold">
+                        <div className="flex items-center gap-1.5">
+                          <span>{key.name || "未命名"}</span>
+                          {key.allowedModels.length > 0 ? (
+                            <span
+                              className="rounded border border-primary/20 bg-primary/10 px-1.5 py-0.5 text-[10px] font-normal text-primary"
+                              title={`仅允许使用模型：${key.allowedModels.join("、")}`}
+                            >
+                              限 {key.allowedModels.length} 个模型
+                            </span>
+                          ) : null}
+                        </div>
+                      </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
                         {key.groupName || "未分组"}
                       </TableCell>

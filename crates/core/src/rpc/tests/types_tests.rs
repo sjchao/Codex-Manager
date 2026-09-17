@@ -175,6 +175,7 @@ fn api_key_summary_serialization_uses_group_name_camel_case() {
         auth_scheme: "authorization_bearer".to_string(),
         upstream_base_url: None,
         static_headers_json: None,
+        allowed_models: vec!["gpt-5".to_string()],
         status: "active".to_string(),
         created_at: 1,
         last_used_at: None,
@@ -183,6 +184,10 @@ fn api_key_summary_serialization_uses_group_name_camel_case() {
     let value = serde_json::to_value(summary).expect("serialize api key summary");
     let obj = value.as_object().expect("api key summary object");
     assert_eq!(obj.get("groupName"), Some(&serde_json::Value::from("生产")));
+    assert_eq!(
+        obj.get("allowedModels"),
+        Some(&serde_json::Value::from(vec!["gpt-5"]))
+    );
 }
 
 /// 函数 `request_log_summary_serialization_includes_trace_route_fields`

@@ -20,6 +20,7 @@ mod tokens;
 mod usage;
 
 pub use aggregate_apis::normalize_supported_models;
+pub use api_keys::normalize_allowed_models;
 
 #[derive(Debug, Clone)]
 pub struct Account {
@@ -228,6 +229,7 @@ pub struct ApiKey {
     pub auth_scheme: String,
     pub upstream_base_url: Option<String>,
     pub static_headers_json: Option<String>,
+    pub allowed_models: Vec<String>,
     pub key_hash: String,
     pub status: String,
     pub created_at: i64,
@@ -753,8 +755,14 @@ impl Storage {
             include_str!("../../migrations/058_request_token_daily_model_stats.sql"),
             |s| s.ensure_request_token_daily_model_stats_table(),
         )?;
+        self.apply_sql_or_compat_migration(
+            "059_api_key_allowed_models",
+            include_str!("../../migrations/059_api_key_allowed_models.sql"),
+            |s| s.ensure_api_key_allowed_models_column(),
+        )?;
         self.ensure_api_key_rotation_columns()?;
         self.ensure_api_key_group_name_column()?;
+        self.ensure_api_key_allowed_models_column()?;
         self.ensure_aggregate_apis_table()?;
         self.ensure_sub2api_accounts_table()?;
         self.ensure_aggregate_api_secrets_table()?;

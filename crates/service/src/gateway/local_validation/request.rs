@@ -99,6 +99,43 @@ fn ensure_anthropic_model_is_listed(
     }
 }
 
+/// 函数 `ensure_api_key_allows_model`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-09-17
+///
+/// # 参数
+/// - api_key: 参数 api_key
+/// - model: 参数 model
+///
+/// # 返回
+/// 返回函数执行结果
+fn ensure_api_key_allows_model(
+    api_key: &ApiKey,
+    model: Option<&str>,
+) -> Result<(), LocalValidationError> {
+    if api_key.allowed_models.is_empty() {
+        return Ok(());
+    }
+    let Some(model) = model.map(str::trim).filter(|value| !value.is_empty()) else {
+        // /v1/models 等未携带模型名的请求不做拦截。
+        return Ok(());
+    };
+    let allowed = api_key
+        .allowed_models
+        .iter()
+        .any(|item| item.trim().eq_ignore_ascii_case(model));
+    if allowed {
+        Ok(())
+    } else {
+        Err(LocalValidationError::new(
+            403,
+            format!("model not allowed for this platform key: {model}"),
+        ))
+    }
+}
+
 /// 函数 `allow_openai_responses_path_rewrite`
 ///
 /// 作者: gaohongshun
@@ -307,6 +344,7 @@ pub(super) fn build_local_validation_result(
         );
         let incoming_headers = incoming_headers
             .with_conversation_id_override(initial_local_conversation_id.as_deref());
+        ensure_api_key_allows_model(&api_key, model_for_log.as_deref())?;
         let model_type = classify_model_for_gateway_settings(model_for_log.as_deref());
         let final_request_meta = super::super::parse_request_metadata(&rewritten_body);
         return Ok(LocalValidationResult {
@@ -324,6 +362,7 @@ pub(super) fn build_local_validation_result(
             aggregate_api_id: api_key.aggregate_api_id,
             upstream_base_url: api_key.upstream_base_url,
             static_headers_json: api_key.static_headers_json,
+            allowed_models: api_key.allowed_models,
             response_adapter: super::super::ResponseAdapter::Passthrough,
             gemini_stream_output_mode: None,
             tool_name_restore_map: super::super::ToolNameRestoreMap::default(),
@@ -427,6 +466,7 @@ pub(super) fn build_local_validation_result(
     let has_prompt_cache_key = client_request_meta.has_prompt_cache_key;
     let request_shape = client_request_meta.request_shape;
 
+    ensure_api_key_allows_model(&api_key, model_for_log.as_deref())?;
     ensure_anthropic_model_is_listed(&storage, effective_protocol_type, model_for_log.as_deref())?;
 
     Ok(LocalValidationResult {
@@ -442,6 +482,7 @@ pub(super) fn build_local_validation_result(
         protocol_type: effective_protocol_type.to_string(),
         upstream_base_url: api_key.upstream_base_url,
         static_headers_json: api_key.static_headers_json,
+        allowed_models: api_key.allowed_models,
         response_adapter,
         gemini_stream_output_mode,
         tool_name_restore_map,

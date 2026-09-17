@@ -1,5 +1,5 @@
 use codexmanager_core::rpc::types::ApiKeyCreateResult;
-use codexmanager_core::storage::{now_ts, ApiKey};
+use codexmanager_core::storage::{normalize_allowed_models, now_ts, ApiKey};
 
 use crate::apikey::service_tier::normalize_service_tier_owned;
 use crate::apikey_profile::{
@@ -33,6 +33,7 @@ pub(crate) fn create_api_key(
     static_headers_json: Option<String>,
     rotation_strategy: Option<String>,
     aggregate_api_id: Option<String>,
+    allowed_models: Option<Vec<String>>,
 ) -> Result<ApiKeyCreateResult, String> {
     // 创建平台 Key 并写入存储
     let storage = open_storage().ok_or_else(|| "storage unavailable".to_string())?;
@@ -53,6 +54,8 @@ pub(crate) fn create_api_key(
     } else {
         None
     };
+    let allowed_models =
+        normalize_allowed_models(allowed_models.unwrap_or_default().as_slice());
     let record = ApiKey {
         id: key_id.clone(),
         name,
@@ -72,6 +75,7 @@ pub(crate) fn create_api_key(
         auth_scheme,
         upstream_base_url,
         static_headers_json,
+        allowed_models,
         key_hash,
         status: "active".to_string(),
         created_at: now_ts(),

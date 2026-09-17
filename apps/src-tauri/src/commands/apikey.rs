@@ -54,6 +54,7 @@ pub async fn service_apikey_read_secret(
 /// - static_headers_json: 参数 static_headers_json
 /// - rotation_strategy: 参数 rotation_strategy
 /// - aggregate_api_id: 参数 aggregate_api_id
+/// - allowed_models: 参数 allowed_models
 ///
 /// # 返回
 /// 返回函数执行结果
@@ -69,6 +70,7 @@ pub async fn service_apikey_create(
     static_headers_json: Option<String>,
     rotation_strategy: Option<String>,
     aggregate_api_id: Option<String>,
+    allowed_models: Option<Vec<String>>,
 ) -> Result<serde_json::Value, String> {
     let params = serde_json::json!({
       "name": name,
@@ -80,6 +82,7 @@ pub async fn service_apikey_create(
       "staticHeadersJson": static_headers_json,
       "rotationStrategy": rotation_strategy,
       "aggregateApiId": aggregate_api_id,
+      "allowedModels": allowed_models,
     });
     rpc_call_in_background("apikey/create", addr, Some(params)).await
 }
@@ -139,6 +142,7 @@ pub async fn service_apikey_usage_stats(addr: Option<String>) -> Result<serde_js
 /// - static_headers_json: 参数 static_headers_json
 /// - rotation_strategy: 参数 rotation_strategy
 /// - aggregate_api_id: 参数 aggregate_api_id
+/// - allowed_models: 参数 allowed_models
 ///
 /// # 返回
 /// 返回函数执行结果
@@ -155,6 +159,7 @@ pub async fn service_apikey_update_model(
     static_headers_json: Option<String>,
     rotation_strategy: Option<String>,
     aggregate_api_id: Option<String>,
+    allowed_models: Option<Vec<String>>,
 ) -> Result<serde_json::Value, String> {
     let params = serde_json::json!({
       "id": key_id,
@@ -167,6 +172,7 @@ pub async fn service_apikey_update_model(
       "staticHeadersJson": static_headers_json,
       "rotationStrategy": rotation_strategy,
       "aggregateApiId": aggregate_api_id,
+      "allowedModels": allowed_models,
     });
     rpc_call_in_background("apikey/updateModel", addr, Some(params)).await
 }

@@ -181,6 +181,7 @@ pub(crate) fn handle_gateway_request(
         validated.rotation_strategy.as_str(),
         validated.model_for_log.as_deref(),
         validated.reasoning_for_log.as_deref(),
+        validated.allowed_models.as_slice(),
         queue_wait_ms,
         &validated.storage,
     )? {

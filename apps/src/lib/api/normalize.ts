@@ -517,6 +517,7 @@ export function normalizeApiKey(item: unknown): ApiKey | null {
     authScheme: asString(source.authScheme ?? source.auth_scheme),
     upstreamBaseUrl: asString(source.upstreamBaseUrl ?? source.upstream_base_url),
     staticHeadersJson: asString(source.staticHeadersJson ?? source.static_headers_json),
+    allowedModels: asStringArray(source.allowedModels ?? source.allowed_models),
     status: asString(source.status) || "enabled",
     createdAt: toNullableNumber(source.createdAt ?? source.created_at),
     lastUsedAt: toNullableNumber(source.lastUsedAt ?? source.last_used_at),

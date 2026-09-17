@@ -39,6 +39,7 @@ fn sample_api_key(
         upstream_base_url: None,
         static_headers_json: None,
         key_hash: "hash".to_string(),
+        allowed_models: Vec::new(),
         status: "active".to_string(),
         created_at: 0,
         last_used_at: None,
@@ -390,4 +391,33 @@ fn anthropic_model_must_exist_in_cached_model_options() {
     )
     .expect_err("missing model should fail");
     assert!(err.message.contains("claude model not found in model list"));
+}
+
+/// 函数 `restricted_key_only_allows_listed_models`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-09-17
+///
+/// # 参数
+/// 无
+///
+/// # 返回
+/// 无
+#[test]
+fn restricted_key_only_allows_listed_models() {
+    let mut api_key = sample_api_key(
+        crate::apikey_profile::PROTOCOL_OPENAI_COMPAT,
+        None,
+        None,
+        None,
+    );
+    assert!(ensure_api_key_allows_model(&api_key, Some("gpt-4o")).is_ok());
+
+    api_key.allowed_models = vec!["gpt-5".to_string()];
+    assert!(ensure_api_key_allows_model(&api_key, Some("GPT-5")).is_ok());
+    assert!(ensure_api_key_allows_model(&api_key, None).is_ok());
+    let err = ensure_api_key_allows_model(&api_key, Some("gpt-4o")).expect_err("model rejected");
+    assert_eq!(err.status_code, 403);
+    assert!(err.message.contains("model not allowed for this platform key"));
 }

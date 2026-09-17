@@ -1849,6 +1849,7 @@ fn storage_api_keys_include_profile_fields() {
             upstream_base_url: Some("https://api.anthropic.com".to_string()),
             static_headers_json: Some("{\"anthropic-version\":\"2023-06-01\"}".to_string()),
             key_hash: "hash-1".to_string(),
+            allowed_models: Vec::new(),
             status: "active".to_string(),
             created_at: now_ts(),
             last_used_at: None,
@@ -1867,6 +1868,76 @@ fn storage_api_keys_include_profile_fields() {
     assert_eq!(key.model_slug.as_deref(), Some("claude-sonnet-4"));
     assert_eq!(key.service_tier.as_deref(), Some("fast"));
     assert_eq!(key.group_name.as_deref(), Some("生产"));
+}
+
+/// 函数 `storage_api_key_allowed_models_roundtrip`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-09-17
+///
+/// # 参数
+/// 无
+///
+/// # 返回
+/// 无
+#[test]
+fn storage_api_key_allowed_models_roundtrip() {
+    let storage = Storage::open_in_memory().expect("open in memory");
+    storage.init().expect("init schema");
+
+    storage
+        .insert_api_key(&ApiKey {
+            id: "key-allowed-models".to_string(),
+            name: Some("restricted".to_string()),
+            group_name: None,
+            model_slug: None,
+            reasoning_effort: None,
+            service_tier: None,
+            rotation_strategy: "account_rotation".to_string(),
+            aggregate_api_id: None,
+            aggregate_api_url: None,
+            client_type: "codex".to_string(),
+            protocol_type: "openai_compat".to_string(),
+            auth_scheme: "authorization_bearer".to_string(),
+            upstream_base_url: None,
+            static_headers_json: None,
+            allowed_models: vec!["gpt-5".to_string()],
+            key_hash: "hash-allowed-models".to_string(),
+            status: "active".to_string(),
+            created_at: now_ts(),
+            last_used_at: None,
+        })
+        .expect("insert key");
+
+    let key = storage
+        .list_api_keys()
+        .expect("list keys")
+        .into_iter()
+        .find(|item| item.id == "key-allowed-models")
+        .expect("key exists");
+    assert_eq!(key.allowed_models, vec!["gpt-5".to_string()]);
+
+    storage
+        .update_api_key_allowed_models(
+            "key-allowed-models",
+            &["gpt-5.4".to_string(), " GPT-5.4 ".to_string(), String::new()],
+        )
+        .expect("update allowed models");
+    let key = storage
+        .find_api_key_by_id("key-allowed-models")
+        .expect("find key")
+        .expect("key exists");
+    assert_eq!(key.allowed_models, vec!["gpt-5.4".to_string()]);
+
+    storage
+        .update_api_key_allowed_models("key-allowed-models", &[])
+        .expect("clear allowed models");
+    let key = storage
+        .find_api_key_by_id("key-allowed-models")
+        .expect("find key")
+        .expect("key exists");
+    assert!(key.allowed_models.is_empty());
 }
 
 /// 函数 `storage_can_roundtrip_api_key_secret`
@@ -1902,6 +1973,7 @@ fn storage_can_roundtrip_api_key_secret() {
             upstream_base_url: None,
             static_headers_json: None,
             key_hash: "hash-secret-1".to_string(),
+            allowed_models: Vec::new(),
             status: "active".to_string(),
             created_at: now_ts(),
             last_used_at: None,

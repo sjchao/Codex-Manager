@@ -34,6 +34,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
             let static_headers_json = super::string_param(req, "staticHeadersJson");
             let rotation_strategy = super::string_param(req, "rotationStrategy");
             let aggregate_api_id = super::string_param(req, "aggregateApiId");
+            let allowed_models = super::string_array_param(req, "allowedModels");
             super::value_or_error(apikey_create::create_api_key(
                 name,
                 group_name,
@@ -45,6 +46,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 static_headers_json,
                 rotation_strategy,
                 aggregate_api_id,
+                allowed_models,
             ))
         }
         "apikey/readSecret" => {
@@ -61,18 +63,16 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
         ),
         "apikey/updateModel" => {
             let key_id = super::str_param(req, "id").unwrap_or("");
-            let has_name = req
-                .params
-                .as_ref()
-                .and_then(|value| value.as_object())
-                .map(|params| params.contains_key("name"))
-                .unwrap_or(false);
-            let has_group_name = req
-                .params
-                .as_ref()
-                .and_then(|value| value.as_object())
-                .map(|params| params.contains_key("groupName"))
-                .unwrap_or(false);
+            let has_param = |name: &str| {
+                req.params
+                    .as_ref()
+                    .and_then(|value| value.as_object())
+                    .map(|params| params.contains_key(name))
+                    .unwrap_or(false)
+            };
+            let has_name = has_param("name");
+            let has_group_name = has_param("groupName");
+            let has_allowed_models = has_param("allowedModels");
             let name = super::string_param(req, "name");
             let group_name = super::string_param(req, "groupName");
             let model_slug = super::string_param(req, "modelSlug");
@@ -83,6 +83,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
             let static_headers_json = super::string_param(req, "staticHeadersJson");
             let rotation_strategy = super::string_param(req, "rotationStrategy");
             let aggregate_api_id = super::string_param(req, "aggregateApiId");
+            let allowed_models = super::string_array_param(req, "allowedModels");
             super::ok_or_error(apikey_update_model::update_api_key_model(
                 key_id,
                 name,
@@ -97,6 +98,8 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 static_headers_json,
                 rotation_strategy,
                 aggregate_api_id,
+                allowed_models,
+                has_allowed_models,
             ))
         }
         "apikey/delete" => {

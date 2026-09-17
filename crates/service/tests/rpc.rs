@@ -1,6 +1,6 @@
 use codexmanager_core::rpc::types::JsonRpcRequest;
 use codexmanager_core::storage::{
-    now_ts, Account, ApiKey, Event, RequestLog, RequestTokenStat, Storage, Token,
+    now_ts, Account, AggregateApi, ApiKey, Event, RequestLog, RequestTokenStat, Storage, Token,
     UsageSnapshotRecord,
 };
 use std::fs;
@@ -2129,6 +2129,7 @@ fn rpc_apikey_update_model_updates_name_with_chinese() {
             upstream_base_url: None,
             static_headers_json: None,
             key_hash: "hash-update-name".to_string(),
+            allowed_models: Vec::new(),
             status: "active".to_string(),
             created_at: now_ts(),
             last_used_at: None,
@@ -2190,6 +2191,185 @@ fn rpc_apikey_update_model_updates_name_with_chinese() {
         updated.get("groupName").and_then(|value| value.as_str()),
         Some("生产组")
     );
+}
+
+/// 函数 `rpc_apikey_allowed_models_create_and_update`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-09-17
+///
+/// # 参数
+/// 无
+///
+/// # 返回
+/// 无
+#[test]
+fn rpc_apikey_allowed_models_create_and_update() {
+    let ctx = RpcTestContext::new("rpc-apikey-allowed-models");
+    let storage = Storage::open(ctx.db_path()).expect("open db");
+    storage.init().expect("init schema");
+
+    let create_server = codexmanager_service::start_one_shot_server().expect("start server");
+    let create_req = JsonRpcRequest {
+        id: 78.into(),
+        method: "apikey/create".to_string(),
+        params: Some(serde_json::json!({
+            "protocolType": "openai_compat",
+            "allowedModels": ["gpt-5", " GPT-5 ", "gpt-5-mini"]
+        })),
+        trace: None,
+    };
+    let create_resp = post_rpc(
+        &create_server.addr,
+        &serde_json::to_string(&create_req).expect("serialize apikey create"),
+    );
+    let key_id = create_resp
+        .get("result")
+        .and_then(|value| value.get("id"))
+        .and_then(|value| value.as_str())
+        .expect("created api key id")
+        .to_string();
+
+    let list_server = codexmanager_service::start_one_shot_server().expect("start server");
+    let list_req = JsonRpcRequest {
+        id: 79.into(),
+        method: "apikey/list".to_string(),
+        params: None,
+        trace: None,
+    };
+    let list_resp = post_rpc(
+        &list_server.addr,
+        &serde_json::to_string(&list_req).expect("serialize apikey list"),
+    );
+    let created = list_resp["result"]["items"]
+        .as_array()
+        .expect("apikey items")
+        .iter()
+        .find(|value| value["id"] == key_id.as_str())
+        .expect("created api key");
+    assert_eq!(
+        created["allowedModels"],
+        serde_json::json!(["gpt-5", "gpt-5-mini"])
+    );
+
+    let update_server = codexmanager_service::start_one_shot_server().expect("start server");
+    let update_req = JsonRpcRequest {
+        id: 80.into(),
+        method: "apikey/updateModel".to_string(),
+        params: Some(serde_json::json!({
+            "id": key_id,
+            "allowedModels": null
+        })),
+        trace: None,
+    };
+    let update_resp = post_rpc(
+        &update_server.addr,
+        &serde_json::to_string(&update_req).expect("serialize apikey update"),
+    );
+    assert_eq!(update_resp["result"]["ok"].as_bool(), Some(true));
+
+    let list_server = codexmanager_service::start_one_shot_server().expect("start server");
+    let list_resp = post_rpc(
+        &list_server.addr,
+        &serde_json::to_string(&list_req).expect("serialize apikey list"),
+    );
+    let updated = list_resp["result"]["items"]
+        .as_array()
+        .expect("apikey items")
+        .iter()
+        .find(|value| value["id"] == key_id.as_str())
+        .expect("updated api key");
+    assert_eq!(updated["allowedModels"], serde_json::json!([]));
+}
+
+/// 函数 `rpc_apikey_models_include_aggregate_api_models`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-09-17
+///
+/// # 参数
+/// 无
+///
+/// # 返回
+/// 无
+#[test]
+fn rpc_apikey_models_include_aggregate_api_models() {
+    let ctx = RpcTestContext::new("rpc-apikey-models-aggregate");
+    let storage = Storage::open(ctx.db_path()).expect("open db");
+    storage.init().expect("init schema");
+    let now = now_ts();
+
+    for (id, provider_type, status, models) in [
+        (
+            "agg-picker-codex",
+            "codex",
+            "active",
+            vec!["deepseek-chat", "gpt-5.4-mini"],
+        ),
+        (
+            "agg-picker-claude",
+            "claude",
+            "active",
+            vec!["claude-sonnet-5", "DeepSeek-Chat"],
+        ),
+        (
+            "agg-picker-disabled",
+            "codex",
+            "disabled",
+            vec!["hidden-model"],
+        ),
+    ] {
+        storage
+            .insert_aggregate_api(&AggregateApi {
+                id: id.to_string(),
+                provider_type: provider_type.to_string(),
+                supported_models: models.into_iter().map(str::to_string).collect(),
+                supplier_name: Some(id.to_string()),
+                sort: 0,
+                weight: 100,
+                url: "https://example.com/v1".to_string(),
+                auth_type: "apikey".to_string(),
+                auth_params_json: None,
+                action: None,
+                status: status.to_string(),
+                created_at: now,
+                updated_at: now,
+                last_test_at: None,
+                last_test_status: None,
+                last_test_error: None,
+                sub2api_account_id: None,
+            })
+            .expect("insert aggregate api");
+    }
+
+    for refresh_remote in [false, true] {
+        let server = codexmanager_service::start_one_shot_server().expect("start server");
+        let request = JsonRpcRequest {
+            id: 79.into(),
+            method: "apikey/models".to_string(),
+            params: Some(serde_json::json!({ "refreshRemote": refresh_remote })),
+            trace: None,
+        };
+        let response = post_rpc(
+            &server.addr,
+            &serde_json::to_string(&request).expect("serialize apikey models request"),
+        );
+        let slugs = response["result"]["items"]
+            .as_array()
+            .expect("model option items")
+            .iter()
+            .filter_map(|value| value["slug"].as_str())
+            .collect::<Vec<_>>();
+        assert!(
+            slugs.contains(&"deepseek-chat"),
+            "refreshRemote={refresh_remote} slugs: {slugs:?}"
+        );
+        assert!(slugs.contains(&"gpt-5.4-mini"), "slugs: {slugs:?}");
+        assert!(slugs.contains(&"claude-sonnet-5"), "slugs: {slugs:?}");
+        assert!(!slugs.contains(&"hidden-model"), "slugs: {slugs:?}");
+    }
 }
 
 /// 函数 `rpc_apikey_usage_stats_reports_deepseek_tokens`
@@ -2395,6 +2575,7 @@ fn rpc_requestlog_list_filters_by_key_name_and_prune_drops_old_logs() {
                 upstream_base_url: None,
                 static_headers_json: None,
                 key_hash: format!("hash-{id}"),
+                allowed_models: Vec::new(),
                 status: "active".to_string(),
                 created_at: now_ts(),
                 last_used_at: None,

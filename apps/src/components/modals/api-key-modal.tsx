@@ -11,6 +11,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -20,6 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { useRuntimeCapabilities } from "@/hooks/useRuntimeCapabilities";
 import { accountClient } from "@/lib/api/account-client";
 import { useAppStore } from "@/lib/store/useAppStore";
@@ -91,6 +93,8 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
   const [upstreamBaseUrl, setUpstreamBaseUrl] = useState("");
   const [azureEndpoint, setAzureEndpoint] = useState("");
   const [azureApiKey, setAzureApiKey] = useState("");
+  const [restrictModels, setRestrictModels] = useState(false);
+  const [allowedModels, setAllowedModels] = useState<string[]>([]);
   const [generatedKey, setGeneratedKey] = useState("");
 
   const [isLoading, setIsLoading] = useState(false);
@@ -100,7 +104,7 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
     ? "服务未连接，平台密钥与模型配置暂不可编辑；连接恢复后可继续操作。"
     : "当前运行环境暂不支持平台密钥管理。";
 
-  const { data: models } = useQuery({
+  const { data: models, isFetching: isModelsFetching } = useQuery({
     queryKey: ["apikey-models"],
     queryFn: () => accountClient.listModels(false),
     enabled: open && isServiceReady,
@@ -109,6 +113,20 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
   const modelLabelMap = Object.fromEntries(
     (models || []).map((model) => [model.slug, model.slug]),
   );
+  const restrictionModelSlugs = Array.from(
+    new Set([...(models || []).map((model) => model.slug), ...allowedModels]),
+  );
+
+  const toggleAllowedModel = (slug: string, checked: boolean) => {
+    setAllowedModels((current) => {
+      if (checked) {
+        return current.some((item) => item.toLowerCase() === slug.toLowerCase())
+          ? current
+          : [...current, slug];
+      }
+      return current.filter((item) => item.toLowerCase() !== slug.toLowerCase());
+    });
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -124,6 +142,8 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
       setUpstreamBaseUrl("");
       setAzureEndpoint("");
       setAzureApiKey("");
+      setRestrictModels(false);
+      setAllowedModels([]);
       setGeneratedKey("");
       return;
     }
@@ -137,6 +157,8 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
     setReasoningEffort(apiKey.reasoningEffort || "");
     setServiceTier(normalizeEditableServiceTier(apiKey.serviceTier));
     setRotationStrategy(apiKey.rotationStrategy || "account_rotation");
+    setRestrictModels((apiKey.allowedModels || []).length > 0);
+    setAllowedModels(apiKey.allowedModels || []);
     setGeneratedKey("");
 
     if (apiKey.protocol === "azure_openai") {
@@ -181,6 +203,10 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
       );
       return;
     }
+    if (restrictModels && allowedModels.length === 0) {
+      toast.error("请至少选择一个允许使用的模型，或关闭模型限制");
+      return;
+    }
     setIsLoading(true);
     try {
       const staticHeaders: Record<string, string> = {};
@@ -208,6 +234,7 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
             ? JSON.stringify(staticHeaders)
             : null,
         rotationStrategy,
+        allowedModels: restrictModels ? allowedModels : null,
       };
 
       if (apiKey?.id) {
@@ -391,6 +418,61 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
                 选择“跟随请求”时，会使用请求体里的实际模型；请求日志展示的是最终生效模型。
               </p>
             </div>
+          </div>
+
+          <div className="grid gap-3 rounded-xl border border-border/60 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="grid gap-1">
+                <Label>限制使用模型</Label>
+                <p className="text-[11px] text-muted-foreground">
+                  默认不限制；开启后该密钥只能调用选中的模型，其它模型请求会被拒绝。
+                </p>
+              </div>
+              <Switch
+                checked={restrictModels}
+                disabled={!isServiceReady}
+                onCheckedChange={(checked) => setRestrictModels(Boolean(checked))}
+              />
+            </div>
+            {restrictModels ? (
+              <>
+                {restrictionModelSlugs.length > 0 ? (
+                  <div className="grid max-h-44 gap-1 overflow-y-auto rounded-md border border-border/60 p-2 sm:grid-cols-2">
+                    {restrictionModelSlugs.map((slug) => {
+                      const checked = allowedModels.some(
+                        (item) => item.toLowerCase() === slug.toLowerCase(),
+                      );
+                      return (
+                        <label
+                          key={slug}
+                          className="flex min-w-0 items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-muted/50"
+                        >
+                          <Checkbox
+                            checked={checked}
+                            disabled={!isServiceReady}
+                            onCheckedChange={(value) =>
+                              toggleAllowedModel(slug, Boolean(value))
+                            }
+                          />
+                          <span className="truncate font-mono text-xs" title={slug}>
+                            {slug}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="rounded-md border border-dashed border-border/60 px-3 py-2 text-xs text-muted-foreground">
+                    {isModelsFetching ? "正在加载模型列表…" : "暂无可选模型"}
+                  </div>
+                )}
+                {allowedModels.length === 0 ? (
+                  <p className="text-[11px] text-amber-500">
+                    请至少选择一个允许使用的模型，否则无法保存。
+                  </p>
+                ) : null}
+              </>
+            ) : null}
           </div>
 
           <div className="grid grid-cols-2 gap-4">

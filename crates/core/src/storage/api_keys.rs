@@ -17,6 +17,7 @@ const API_KEY_SELECT_SQL: &str = "SELECT
     COALESCE(p.auth_scheme, 'authorization_bearer') AS auth_scheme,
     p.upstream_base_url,
     p.static_headers_json,
+    p.allowed_models_json,
     k.key_hash,
     k.status,
     k.created_at,
@@ -56,8 +57,8 @@ impl Storage {
             ),
         )?;
         self.conn.execute(
-            "INSERT INTO api_key_profiles (key_id, client_type, protocol_type, auth_scheme, upstream_base_url, static_headers_json, default_model, reasoning_effort, service_tier, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+            "INSERT INTO api_key_profiles (key_id, client_type, protocol_type, auth_scheme, upstream_base_url, static_headers_json, default_model, reasoning_effort, service_tier, allowed_models_json, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
              ON CONFLICT(key_id) DO UPDATE SET
                client_type = excluded.client_type,
                protocol_type = excluded.protocol_type,
@@ -67,6 +68,7 @@ impl Storage {
                default_model = excluded.default_model,
                reasoning_effort = excluded.reasoning_effort,
                service_tier = excluded.service_tier,
+               allowed_models_json = excluded.allowed_models_json,
                updated_at = excluded.updated_at",
             (
                 &key.id,
@@ -78,6 +80,7 @@ impl Storage {
                 &key.model_slug,
                 &key.reasoning_effort,
                 &key.service_tier,
+                serialize_allowed_models(&key.allowed_models),
                 key.created_at,
                 now_ts(),
             ),
@@ -356,6 +359,64 @@ impl Storage {
         Ok(())
     }
 
+    /// 函数 `update_api_key_allowed_models`
+    ///
+    /// 作者: gaohongshun
+    ///
+    /// 时间: 2026-09-17
+    ///
+    /// # 参数
+    /// - self: 参数 self
+    /// - key_id: 参数 key_id
+    /// - allowed_models: 参数 allowed_models
+    ///
+    /// # 返回
+    /// 返回函数执行结果
+    pub fn update_api_key_allowed_models(
+        &self,
+        key_id: &str,
+        allowed_models: &[String],
+    ) -> Result<()> {
+        let allowed_models_json = serialize_allowed_models(allowed_models);
+        let now = now_ts();
+        self.conn.execute(
+            "INSERT INTO api_key_profiles (
+                key_id,
+                client_type,
+                protocol_type,
+                auth_scheme,
+                upstream_base_url,
+                static_headers_json,
+                default_model,
+                reasoning_effort,
+                service_tier,
+                allowed_models_json,
+                created_at,
+                updated_at
+            )
+            SELECT
+                id,
+                'codex',
+                'openai_compat',
+                'authorization_bearer',
+                NULL,
+                NULL,
+                model_slug,
+                reasoning_effort,
+                NULL,
+                ?2,
+                created_at,
+                ?3
+            FROM api_keys
+            WHERE id = ?1
+            ON CONFLICT(key_id) DO UPDATE SET
+                allowed_models_json = excluded.allowed_models_json,
+                updated_at = excluded.updated_at",
+            (key_id, allowed_models_json, now),
+        )?;
+        Ok(())
+    }
+
     /// 函数 `update_api_key_profile_config`
     ///
     /// 作者: gaohongshun
@@ -575,6 +636,22 @@ impl Storage {
         Ok(())
     }
 
+    /// 函数 `ensure_api_key_allowed_models_column`
+    ///
+    /// 作者: gaohongshun
+    ///
+    /// 时间: 2026-09-17
+    ///
+    /// # 参数
+    /// - super: 参数 super
+    ///
+    /// # 返回
+    /// 返回函数执行结果
+    pub(super) fn ensure_api_key_allowed_models_column(&self) -> Result<()> {
+        self.ensure_column("api_key_profiles", "allowed_models_json", "TEXT")?;
+        Ok(())
+    }
+
     /// 函数 `ensure_api_key_profiles_table`
     ///
     /// 作者: gaohongshun
@@ -598,6 +675,7 @@ impl Storage {
                 default_model TEXT,
                 reasoning_effort TEXT,
                 service_tier TEXT,
+                allowed_models_json TEXT,
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL
             )",
@@ -726,9 +804,79 @@ fn map_api_key_row(row: &Row<'_>) -> Result<ApiKey> {
         auth_scheme: row.get(11)?,
         upstream_base_url: row.get(12)?,
         static_headers_json: row.get(13)?,
-        key_hash: row.get(14)?,
-        status: row.get(15)?,
-        created_at: row.get(16)?,
-        last_used_at: row.get(17)?,
+        allowed_models: parse_allowed_models(row.get::<_, Option<String>>(14)?.as_deref()),
+        key_hash: row.get(15)?,
+        status: row.get(16)?,
+        created_at: row.get(17)?,
+        last_used_at: row.get(18)?,
     })
+}
+
+/// 函数 `parse_allowed_models`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-09-17
+///
+/// # 参数
+/// - raw: 参数 raw
+///
+/// # 返回
+/// 返回函数执行结果
+fn parse_allowed_models(raw: Option<&str>) -> Vec<String> {
+    let Some(raw) = raw.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Vec::new();
+    };
+    let Ok(items) = serde_json::from_str::<Vec<String>>(raw) else {
+        return Vec::new();
+    };
+    normalize_allowed_models(&items)
+}
+
+/// 函数 `serialize_allowed_models`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-09-17
+///
+/// # 参数
+/// - items: 参数 items
+///
+/// # 返回
+/// 返回函数执行结果
+fn serialize_allowed_models(items: &[String]) -> Option<String> {
+    let normalized = normalize_allowed_models(items);
+    if normalized.is_empty() {
+        return None;
+    }
+    serde_json::to_string(&normalized).ok()
+}
+
+/// 函数 `normalize_allowed_models`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-09-17
+///
+/// # 参数
+/// - items: 参数 items
+///
+/// # 返回
+/// 返回函数执行结果
+pub fn normalize_allowed_models(items: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
+    for item in items {
+        let slug = item.trim();
+        if slug.is_empty() {
+            continue;
+        }
+        if out
+            .iter()
+            .any(|existing: &String| existing.eq_ignore_ascii_case(slug))
+        {
+            continue;
+        }
+        out.push(slug.to_string());
+    }
+    out
 }
