@@ -61,6 +61,7 @@ pub(crate) use errors as error_codes;
 pub(crate) use requestlog::clear as requestlog_clear;
 pub(crate) use requestlog::error_list as requestlog_error_list;
 pub(crate) use requestlog::list as requestlog_list;
+pub(crate) use requestlog::model_usage as requestlog_model_usage;
 pub(crate) use requestlog::summary as requestlog_summary;
 pub(crate) use requestlog::today_summary as requestlog_today_summary;
 pub(crate) use runtime::lock_utils;

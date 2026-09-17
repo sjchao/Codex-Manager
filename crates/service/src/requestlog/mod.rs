@@ -6,6 +6,8 @@ pub(crate) mod error_list;
 pub(crate) mod list;
 #[path = "requestlog_summary.rs"]
 pub(crate) mod summary;
+#[path = "requestlog_model_usage.rs"]
+pub(crate) mod model_usage;
 #[path = "requestlog_today_summary.rs"]
 pub(crate) mod today_summary;
 pub(crate) mod image_assets;

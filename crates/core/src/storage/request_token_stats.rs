@@ -2,7 +2,7 @@ use rusqlite::{params, Connection, Result};
 
 use super::{
     now_ts, ApiKeyTokenUsageSummary, RequestLogTodaySummary, RequestTokenStat,
-    RequestTokenUsageByAggregateApi, Storage,
+    RequestTokenUsageByAggregateApi, RequestTokenUsageByModel, Storage,
 };
 
 const DEEPSEEK_MODEL_FAMILY: &str = "deepseek";
@@ -329,6 +329,66 @@ impl Storage {
                 aggregate_api_id: row.get(0)?,
                 input_tokens: row.get(1)?,
                 cached_input_tokens: row.get(2)?,
+            });
+        }
+        Ok(items)
+    }
+
+    /// 函数 `summarize_request_token_stats_by_model`
+    ///
+    /// 作者: gaohongshun
+    ///
+    /// 时间: 2026-09-17
+    ///
+    /// # 参数
+    /// - self: 参数 self
+    /// - start_ts: 参数 start_ts
+    /// - end_ts: 参数 end_ts
+    ///
+    /// # 返回
+    /// 返回函数执行结果
+    pub fn summarize_request_token_stats_by_model(
+        &self,
+        start_ts: i64,
+        end_ts: i64,
+    ) -> Result<Vec<RequestTokenUsageByModel>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT
+                TRIM(t.model) AS model_name,
+                COUNT(1) AS request_count,
+                IFNULL(SUM(CASE WHEN t.input_tokens > 0 THEN t.input_tokens ELSE 0 END), 0),
+                IFNULL(SUM(CASE WHEN t.cached_input_tokens > 0 THEN t.cached_input_tokens ELSE 0 END), 0),
+                IFNULL(SUM(CASE WHEN t.output_tokens > 0 THEN t.output_tokens ELSE 0 END), 0),
+                IFNULL(
+                    SUM(
+                        CASE
+                            WHEN IFNULL(t.total_tokens, 0) > 0 THEN t.total_tokens
+                            ELSE MAX(
+                                IFNULL(t.input_tokens, 0) - IFNULL(t.cached_input_tokens, 0) + IFNULL(t.output_tokens, 0),
+                                0
+                            )
+                        END
+                    ),
+                    0
+                ) AS total_tokens
+             FROM request_token_stats t
+             WHERE t.created_at >= ?1
+               AND t.created_at < ?2
+               AND t.model IS NOT NULL
+               AND TRIM(t.model) <> ''
+             GROUP BY model_name
+             ORDER BY total_tokens DESC, model_name ASC",
+        )?;
+        let mut rows = stmt.query((start_ts, end_ts))?;
+        let mut items = Vec::new();
+        while let Some(row) = rows.next()? {
+            items.push(RequestTokenUsageByModel {
+                model: row.get(0)?,
+                request_count: row.get(1)?,
+                input_tokens: row.get(2)?,
+                cached_input_tokens: row.get(3)?,
+                output_tokens: row.get(4)?,
+                total_tokens: row.get(5)?,
             });
         }
         Ok(items)

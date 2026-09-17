@@ -1,7 +1,10 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { accountClient } from "@/lib/api/account-client";
+import { serviceClient } from "@/lib/api/service-client";
 import { useDeferredDesktopActivation } from "@/hooks/useDeferredDesktopActivation";
 import {
   buildStartupSnapshotQueryKey,
@@ -11,9 +14,22 @@ import {
   STARTUP_SNAPSHOT_WARMUP_INTERVAL_MS,
   STARTUP_SNAPSHOT_WARMUP_TIMEOUT_MS,
 } from "@/lib/api/startup-snapshot";
-import { serviceClient } from "@/lib/api/service-client";
 import { useAppStore } from "@/lib/store/useAppStore";
-import { pickBestRecommendations, pickCurrentAccount } from "@/lib/utils/usage";
+
+const DASHBOARD_REFETCH_INTERVAL_MS = 60_000;
+
+function isTimestampToday(value: number | null | undefined): boolean {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return false;
+  }
+  const current = new Date();
+  const timestamp = new Date(value * 1000);
+  return (
+    current.getFullYear() === timestamp.getFullYear() &&
+    current.getMonth() === timestamp.getMonth() &&
+    current.getDate() === timestamp.getDate()
+  );
+}
 
 /**
  * 函数 `useDashboardStats`
@@ -29,6 +45,7 @@ import { pickBestRecommendations, pickCurrentAccount } from "@/lib/utils/usage";
  * 返回函数执行结果
  */
 export function useDashboardStats() {
+  const queryClient = useQueryClient();
   const serviceStatus = useAppStore((state) => state.serviceStatus);
   const isServiceReady = serviceStatus.connected;
   const isSnapshotQueryEnabled = useDeferredDesktopActivation(isServiceReady);
@@ -75,6 +92,45 @@ export function useDashboardStats() {
     refetchIntervalInBackground: true,
   });
 
+  const apiKeyUsageStatsQuery = useQuery({
+    queryKey: ["apikey-usage-stats", serviceStatus.addr || null],
+    queryFn: () => accountClient.listApiKeyUsageStats(),
+    enabled: isSnapshotQueryEnabled,
+    retry: 1,
+    refetchInterval: DASHBOARD_REFETCH_INTERVAL_MS,
+  });
+  const aggregateApisQuery = useQuery({
+    queryKey: ["aggregate-apis"],
+    queryFn: () => accountClient.listAggregateApis(),
+    enabled: isSnapshotQueryEnabled,
+    retry: 1,
+    refetchInterval: DASHBOARD_REFETCH_INTERVAL_MS,
+  });
+  const sub2ApiAccountsQuery = useQuery({
+    queryKey: ["sub2api-accounts"],
+    queryFn: () => accountClient.listSub2Api(),
+    enabled: isSnapshotQueryEnabled,
+    retry: 1,
+    refetchInterval: DASHBOARD_REFETCH_INTERVAL_MS,
+  });
+  const modelTokenUsageQuery = useQuery({
+    queryKey: ["requestlog-model-usage", serviceStatus.addr || null],
+    queryFn: () => serviceClient.getModelTokenUsage(),
+    enabled: isSnapshotQueryEnabled,
+    retry: 1,
+    refetchInterval: DASHBOARD_REFETCH_INTERVAL_MS,
+  });
+
+  const refreshSub2ApiAccounts = useMutation({
+    mutationFn: () => accountClient.syncAllSub2Api(),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["sub2api-accounts"] });
+    },
+    onError: (error: unknown) => {
+      toast.error(error instanceof Error ? error.message : String(error));
+    },
+  });
+
   const data = snapshotQuery.data;
   const accounts = data?.accounts || [];
   const hasStartupSignal = hasStartupSnapshotSignal(data);
@@ -84,45 +140,101 @@ export function useDashboardStats() {
     !hasStartupSignal &&
     snapshotQuery.isFetching;
   const hasSnapshotData = Boolean(data);
-  const totalAccounts = accounts.length;
-  const availableAccounts = accounts.filter((item) => item.isAvailable).length;
-  const unavailableAccounts = totalAccounts - availableAccounts;
-  const currentAccount = pickCurrentAccount(
-    accounts,
-    data?.requestLogs || [],
-    data?.manualPreferredAccountId
+
+  const apiKeyUsageStats = useMemo(
+    () => apiKeyUsageStatsQuery.data || [],
+    [apiKeyUsageStatsQuery.data]
   );
-  const recommendations = pickBestRecommendations(accounts);
+  const aggregateApis = useMemo(
+    () => aggregateApisQuery.data || [],
+    [aggregateApisQuery.data]
+  );
+  const sub2ApiAccounts = useMemo(
+    () => sub2ApiAccountsQuery.data || [],
+    [sub2ApiAccountsQuery.data]
+  );
+  const modelTokenUsage = useMemo(
+    () => modelTokenUsageQuery.data || [],
+    [modelTokenUsageQuery.data]
+  );
+
+  const apiKeyNames = useMemo(() => {
+    const names: Record<string, string> = {};
+    for (const apiKey of data?.apiKeys || []) {
+      const id = String(apiKey.id || "").trim();
+      if (!id) continue;
+      names[id] = String(apiKey.name || "").trim() || id;
+    }
+    return names;
+  }, [data?.apiKeys]);
+
+  const totals = useMemo(() => {
+    let todayTokens = 0;
+    let totalTokens = 0;
+    let todayDeepseekTokens = 0;
+    let totalDeepseekTokens = 0;
+    let totalCostUsd = 0;
+    for (const item of apiKeyUsageStats) {
+      todayTokens += Math.max(0, item.todayTokens || 0);
+      totalTokens += Math.max(0, item.totalTokens || 0);
+      todayDeepseekTokens += Math.max(0, item.todayDeepseekTokens || 0);
+      totalDeepseekTokens += Math.max(0, item.totalDeepseekTokens || 0);
+      totalCostUsd += Math.max(0, item.actualCostUsd || 0);
+    }
+    return {
+      todayTokens,
+      totalTokens,
+      todayDeepseekTokens,
+      totalDeepseekTokens,
+      totalCostUsd,
+    };
+  }, [apiKeyUsageStats]);
+
+  const sub2ApiTotals = useMemo(() => {
+    let todayActualCost = 0;
+    let lastSyncAt: number | null = null;
+    for (const account of sub2ApiAccounts) {
+      if (
+        typeof account.lastSyncAt === "number" &&
+        Number.isFinite(account.lastSyncAt) &&
+        (lastSyncAt == null || account.lastSyncAt > lastSyncAt)
+      ) {
+        lastSyncAt = account.lastSyncAt;
+      }
+      if (!isTimestampToday(account.lastSyncAt)) {
+        continue;
+      }
+      if (
+        typeof account.todayActualCost === "number" &&
+        Number.isFinite(account.todayActualCost)
+      ) {
+        todayActualCost += Math.max(0, account.todayActualCost);
+      }
+    }
+    return { todayActualCost, lastSyncAt };
+  }, [sub2ApiAccounts]);
+
+  const isLoading =
+    (!isServiceReady && !hasSnapshotData) ||
+    (!isSnapshotQueryEnabled && !data) ||
+    snapshotQuery.isPending ||
+    shouldWarmupPoll ||
+    (isSnapshotQueryEnabled &&
+      (apiKeyUsageStatsQuery.isPending ||
+        aggregateApisQuery.isPending ||
+        sub2ApiAccountsQuery.isPending ||
+        modelTokenUsageQuery.isPending));
 
   return {
-    stats: {
-      total: totalAccounts,
-      available: availableAccounts,
-      unavailable: unavailableAccounts,
-      todayTokens: data?.requestLogTodaySummary.todayTokens || 0,
-      cachedTokens: data?.requestLogTodaySummary.cachedInputTokens || 0,
-      reasoningTokens: data?.requestLogTodaySummary.reasoningOutputTokens || 0,
-      todayCost: data?.requestLogTodaySummary.actualCost || 0,
-      poolRemain: {
-        primary: data?.usageAggregateSummary.primaryRemainPercent ?? null,
-        secondary: data?.usageAggregateSummary.secondaryRemainPercent ?? null,
-        primaryKnownCount: data?.usageAggregateSummary.primaryKnownCount ?? 0,
-        primaryBucketCount: data?.usageAggregateSummary.primaryBucketCount ?? 0,
-        secondaryKnownCount: data?.usageAggregateSummary.secondaryKnownCount ?? 0,
-        secondaryBucketCount: data?.usageAggregateSummary.secondaryBucketCount ?? 0,
-      },
-    },
-    currentAccount,
-    recommendations,
-    requestLogs: data?.requestLogs || [],
-    isLoading:
-      (!isServiceReady && !hasSnapshotData) ||
-      (!isSnapshotQueryEnabled && !data) ||
-      snapshotQuery.isPending ||
-      shouldWarmupPoll,
-    isSyncingSnapshot: shouldWarmupPoll,
+    totals,
+    apiKeyUsageStats,
+    apiKeyNames,
+    aggregateApis,
+    sub2ApiAccounts,
+    sub2ApiTotals,
+    modelTokenUsage,
+    refreshSub2ApiAccounts,
+    isLoading,
     isServiceReady,
-    isError: snapshotQuery.isError,
-    error: snapshotQuery.error,
   };
 }

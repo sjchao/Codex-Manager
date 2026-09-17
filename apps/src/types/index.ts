@@ -418,6 +418,15 @@ export interface LoginStatusResult {
   error: string;
 }
 
+export interface RequestTokenUsageByModel {
+  model: string;
+  requestCount: number;
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+}
+
 export interface RequestLogTodaySummary {
   inputTokens: number;
   cachedInputTokens: number;

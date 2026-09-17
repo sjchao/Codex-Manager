@@ -32,6 +32,7 @@ import {
   RequestLogImageResult,
   RequestLogListResult,
   RequestLogTodaySummary,
+  RequestTokenUsageByModel,
   StartupSnapshot,
   Sub2ApiAccount,
   UsageAggregateSummary,
@@ -876,6 +877,61 @@ export function normalizeApiKeyUsageStats(payload: unknown): ApiKeyUsageStat[] {
  * # 返回
  * 返回函数执行结果
  */
+/**
+ * 函数 `normalizeRequestTokenUsageByModelList`
+ *
+ * 作者: gaohongshun
+ *
+ * 时间: 2026-09-17
+ *
+ * # 参数
+ * - payload: 参数 payload
+ *
+ * # 返回
+ * 返回函数执行结果
+ */
+export function normalizeRequestTokenUsageByModelList(
+  payload: unknown
+): RequestTokenUsageByModel[] {
+  const source = asObject(payload);
+  const items = asArray(source.items ?? payload);
+  return items
+    .map((item) => {
+      const current = asObject(item);
+      const model = asString(current.model ?? current.model_name);
+      if (!model) return null;
+      return {
+        model,
+        requestCount: asInteger(
+          current.requestCount ?? current.request_count,
+          0,
+          0
+        ),
+        inputTokens: asInteger(
+          current.inputTokens ?? current.input_tokens,
+          0,
+          0
+        ),
+        cachedInputTokens: asInteger(
+          current.cachedInputTokens ?? current.cached_input_tokens,
+          0,
+          0
+        ),
+        outputTokens: asInteger(
+          current.outputTokens ?? current.output_tokens,
+          0,
+          0
+        ),
+        totalTokens: asInteger(
+          current.totalTokens ?? current.total_tokens,
+          0,
+          0
+        ),
+      };
+    })
+    .filter((item): item is RequestTokenUsageByModel => Boolean(item));
+}
+
 export function normalizePluginCatalogTask(payload: unknown): PluginCatalogTask | null {
   const source = asObject(payload);
   const id = asString(source.id);

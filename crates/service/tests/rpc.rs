@@ -1910,6 +1910,103 @@ fn rpc_requestlog_list_and_summary_support_pagination() {
     );
 }
 
+/// 函数 `rpc_requestlog_model_usage_groups_today_tokens_by_model`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-09-17
+///
+/// # 参数
+/// 无
+///
+/// # 返回
+/// 无
+#[test]
+fn rpc_requestlog_model_usage_groups_today_tokens_by_model() {
+    let ctx = RpcTestContext::new("rpc-requestlog-model-usage");
+    let storage = Storage::open(ctx.db_path()).expect("open db");
+    storage.init().expect("init schema");
+
+    let created_at = now_ts();
+    for (model, input_tokens, cached_input_tokens, output_tokens) in [
+        ("gpt-5", 100_i64, 80_i64, 20_i64),
+        ("gpt-5", 50, 0, 10),
+        ("deepseek-chat", 10, 5, 1),
+    ] {
+        let request_log_id = storage
+            .insert_request_log(&RequestLog {
+                key_id: Some("gk-model".to_string()),
+                request_path: "/v1/responses".to_string(),
+                method: "POST".to_string(),
+                model: Some(model.to_string()),
+                created_at,
+                ..Default::default()
+            })
+            .expect("insert request log");
+        storage
+            .insert_request_token_stat(&RequestTokenStat {
+                request_log_id,
+                key_id: Some("gk-model".to_string()),
+                account_id: None,
+                model: Some(model.to_string()),
+                input_tokens: Some(input_tokens),
+                cached_input_tokens: Some(cached_input_tokens),
+                output_tokens: Some(output_tokens),
+                total_tokens: None,
+                reasoning_output_tokens: None,
+                created_at,
+            })
+            .expect("insert token stat");
+    }
+
+    let server = codexmanager_service::start_one_shot_server().expect("start server");
+    let req = JsonRpcRequest {
+        id: 73.into(),
+        method: "requestlog/model_usage".to_string(),
+        params: None,
+        trace: None,
+    };
+    let json = serde_json::to_string(&req).expect("serialize model usage request");
+    let v = post_rpc(&server.addr, &json);
+    let items = v
+        .get("result")
+        .and_then(|value| value.get("items"))
+        .and_then(|value| value.as_array())
+        .expect("model usage items");
+
+    assert_eq!(items.len(), 2);
+    assert_eq!(
+        items[0].get("model").and_then(|value| value.as_str()),
+        Some("gpt-5")
+    );
+    assert_eq!(
+        items[0].get("requestCount").and_then(|value| value.as_i64()),
+        Some(2)
+    );
+    assert_eq!(
+        items[0].get("inputTokens").and_then(|value| value.as_i64()),
+        Some(150)
+    );
+    assert_eq!(
+        items[0]
+            .get("cachedInputTokens")
+            .and_then(|value| value.as_i64()),
+        Some(80)
+    );
+    assert_eq!(
+        items[0].get("totalTokens").and_then(|value| value.as_i64()),
+        Some(100)
+    );
+    assert_eq!(
+        items[1].get("model").and_then(|value| value.as_str()),
+        Some("deepseek-chat")
+    );
+    assert_eq!(
+        items[1].get("totalTokens").and_then(|value| value.as_i64()),
+        Some(6)
+    );
+}
+
 #[test]
 fn rpc_requestlog_images_read_and_clear_remove_cached_assets() {
     let ctx = RpcTestContext::new("rpc-requestlog-images");

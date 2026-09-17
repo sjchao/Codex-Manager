@@ -338,6 +338,16 @@ pub struct RequestTokenUsageByAggregateApi {
 }
 
 #[derive(Debug, Clone)]
+pub struct RequestTokenUsageByModel {
+    pub model: String,
+    pub request_count: i64,
+    pub input_tokens: i64,
+    pub cached_input_tokens: i64,
+    pub output_tokens: i64,
+    pub total_tokens: i64,
+}
+
+#[derive(Debug, Clone)]
 pub struct PluginInstall {
     pub plugin_id: String,
     pub source_url: Option<String>,

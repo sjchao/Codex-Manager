@@ -4,8 +4,8 @@ use codexmanager_core::rpc::types::{
 };
 
 use crate::{
-    requestlog_clear, requestlog_error_list, requestlog_list, requestlog_summary,
-    requestlog_today_summary,
+    requestlog_clear, requestlog_error_list, requestlog_list, requestlog_model_usage,
+    requestlog_summary, requestlog_today_summary,
 };
 
 /// 函数 `try_handle`
@@ -74,6 +74,9 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
         }
         "requestlog/today_summary" => {
             super::value_or_error(requestlog_today_summary::read_requestlog_today_summary())
+        }
+        "requestlog/model_usage" => {
+            super::value_or_error(requestlog_model_usage::read_requestlog_model_usage())
         }
         _ => return None,
     };

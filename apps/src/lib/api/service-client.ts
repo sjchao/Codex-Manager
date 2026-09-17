@@ -5,6 +5,7 @@ import {
   normalizeRequestLogFilterSummary,
   normalizeRequestLogImageData,
   normalizeRequestLogListResult,
+  normalizeRequestTokenUsageByModelList,
   normalizeStartupSnapshot,
   normalizeTodaySummary,
 } from "./normalize";
@@ -15,6 +16,7 @@ import {
   RequestLogImageData,
   RequestLogListResult,
   RequestLogTodaySummary,
+  RequestTokenUsageByModel,
   ServiceInitializationResult,
   StartupSnapshot,
 } from "../../types";
@@ -175,6 +177,13 @@ export const serviceClient = {
       withAddr()
     );
     return normalizeTodaySummary(result);
+  },
+  async getModelTokenUsage(): Promise<RequestTokenUsageByModel[]> {
+    const result = await invoke<unknown>(
+      "service_requestlog_model_usage",
+      withAddr()
+    );
+    return normalizeRequestTokenUsageByModelList(result);
   },
 
   getListenConfig: () => invoke<unknown>("service_listen_config_get", withAddr()),
