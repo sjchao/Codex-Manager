@@ -6,6 +6,7 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  Bot,
   DollarSign,
   Copy,
   Eye,
@@ -356,12 +357,22 @@ export default function ApiKeysPage() {
         (sum, item) => sum + Math.max(0, item.actualCostUsd || 0),
         0,
       );
+      const todayDeepseekTokens = stats.reduce(
+        (sum, item) => sum + Math.max(0, item.todayDeepseekTokens || 0),
+        0,
+      );
+      const totalDeepseekTokens = stats.reduce(
+        (sum, item) => sum + Math.max(0, item.totalDeepseekTokens || 0),
+        0,
+      );
       return {
         usageByKey,
         todayTokens,
         totalTokens,
         todayCostUsd,
         totalCostUsd,
+        todayDeepseekTokens,
+        totalDeepseekTokens,
       };
     },
     enabled: isUsageQueryEnabled && isPageActive,
@@ -570,9 +581,10 @@ export default function ApiKeysPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-4 md:grid-cols-3">
         {isLoading || showOverviewLoading ? (
           <>
+            <Skeleton className="h-32 w-full rounded-2xl" />
             <Skeleton className="h-32 w-full rounded-2xl" />
             <Skeleton className="h-32 w-full rounded-2xl" />
           </>
@@ -587,6 +599,16 @@ export default function ApiKeysPage() {
               icon={Zap}
               color="h-4 w-4 text-amber-500"
               sub="当天 / 总量（全部平台密钥）"
+            />
+            <ApiKeyStatCard
+              title="DeepSeek 使用量"
+              value={formatTokenUsagePair(
+                usageOverview?.todayDeepseekTokens,
+                usageOverview?.totalDeepseekTokens,
+              )}
+              icon={Bot}
+              color="h-4 w-4 text-sky-500"
+              sub="当天 / 总量（模型名以 deepseek 开头）"
             />
             <ApiKeyStatCard
               title="总费用"
