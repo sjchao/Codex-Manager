@@ -21,6 +21,12 @@ pub(crate) fn classify_model_for_gateway_settings(model: Option<&str>) -> ModelT
     classify_model_for_lists(model, &image_models, &video_models)
 }
 
+fn is_gpt_image_model(model: &str) -> bool {
+    model
+        .get(.."gpt-image".len())
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("gpt-image"))
+}
+
 pub(crate) fn classify_model_for_lists(
     model: Option<&str>,
     image_models: &[String],
@@ -30,9 +36,10 @@ pub(crate) fn classify_model_for_lists(
         return ModelType::Text;
     };
 
-    if image_models
-        .iter()
-        .any(|candidate| candidate.eq_ignore_ascii_case(model))
+    if is_gpt_image_model(model)
+        || image_models
+            .iter()
+            .any(|candidate| candidate.eq_ignore_ascii_case(model))
     {
         ModelType::Image
     } else if video_models
@@ -58,11 +65,11 @@ mod tests {
 
     #[test]
     fn classify_model_uses_exact_case_insensitive_configured_lists() {
-        let image_models = vec!["gpt-image2".to_string()];
+        let image_models = vec!["custom-image".to_string()];
         let video_models = vec!["sora-2".to_string()];
 
         assert_eq!(
-            classify_model_for_lists(Some("GPT-IMAGE2"), &image_models, &video_models),
+            classify_model_for_lists(Some("CUSTOM-IMAGE"), &image_models, &video_models),
             ModelType::Image
         );
         assert_eq!(
@@ -70,12 +77,39 @@ mod tests {
             ModelType::Video
         );
         assert_eq!(
-            classify_model_for_lists(Some("gpt-image2-preview"), &image_models, &video_models),
+            classify_model_for_lists(Some("gpt-5.6-terra"), &image_models, &video_models),
             ModelType::Text
         );
         assert_eq!(
             classify_model_for_lists(Some("   "), &image_models, &video_models),
             ModelType::Text
+        );
+    }
+
+    #[test]
+    fn classify_model_treats_gpt_image_prefix_as_image() {
+        let image_models: Vec<String> = Vec::new();
+        let video_models = vec!["sora-2".to_string()];
+
+        assert_eq!(
+            classify_model_for_lists(Some("gpt-image2"), &image_models, &video_models),
+            ModelType::Image
+        );
+        assert_eq!(
+            classify_model_for_lists(Some("GPT-Image-1-mini"), &image_models, &video_models),
+            ModelType::Image
+        );
+        assert_eq!(
+            classify_model_for_lists(Some("gpt-image2-preview"), &image_models, &video_models),
+            ModelType::Image
+        );
+        assert_eq!(
+            classify_model_for_lists(Some("gpt-imag"), &image_models, &video_models),
+            ModelType::Text
+        );
+        assert_eq!(
+            classify_model_for_lists(Some("gpt-image"), &image_models, &video_models),
+            ModelType::Image
         );
     }
 }

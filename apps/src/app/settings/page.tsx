@@ -1990,7 +1990,8 @@ export default function SettingsPage() {
                   }}
                 />
                 <p className="text-[10px] text-muted-foreground">
-                  每行一个精确模型名；未配置的模型均按文本模型处理。
+                  每行一个精确模型名；<code>gpt-image</code>{" "}
+                  开头的模型自动按生图模型处理，其余未配置的模型均按文本模型处理。
                 </p>
               </div>
 
