@@ -27,6 +27,7 @@ import {
   PluginRunLogSummary,
   PluginTaskSummary,
   RequestLog,
+  RequestLogBodyData,
   RequestLogFilterSummary,
   RequestLogImageData,
   RequestLogImageResult,
@@ -1280,6 +1281,29 @@ export function normalizeRequestLogImageData(
 }
 
 /**
+ * 函数 `normalizeRequestLogBodyData`
+ *
+ * 作者: gaohongshun
+ *
+ * 时间: 2026-09-18
+ *
+ * # 参数
+ * - payload: 参数 payload
+ *
+ * # 返回
+ * 返回函数执行结果
+ */
+export function normalizeRequestLogBodyData(
+  payload: unknown
+): RequestLogBodyData {
+  const source = asObject(payload);
+  return {
+    requestBody: asString(source.requestBody ?? source.request_body),
+    responseBody: asString(source.responseBody ?? source.response_body),
+  };
+}
+
+/**
  * 函数 `normalizeRequestLog`
  *
  * 作者: gaohongshun
@@ -1404,6 +1428,12 @@ export function normalizeRequestLog(item: unknown): RequestLog | null {
     totalTokens: toNullableNumber(source.totalTokens ?? source.total_tokens),
     reasoningOutputTokens: toNullableNumber(
       source.reasoningOutputTokens ?? source.reasoning_output_tokens
+    ),
+    hasRequestBody: asBoolean(
+      source.hasRequestBody ?? source.has_request_body
+    ),
+    hasResponseBody: asBoolean(
+      source.hasResponseBody ?? source.has_response_body
     ),
     durationMs,
     firstResponseMs,

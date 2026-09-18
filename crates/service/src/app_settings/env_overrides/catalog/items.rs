@@ -220,6 +220,13 @@ pub(crate) const ENV_OVERRIDE_CATALOG: &[EnvOverrideCatalogItem] = &[
         "300",
     ),
     EnvOverrideCatalogItem::new(
+        "CODEXMANAGER_REQUEST_LOG_BODY_LIMIT_BYTES",
+        "请求日志输入输出截断上限（字节，0 为不限制）",
+        ENV_OVERRIDE_SCOPE_SERVICE,
+        ENV_OVERRIDE_APPLY_MODE_RUNTIME,
+        "65536",
+    ),
+    EnvOverrideCatalogItem::new(
         "CODEXMANAGER_ROUTE_HEALTH_P2C_BALANCED_WINDOW",
         "均衡模式 P2C 窗口",
         ENV_OVERRIDE_SCOPE_SERVICE,

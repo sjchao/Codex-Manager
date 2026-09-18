@@ -2096,6 +2096,77 @@ fn rpc_requestlog_images_read_and_clear_remove_cached_assets() {
     assert_eq!(token_summary.input_tokens, 100);
 }
 
+#[test]
+fn rpc_requestlog_body_read_returns_captured_text() {
+    let ctx = RpcTestContext::new("rpc-requestlog-bodies");
+    let storage = Storage::open(ctx.db_path()).expect("open db");
+    storage.init().expect("init schema");
+    storage
+        .insert_request_log(&RequestLog {
+            trace_id: Some("trc-body".to_string()),
+            request_path: "/v1/responses".to_string(),
+            method: "POST".to_string(),
+            model: Some("gpt-5".to_string()),
+            request_body: Some(r#"{"input":"你好"}"#.to_string()),
+            response_body: Some("你好，有什么可以帮你？".to_string()),
+            status_code: Some(200),
+            created_at: now_ts(),
+            ..Default::default()
+        })
+        .expect("insert request log with bodies");
+
+    let list_server = codexmanager_service::start_one_shot_server().expect("start list server");
+    let list_request = JsonRpcRequest {
+        id: 811.into(),
+        method: "requestlog/list".to_string(),
+        params: Some(serde_json::json!({})),
+        trace: None,
+    };
+    let list_response = post_rpc(
+        &list_server.addr,
+        &serde_json::to_string(&list_request).expect("serialize list request"),
+    );
+    let list_item = &list_response["result"]["items"][0];
+    assert_eq!(list_item["hasRequestBody"], true);
+    assert_eq!(list_item["hasResponseBody"], true);
+    assert!(list_item.get("requestBody").is_none());
+
+    let read_server = codexmanager_service::start_one_shot_server().expect("start read server");
+    let read_request = JsonRpcRequest {
+        id: 812.into(),
+        method: "requestlog/body/read".to_string(),
+        params: Some(serde_json::json!({ "traceId": "trc-body" })),
+        trace: None,
+    };
+    let read_response = post_rpc(
+        &read_server.addr,
+        &serde_json::to_string(&read_request).expect("serialize read request"),
+    );
+    assert_eq!(
+        read_response["result"]["requestBody"].as_str(),
+        Some(r#"{"input":"你好"}"#)
+    );
+    assert_eq!(
+        read_response["result"]["responseBody"].as_str(),
+        Some("你好，有什么可以帮你？")
+    );
+
+    let missing_server =
+        codexmanager_service::start_one_shot_server().expect("start missing server");
+    let missing_request = JsonRpcRequest {
+        id: 813.into(),
+        method: "requestlog/body/read".to_string(),
+        params: Some(serde_json::json!({ "traceId": "trc-missing" })),
+        trace: None,
+    };
+    let missing_response = post_rpc(
+        &missing_server.addr,
+        &serde_json::to_string(&missing_request).expect("serialize missing request"),
+    );
+    assert!(missing_response["result"]["requestBody"].is_null());
+    assert!(missing_response["result"]["responseBody"].is_null());
+}
+
 /// 函数 `rpc_apikey_update_model_updates_name_with_chinese`
 ///
 /// 作者: gaohongshun

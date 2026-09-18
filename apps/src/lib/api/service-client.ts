@@ -2,6 +2,7 @@ import { invoke, withAddr } from "./transport";
 import {
   normalizeAppSettings,
   normalizeGatewayErrorLogListResult,
+  normalizeRequestLogBodyData,
   normalizeRequestLogFilterSummary,
   normalizeRequestLogImageData,
   normalizeRequestLogListResult,
@@ -12,6 +13,7 @@ import {
 import {
   BackgroundTaskSettings,
   GatewayErrorLogListResult,
+  RequestLogBodyData,
   RequestLogFilterSummary,
   RequestLogImageData,
   RequestLogListResult,
@@ -170,6 +172,13 @@ export const serviceClient = {
       withAddr({ traceId })
     );
     return normalizeRequestLogImageData(result);
+  },
+  async readRequestLogBodies(traceId: string): Promise<RequestLogBodyData> {
+    const result = await invoke<unknown>(
+      "service_requestlog_body_read",
+      withAddr({ traceId })
+    );
+    return normalizeRequestLogBodyData(result);
   },
   async getTodaySummary(): Promise<RequestLogTodaySummary> {
     const result = await invoke<unknown>(

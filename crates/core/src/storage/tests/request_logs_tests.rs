@@ -767,3 +767,105 @@ fn delete_request_logs_before_keeps_newer_rows_and_reports_old_image_results() {
     assert_eq!(remaining.len(), 1);
     assert_eq!(remaining[0].trace_id.as_deref(), Some("trc-prune-new"));
 }
+
+#[test]
+fn request_log_bodies_roundtrip_and_list_flags() {
+    let storage = Storage::open_in_memory().expect("open");
+    storage.init().expect("init");
+
+    let now = now_ts();
+    storage
+        .insert_request_log(&RequestLog {
+            trace_id: Some("trc-body-plain".to_string()),
+            request_path: "/v1/responses".to_string(),
+            method: "POST".to_string(),
+            request_body: Some(r#"{"model":"gpt-5","input":"hi"}"#.to_string()),
+            response_body: Some("你好，有什么可以帮你？".to_string()),
+            created_at: now - 2,
+            ..Default::default()
+        })
+        .expect("insert request log with bodies");
+    storage
+        .insert_request_log_with_token_stat(
+            &RequestLog {
+                trace_id: Some("trc-body-stat".to_string()),
+                request_path: "/v1/chat/completions".to_string(),
+                method: "POST".to_string(),
+                request_body: Some(r#"{"model":"gpt-5","messages":[]}"#.to_string()),
+                created_at: now - 1,
+                ..Default::default()
+            },
+            &RequestTokenStat {
+                request_log_id: 0,
+                input_tokens: Some(1),
+                output_tokens: Some(2),
+                total_tokens: Some(3),
+                ..Default::default()
+            },
+        )
+        .expect("insert request log with token stat and body");
+    storage
+        .insert_request_log(&RequestLog {
+            trace_id: Some("trc-body-empty".to_string()),
+            request_path: "/v1/responses".to_string(),
+            method: "POST".to_string(),
+            request_body: Some("   ".to_string()),
+            created_at: now,
+            ..Default::default()
+        })
+        .expect("insert request log with blank body");
+
+    let logs = storage
+        .list_request_logs(None, 20)
+        .expect("list request logs");
+    let by_trace = |trace_id: &str| {
+        logs.iter()
+            .find(|log| log.trace_id.as_deref() == Some(trace_id))
+            .expect("request log present")
+    };
+    let plain = by_trace("trc-body-plain");
+    assert!(plain.has_request_body);
+    assert!(plain.has_response_body);
+    assert!(plain.request_body.is_none());
+    assert!(plain.response_body.is_none());
+
+    let with_stat = by_trace("trc-body-stat");
+    assert!(with_stat.has_request_body);
+    assert!(!with_stat.has_response_body);
+
+    let empty = by_trace("trc-body-empty");
+    assert!(!empty.has_request_body);
+    assert!(!empty.has_response_body);
+
+    let bodies = storage
+        .read_request_log_bodies_by_trace_id("trc-body-plain")
+        .expect("read bodies")
+        .expect("bodies present");
+    assert_eq!(
+        bodies.request_body.as_deref(),
+        Some(r#"{"model":"gpt-5","input":"hi"}"#)
+    );
+    assert_eq!(
+        bodies.response_body.as_deref(),
+        Some("你好，有什么可以帮你？")
+    );
+
+    let stat_bodies = storage
+        .read_request_log_bodies_by_trace_id("trc-body-stat")
+        .expect("read bodies")
+        .expect("bodies present");
+    assert_eq!(
+        stat_bodies.request_body.as_deref(),
+        Some(r#"{"model":"gpt-5","messages":[]}"#)
+    );
+    assert!(stat_bodies.response_body.is_none());
+
+    let missing = storage
+        .read_request_log_bodies_by_trace_id("  ")
+        .expect("read with blank trace id");
+    assert!(missing.is_none());
+    let unknown = storage
+        .read_request_log_bodies_by_trace_id("trc-body-unknown")
+        .expect("read unknown trace id");
+    assert!(unknown.is_none());
+}

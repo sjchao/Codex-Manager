@@ -1,12 +1,12 @@
 use super::{
     apply_openai_stream_meta_defaults, collect_non_stream_json_from_sse_bytes,
-    extract_openai_completed_output_text, inspect_sse_frame, normalize_chat_chunk_delta_role,
-    parse_sse_frame_json, parse_usage_from_json, parse_usage_from_sse_frame,
-    should_skip_chat_live_text_event, should_skip_completion_live_text_event,
-    synthesize_chat_completion_sse_from_json, synthesize_completions_sse_from_json,
-    GeminiSseReader, OpenAIChatCompletionsSseReader, OpenAICompletionsSseReader, OpenAIStreamMeta,
-    PassthroughSseCollector, PassthroughSseProtocol, PassthroughSseUsageReader,
-    SseKeepAliveFrame,
+    extract_openai_completed_output_text, inspect_sse_frame, merge_usage,
+    normalize_chat_chunk_delta_role, parse_sse_frame_json, parse_usage_from_json,
+    parse_usage_from_sse_frame, should_skip_chat_live_text_event,
+    should_skip_completion_live_text_event, synthesize_chat_completion_sse_from_json,
+    synthesize_completions_sse_from_json, GeminiSseReader, OpenAIChatCompletionsSseReader,
+    OpenAICompletionsSseReader, OpenAIStreamMeta, PassthroughSseCollector, PassthroughSseProtocol,
+    PassthroughSseUsageReader, SseKeepAliveFrame, UpstreamResponseUsage,
 };
 use crate::gateway::GeminiStreamOutputMode;
 use serde_json::json;
@@ -599,6 +599,71 @@ fn parse_usage_from_sse_frame_caps_output_text() {
         text.len()
     );
     assert!(text.ends_with(super::OUTPUT_TEXT_TRUNCATED_MARKER));
+}
+
+/// 函数 `chat_delta_output_text_is_collected_once`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-02
+///
+/// # 参数
+/// 无
+///
+/// # 返回
+/// 无
+#[test]
+fn chat_delta_output_text_is_collected_once() {
+    let frame = |fragment: &str| {
+        vec![format!(
+            "data: {}",
+            json!({"choices": [{"index": 0, "delta": {"content": fragment}}]})
+        )]
+    };
+
+    let usage = parse_usage_from_sse_frame(&frame("已")).expect("extract usage from sse frame");
+    assert_eq!(usage.output_text.as_deref(), Some("已"));
+
+    let inspected = inspect_sse_frame(&frame("已"))
+        .usage
+        .expect("inspect usage from sse frame");
+    assert_eq!(inspected.output_text.as_deref(), Some("已"));
+
+    let mut merged =
+        parse_usage_from_sse_frame(&frame("已")).expect("extract usage from sse frame");
+    for fragment in ["连接", "，可以", "开始", "。"] {
+        let parsed =
+            parse_usage_from_sse_frame(&frame(fragment)).expect("extract usage from sse frame");
+        merge_usage(&mut merged, parsed);
+    }
+    assert_eq!(merged.output_text.as_deref(), Some("已连接，可以开始。"));
+}
+
+/// 函数 `responses_completed_snapshot_does_not_duplicate_streamed_text`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-02
+///
+/// # 参数
+/// 无
+///
+/// # 返回
+/// 无
+#[test]
+fn responses_completed_snapshot_does_not_duplicate_streamed_text() {
+    let mut merged = UpstreamResponseUsage::default();
+    for data in [
+        r#"{"type":"response.output_text.delta","response_id":"resp_dup_1","delta":"hello "}"#,
+        r#"{"type":"response.output_text.delta","response_id":"resp_dup_1","delta":"world"}"#,
+        r#"{"type":"response.completed","response":{"id":"resp_dup_1","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hello world"}]}],"usage":{"input_tokens":3,"output_tokens":2,"total_tokens":5}}}"#,
+    ] {
+        let frame = vec![format!("data: {data}")];
+        let parsed = parse_usage_from_sse_frame(&frame).expect("extract usage from sse frame");
+        merge_usage(&mut merged, parsed);
+    }
+    assert_eq!(merged.output_text.as_deref(), Some("hello world"));
+    assert_eq!(merged.total_tokens, Some(5));
 }
 
 /// 函数 `inspect_sse_frame_recognizes_done_marker`

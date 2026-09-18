@@ -31,6 +31,7 @@ macro_rules! invoke_handler {
             crate::commands::requestlog::service_requestlog_clear,
             crate::commands::requestlog::service_requestlog_prune,
             crate::commands::requestlog::service_requestlog_images_read,
+            crate::commands::requestlog::service_requestlog_body_read,
             crate::commands::requestlog::service_requestlog_today_summary,
             crate::commands::requestlog::service_requestlog_model_usage,
             // plugin

@@ -1,8 +1,8 @@
 use rusqlite::{params, params_from_iter, types::Value, Result, Row};
 
 use super::{
-    request_log_query, RequestLog, RequestLogQuerySummary, RequestLogTodaySummary,
-    RequestLogUpstreamActualCostByKey, RequestTokenStat, Storage,
+    request_log_query, RequestLog, RequestLogBodies, RequestLogQuerySummary,
+    RequestLogTodaySummary, RequestLogUpstreamActualCostByKey, RequestTokenStat, Storage,
 };
 
 impl Storage {
@@ -70,8 +70,8 @@ impl Storage {
             "INSERT INTO request_logs (
                 trace_id, key_id, account_id, initial_account_id, attempted_account_ids_json, initial_aggregate_api_id, aggregate_api_id, attempted_aggregate_api_ids_json, aggregate_api_attempt_failures_json,
                 request_path, original_path, adapted_path,
-                method, request_type, model, model_type, image_count, image_size, image_results_json, reasoning_effort, service_tier, effective_service_tier, response_adapter, upstream_url, aggregate_api_supplier_name, aggregate_api_url, status_code, duration_ms, first_response_ms, queue_wait_ms, upstream_actual_cost, upstream_total_cost, upstream_duration_ms, upstream_first_response_ms, upstream_usage_synced_at, error, created_at, upstream_client_request_id
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, COALESCE(NULLIF(TRIM(?16), ''), 'text'), ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38)",
+                method, request_type, model, model_type, image_count, image_size, image_results_json, reasoning_effort, service_tier, effective_service_tier, response_adapter, upstream_url, aggregate_api_supplier_name, aggregate_api_url, status_code, duration_ms, first_response_ms, queue_wait_ms, upstream_actual_cost, upstream_total_cost, upstream_duration_ms, upstream_first_response_ms, upstream_usage_synced_at, error, created_at, upstream_client_request_id, request_body, response_body
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, COALESCE(NULLIF(TRIM(?16), ''), 'text'), ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40)",
             params![
                 &log.trace_id,
                 &log.key_id,
@@ -111,6 +111,8 @@ impl Storage {
                 &log.error,
                 log.created_at,
                 &log.upstream_client_request_id,
+                &log.request_body,
+                &log.response_body,
             ],
         )?;
         Ok(self.conn.last_insert_rowid())
@@ -139,8 +141,8 @@ impl Storage {
             "INSERT INTO request_logs (
                 trace_id, key_id, account_id, initial_account_id, attempted_account_ids_json, initial_aggregate_api_id, aggregate_api_id, attempted_aggregate_api_ids_json, aggregate_api_attempt_failures_json,
                 request_path, original_path, adapted_path,
-                method, request_type, model, model_type, image_count, image_size, image_results_json, reasoning_effort, service_tier, effective_service_tier, response_adapter, upstream_url, aggregate_api_supplier_name, aggregate_api_url, status_code, duration_ms, first_response_ms, queue_wait_ms, upstream_actual_cost, upstream_total_cost, upstream_duration_ms, upstream_first_response_ms, upstream_usage_synced_at, error, created_at, upstream_client_request_id
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, COALESCE(NULLIF(TRIM(?16), ''), 'text'), ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38)",
+                method, request_type, model, model_type, image_count, image_size, image_results_json, reasoning_effort, service_tier, effective_service_tier, response_adapter, upstream_url, aggregate_api_supplier_name, aggregate_api_url, status_code, duration_ms, first_response_ms, queue_wait_ms, upstream_actual_cost, upstream_total_cost, upstream_duration_ms, upstream_first_response_ms, upstream_usage_synced_at, error, created_at, upstream_client_request_id, request_body, response_body
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, COALESCE(NULLIF(TRIM(?16), ''), 'text'), ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40)",
             params![
                 &log.trace_id,
                 &log.key_id,
@@ -180,6 +182,8 @@ impl Storage {
                 &log.error,
                 log.created_at,
                 &log.upstream_client_request_id,
+                &log.request_body,
+                &log.response_body,
             ],
         )?;
         let request_log_id = tx.last_insert_rowid();
@@ -298,7 +302,9 @@ impl Storage {
                 r.request_path, r.original_path, r.adapted_path,
                 r.method, r.request_type, r.model, COALESCE(NULLIF(TRIM(r.model_type), ''), 'text'), r.image_count, r.image_size, r.image_results_json, r.reasoning_effort, r.service_tier, r.effective_service_tier, r.response_adapter, r.upstream_url, r.aggregate_api_supplier_name, r.aggregate_api_url, r.status_code, r.duration_ms, r.first_response_ms, r.queue_wait_ms, r.upstream_actual_cost, r.upstream_total_cost, r.upstream_duration_ms, r.upstream_first_response_ms, r.upstream_usage_synced_at,
                 t.input_tokens, t.cached_input_tokens, t.output_tokens, t.total_tokens, t.reasoning_output_tokens,
-                r.error, r.created_at
+                r.error, r.created_at,
+                (r.request_body IS NOT NULL AND TRIM(r.request_body) <> '') AS has_request_body,
+                (r.response_body IS NOT NULL AND TRIM(r.response_body) <> '') AS has_response_body
              FROM request_logs r
              LEFT JOIN request_token_stats t ON t.request_log_id = r.id
              {where_clause}
@@ -439,6 +445,32 @@ impl Storage {
             });
         }
         Ok(items)
+    }
+
+    /// 按 trace_id 读取最近一条日志的输入/输出文本（列表查询不携带大字段，查看详情时按需读取）。
+    pub fn read_request_log_bodies_by_trace_id(
+        &self,
+        trace_id: &str,
+    ) -> Result<Option<RequestLogBodies>> {
+        let trace_id = trace_id.trim();
+        if trace_id.is_empty() {
+            return Ok(None);
+        }
+        let mut stmt = self.conn.prepare(
+            "SELECT request_body, response_body
+             FROM request_logs
+             WHERE trace_id = ?1
+             ORDER BY created_at DESC, id DESC
+             LIMIT 1",
+        )?;
+        let mut rows = stmt.query(params![trace_id])?;
+        match rows.next()? {
+            Some(row) => Ok(Some(RequestLogBodies {
+                request_body: row.get(0)?,
+                response_body: row.get(1)?,
+            })),
+            None => Ok(None),
+        }
     }
 
     /// 函数 `count_request_logs`
@@ -677,6 +709,7 @@ impl Storage {
         self.ensure_request_log_image_results_column()?;
         self.ensure_request_log_sub2api_usage_columns()?;
         self.ensure_request_log_upstream_client_request_id_column()?;
+        self.ensure_request_log_body_columns()?;
         Ok(())
     }
 
@@ -897,6 +930,12 @@ impl Storage {
         Ok(())
     }
 
+    pub(super) fn ensure_request_log_body_columns(&self) -> Result<()> {
+        self.ensure_column("request_logs", "request_body", "TEXT")?;
+        self.ensure_column("request_logs", "response_body", "TEXT")?;
+        Ok(())
+    }
+
     pub(super) fn ensure_request_log_request_type_and_service_tier_columns(&self) -> Result<()> {
         self.ensure_column("request_logs", "request_type", "TEXT")?;
         self.ensure_column("request_logs", "service_tier", "TEXT")?;
@@ -1050,6 +1089,10 @@ fn map_request_log_row(row: &Row<'_>) -> Result<RequestLog> {
         output_tokens: row.get(37)?,
         total_tokens: row.get(38)?,
         reasoning_output_tokens: row.get(39)?,
+        request_body: None,
+        response_body: None,
+        has_request_body: row.get::<_, i64>(42)? != 0,
+        has_response_body: row.get::<_, i64>(43)? != 0,
         error: row.get(40)?,
         created_at: row.get(41)?,
     })

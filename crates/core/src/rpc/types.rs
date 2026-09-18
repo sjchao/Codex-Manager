@@ -673,6 +673,19 @@ pub struct RequestLogImageReadParams {
     pub trace_id: String,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RequestLogBodyReadParams {
+    pub trace_id: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RequestLogBodyReadResult {
+    pub request_body: Option<String>,
+    pub response_body: Option<String>,
+}
+
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RequestLogSummary {
@@ -721,6 +734,10 @@ pub struct RequestLogSummary {
     pub output_tokens: Option<i64>,
     pub total_tokens: Option<i64>,
     pub reasoning_output_tokens: Option<i64>,
+    #[serde(default)]
+    pub has_request_body: bool,
+    #[serde(default)]
+    pub has_response_body: bool,
     pub error: Option<String>,
     pub created_at: i64,
 }

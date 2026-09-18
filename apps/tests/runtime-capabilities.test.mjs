@@ -257,3 +257,27 @@ test("Web transport exposes request-log image reads through the shared RPC comma
     /service_requestlog_images_read:\s*\{\s*rpcMethod:\s*"requestlog\/images\/read"\s*\}/
   );
 });
+
+test("normalizeRequestLogBodyData 兼容 camelCase 与 snake_case 字段", () => {
+  assert.deepEqual(
+    normalize.normalizeRequestLogBodyData({
+      requestBody: '{"input":"hi"}',
+      responseBody: "你好",
+    }),
+    { requestBody: '{"input":"hi"}', responseBody: "你好" }
+  );
+
+  assert.deepEqual(
+    normalize.normalizeRequestLogBodyData({ request_body: '{"input":"hi"}' }),
+    { requestBody: '{"input":"hi"}', responseBody: "" }
+  );
+});
+
+test("Web transport exposes request-log body reads through the shared RPC command", async () => {
+  const source = await fs.readFile(transportSourcePath, "utf8");
+
+  assert.match(
+    source,
+    /service_requestlog_body_read:\s*\{\s*rpcMethod:\s*"requestlog\/body\/read"\s*\}/
+  );
+});

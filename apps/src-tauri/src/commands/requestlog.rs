@@ -102,6 +102,20 @@ pub async fn service_requestlog_images_read(
     .await
 }
 
+/// 按 trace_id 读取请求日志的输入/输出文本。
+#[tauri::command]
+pub async fn service_requestlog_body_read(
+    addr: Option<String>,
+    trace_id: String,
+) -> Result<serde_json::Value, String> {
+    rpc_call_in_background(
+        "requestlog/body/read",
+        addr,
+        Some(serde_json::json!({ "traceId": trace_id })),
+    )
+    .await
+}
+
 /// 函数 `service_requestlog_error_clear`
 ///
 /// 作者: gaohongshun

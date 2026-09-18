@@ -1,6 +1,7 @@
 use codexmanager_core::rpc::types::{
-    RequestLogAggregateApiAttemptFailure, RequestLogListParams, RequestLogListResult,
-    RequestLogImageData, RequestLogImageReadParams, RequestLogImageResult, RequestLogSummary,
+    RequestLogAggregateApiAttemptFailure, RequestLogBodyReadParams, RequestLogBodyReadResult,
+    RequestLogImageData, RequestLogImageReadParams, RequestLogImageResult, RequestLogListParams,
+    RequestLogListResult, RequestLogSummary,
 };
 use codexmanager_core::storage::RequestLog;
 use std::path::Path;
@@ -135,6 +136,25 @@ pub(crate) fn read_request_log_images(
         trace_id,
         log.image_results_json.as_deref(),
     )
+}
+
+pub(crate) fn read_request_log_bodies(
+    params: RequestLogBodyReadParams,
+) -> Result<RequestLogBodyReadResult, String> {
+    let trace_id = params.trace_id.trim();
+    if trace_id.is_empty() {
+        return Err("request log trace ID is required".to_string());
+    }
+    let storage = open_storage().ok_or_else(|| "open storage failed".to_string())?;
+    let bodies = storage
+        .read_request_log_bodies_by_trace_id(trace_id)
+        .map_err(|err| format!("read request log bodies failed: {err}"))?;
+    Ok(bodies
+        .map(|bodies| RequestLogBodyReadResult {
+            request_body: bodies.request_body,
+            response_body: bodies.response_body,
+        })
+        .unwrap_or_default())
 }
 
 /// 函数 `normalize_optional_text`
@@ -298,6 +318,8 @@ fn to_request_log_summary(item: RequestLog) -> RequestLogSummary {
         output_tokens: item.output_tokens,
         total_tokens: item.total_tokens,
         reasoning_output_tokens: item.reasoning_output_tokens,
+        has_request_body: item.has_request_body,
+        has_response_body: item.has_response_body,
         error: item.error,
         created_at: item.created_at,
     }
@@ -431,6 +453,23 @@ mod tests {
         assert_eq!(summary.image_results[0].storage_key, "trc-image/0.png");
         assert_eq!(summary.image_results[0].mime_type, "image/png");
         assert_eq!(summary.image_results[0].byte_length, 8);
+    }
+
+    #[test]
+    fn to_request_log_summary_exposes_body_presence_flags() {
+        let summary = super::to_request_log_summary(RequestLog {
+            request_path: "/v1/responses".to_string(),
+            method: "POST".to_string(),
+            request_body: Some(r#"{"input":"hi"}"#.to_string()),
+            response_body: Some("你好".to_string()),
+            has_request_body: true,
+            has_response_body: true,
+            created_at: 1,
+            ..Default::default()
+        });
+
+        assert!(summary.has_request_body);
+        assert!(summary.has_response_body);
     }
 
     /// 函数 `request_log_list_params_default_to_first_page_with_twenty_items`

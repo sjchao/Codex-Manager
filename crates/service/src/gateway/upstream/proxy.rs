@@ -137,6 +137,7 @@ pub(in super::super) fn proxy_validated_request(
         protocol_type.as_str(),
     );
     super::super::trace_log::log_request_body_summary(trace_id.as_str(), body.as_ref());
+    let request_body_for_log = super::super::request_log::request_body_text(Some(body.as_ref()));
     if protocol_type == crate::apikey_profile::PROTOCOL_GEMINI_NATIVE {
         super::super::trace_log::log_gemini_request_diagnostics(
             trace_id.as_str(),
@@ -185,6 +186,7 @@ pub(in super::super) fn proxy_validated_request(
                             trace_id: Some(trace_id.as_str()),
                             original_path: Some(original_path.as_str()),
                             adapted_path: Some(path.as_str()),
+                            request_body: request_body_for_log,
                             queue_wait_ms,
                             response_adapter: Some(super::super::ResponseAdapter::Passthrough),
                             model_type: Some(model_type),
@@ -232,6 +234,7 @@ pub(in super::super) fn proxy_validated_request(
             request_method.as_str(),
             &method,
             &body,
+            request_body_for_log,
             client_is_stream,
             super::super::ResponseAdapter::Passthrough,
             model_for_log.as_deref(),
@@ -258,6 +261,7 @@ pub(in super::super) fn proxy_validated_request(
             request_method.as_str(),
             &method,
             &body,
+            request_body_for_log,
             upstream_is_stream,
             response_adapter,
             &tool_name_restore_map,
@@ -319,6 +323,7 @@ pub(in super::super) fn proxy_validated_request(
         &original_path,
         &path,
         &request_method,
+        request_body_for_log,
         response_adapter,
         protocol_type.as_str(),
         model_for_log.as_deref(),

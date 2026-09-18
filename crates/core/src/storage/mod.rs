@@ -148,8 +148,18 @@ pub struct RequestLog {
     pub output_tokens: Option<i64>,
     pub total_tokens: Option<i64>,
     pub reasoning_output_tokens: Option<i64>,
+    pub request_body: Option<String>,
+    pub response_body: Option<String>,
+    pub has_request_body: bool,
+    pub has_response_body: bool,
     pub error: Option<String>,
     pub created_at: i64,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct RequestLogBodies {
+    pub request_body: Option<String>,
+    pub response_body: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -760,6 +770,11 @@ impl Storage {
             include_str!("../../migrations/059_api_key_allowed_models.sql"),
             |s| s.ensure_api_key_allowed_models_column(),
         )?;
+        self.apply_sql_or_compat_migration(
+            "060_request_logs_request_response_body",
+            include_str!("../../migrations/060_request_logs_request_response_body.sql"),
+            |s| s.ensure_request_log_body_columns(),
+        )?;
         self.ensure_api_key_rotation_columns()?;
         self.ensure_api_key_group_name_column()?;
         self.ensure_api_key_allowed_models_column()?;
@@ -775,6 +790,7 @@ impl Storage {
         self.ensure_request_log_queue_wait_column()?;
         self.ensure_request_log_first_response_column()?;
         self.ensure_request_log_model_type_and_media_columns()?;
+        self.ensure_request_log_body_columns()?;
         self.ensure_aggregate_api_usage_tables()?;
         self.ensure_request_log_sub2api_usage_columns()?;
         let _ = self.maintain_request_token_stats_if_due();

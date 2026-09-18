@@ -2,8 +2,8 @@ use serde_json::Value;
 
 use super::output_text;
 use output_text::{
-    append_output_text, collect_response_output_text, extract_error_message_from_json,
-    parse_usage_from_json, UpstreamResponseUsage,
+    append_output_text, extract_error_message_from_json, parse_usage_from_json,
+    UpstreamResponseUsage,
 };
 
 /// 函数 `parse_usage_from_sse_frame`
@@ -37,29 +37,11 @@ pub(in super::super) fn parse_usage_from_sse_frame(
     }
     let value = serde_json::from_str::<Value>(&data).ok()?;
     let mut usage = parse_usage_from_json(&value);
-    if let Some(choices) = value.get("choices").and_then(Value::as_array) {
-        let mut text_out = String::new();
-        for choice in choices {
-            if let Some(delta) = choice
-                .get("delta")
-                .and_then(Value::as_object)
-                .and_then(|delta| delta.get("content"))
-            {
-                collect_response_output_text(delta, &mut text_out);
-            }
-        }
-        if !text_out.trim().is_empty() {
-            let target = usage.output_text.get_or_insert_with(String::new);
-            append_output_text(target, text_out.as_str());
-        }
-        return Some(usage);
-    }
     if let Some(delta) = value.get("delta").and_then(Value::as_str) {
         if !delta.is_empty() {
             let target = usage.output_text.get_or_insert_with(String::new);
             append_output_text(target, delta);
         }
-        return Some(usage);
     }
     Some(usage)
 }
@@ -241,25 +223,7 @@ pub(in super::super) fn inspect_sse_frame_for_protocol(
         }
 
         inspection.usage = parse_usage_from_json(&value).into();
-        if let Some(choices) = value.get("choices").and_then(Value::as_array) {
-            let mut text_out = String::new();
-            for choice in choices {
-                if let Some(delta) = choice
-                    .get("delta")
-                    .and_then(Value::as_object)
-                    .and_then(|delta| delta.get("content"))
-                {
-                    collect_response_output_text(delta, &mut text_out);
-                }
-            }
-            if !text_out.trim().is_empty() {
-                let usage = inspection
-                    .usage
-                    .get_or_insert_with(UpstreamResponseUsage::default);
-                let target = usage.output_text.get_or_insert_with(String::new);
-                append_output_text(target, text_out.as_str());
-            }
-        } else if let Some(delta) = value.get("delta").and_then(Value::as_str) {
+        if let Some(delta) = value.get("delta").and_then(Value::as_str) {
             if !delta.is_empty() {
                 let usage = inspection
                     .usage

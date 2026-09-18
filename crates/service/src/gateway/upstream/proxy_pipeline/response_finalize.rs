@@ -79,6 +79,7 @@ pub(super) fn respond_total_timeout(
         model_for_log,
         504,
         None,
+        None,
         RequestLogUsage::default(),
         Some(message.as_str()),
         started_at.elapsed().as_millis(),
@@ -116,6 +117,7 @@ pub(super) fn finalize_terminal_candidate(
         last_attempt_url,
         model_for_log,
         status_code,
+        None,
         None,
         RequestLogUsage::default(),
         Some(message.as_str()),
@@ -297,6 +299,7 @@ pub(super) fn finalize_upstream_response(
         model_for_log,
         status_for_log,
         image_results_json.as_deref(),
+        usage.output_text.as_deref(),
         RequestLogUsage {
             input_tokens: usage.input_tokens,
             cached_input_tokens: usage.cached_input_tokens,

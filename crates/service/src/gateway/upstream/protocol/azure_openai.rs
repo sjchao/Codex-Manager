@@ -96,11 +96,13 @@ fn request_log_trace_context<'a>(
     image_size: Option<&'a str>,
     effective_service_tier: Option<&'a str>,
     queue_wait_ms: Option<u128>,
+    request_body: Option<&'a str>,
 ) -> super::super::super::request_log::RequestLogTraceContext<'a> {
     super::super::super::request_log::RequestLogTraceContext {
         trace_id: Some(trace_id),
         original_path: Some(original_path),
         adapted_path: Some(path),
+        request_body,
         queue_wait_ms,
         response_adapter: Some(response_adapter),
         model_type: Some(model_type),
@@ -128,11 +130,13 @@ mod trace_context_tests {
             Some("4K"),
             None,
             None,
+            Some(r#"{"prompt":"cat"}"#),
         );
 
         assert_eq!(context.model_type, Some(ModelType::Image));
         assert_eq!(context.image_count, Some(2));
         assert_eq!(context.image_size, Some("4K"));
+        assert_eq!(context.request_body, Some(r#"{"prompt":"cat"}"#));
     }
 }
 
@@ -158,6 +162,7 @@ pub(in super::super) fn proxy_azure_request(
     request_method: &str,
     method: &reqwest::Method,
     body: &Bytes,
+    request_body: Option<&str>,
     is_stream: bool,
     response_adapter: super::super::super::ResponseAdapter,
     tool_name_restore_map: &super::super::super::ToolNameRestoreMap,
@@ -199,6 +204,7 @@ pub(in super::super) fn proxy_azure_request(
                 image_size,
                 effective_service_tier_for_log,
                 queue_wait_ms,
+                request_body,
             ),
             Some(key_id),
             None,
@@ -244,6 +250,7 @@ pub(in super::super) fn proxy_azure_request(
                     image_size,
                     effective_service_tier_for_log,
                     queue_wait_ms,
+                    request_body,
                 ),
                 Some(key_id),
                 None,
@@ -293,6 +300,7 @@ pub(in super::super) fn proxy_azure_request(
                         image_size,
                         effective_service_tier_for_log,
                         queue_wait_ms,
+                        request_body,
                     ),
                     Some(key_id),
                     None,
@@ -336,6 +344,7 @@ pub(in super::super) fn proxy_azure_request(
                         image_size,
                         effective_service_tier_for_log,
                         queue_wait_ms,
+                        request_body,
                     ),
                     Some(key_id),
                     None,
@@ -482,6 +491,7 @@ pub(in super::super) fn proxy_azure_request(
                             image_size,
                             effective_service_tier_for_log,
                             queue_wait_ms,
+                            request_body,
                         ),
                         Some(key_id),
                         None,
@@ -550,19 +560,22 @@ pub(in super::super) fn proxy_azure_request(
         final_error_text.as_deref(),
         started_at.elapsed().as_millis(),
     );
+    let mut trace_context = request_log_trace_context(
+        trace_id,
+        original_path,
+        path,
+        response_adapter,
+        model_type,
+        image_count,
+        image_size,
+        effective_service_tier_for_log,
+        queue_wait_ms,
+        request_body,
+    );
+    trace_context.response_body = usage.output_text.as_deref();
     super::super::super::write_request_log(
         storage,
-        request_log_trace_context(
-            trace_id,
-            original_path,
-            path,
-            response_adapter,
-            model_type,
-            image_count,
-            image_size,
-            effective_service_tier_for_log,
-            queue_wait_ms,
-        ),
+        trace_context,
         Some(key_id),
         None,
         path,

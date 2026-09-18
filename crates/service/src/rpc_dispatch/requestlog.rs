@@ -1,6 +1,6 @@
 use codexmanager_core::rpc::types::{
-    GatewayErrorLogListParams, JsonRpcRequest, JsonRpcResponse, RequestLogListParams,
-    RequestLogImageReadParams,
+    GatewayErrorLogListParams, JsonRpcRequest, JsonRpcResponse, RequestLogBodyReadParams,
+    RequestLogImageReadParams, RequestLogListParams,
 };
 
 use crate::{
@@ -53,6 +53,16 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 .map(|params| params.unwrap_or_default())
                 .map_err(|err| format!("invalid requestlog/images/read params: {err}"));
             super::value_or_error(params.and_then(requestlog_list::read_request_log_images))
+        }
+        "requestlog/body/read" => {
+            let params = req
+                .params
+                .clone()
+                .map(serde_json::from_value::<RequestLogBodyReadParams>)
+                .transpose()
+                .map(|params| params.unwrap_or_default())
+                .map_err(|err| format!("invalid requestlog/body/read params: {err}"));
+            super::value_or_error(params.and_then(requestlog_list::read_request_log_bodies))
         }
         "requestlog/clear" => super::ok_or_error(requestlog_clear::clear_request_logs()),
         "requestlog/prune" => {

@@ -326,6 +326,11 @@ export interface RequestLogImageData {
   dataUrl: string;
 }
 
+export interface RequestLogBodyData {
+  requestBody: string;
+  responseBody: string;
+}
+
 export interface RequestLog {
   id: string;
   traceId: string;
@@ -361,6 +366,8 @@ export interface RequestLog {
   outputTokens: number | null;
   totalTokens: number | null;
   reasoningOutputTokens: number | null;
+  hasRequestBody: boolean;
+  hasResponseBody: boolean;
   durationMs: number | null;
   firstResponseMs: number | null;
   queueWaitMs: number | null;

@@ -51,6 +51,8 @@ pub(crate) struct RequestLogTraceContext<'a> {
     pub original_path: Option<&'a str>,
     pub adapted_path: Option<&'a str>,
     pub request_type: Option<&'a str>,
+    pub request_body: Option<&'a str>,
+    pub response_body: Option<&'a str>,
     pub model_type: Option<ModelType>,
     pub image_count: Option<i64>,
     pub image_size: Option<&'a str>,
@@ -112,6 +114,42 @@ fn is_inference_path(path: &str) -> bool {
     path.starts_with("/v1/responses")
         || path.starts_with("/v1/chat/completions")
         || path.starts_with("/v1/messages")
+}
+
+const BODY_LIMIT_BYTES_ENV: &str = "CODEXMANAGER_REQUEST_LOG_BODY_LIMIT_BYTES";
+const DEFAULT_BODY_LIMIT_BYTES: usize = 64 * 1024;
+const BODY_TRUNCATED_MARKER: &str = "[truncated]";
+
+/// 请求日志输入/输出文本的落库截断上限（0 表示不截断）。
+fn body_limit_bytes() -> usize {
+    std::env::var(BODY_LIMIT_BYTES_ENV)
+        .ok()
+        .and_then(|value| value.trim().parse::<usize>().ok())
+        .unwrap_or(DEFAULT_BODY_LIMIT_BYTES)
+}
+
+fn limit_body_text(value: Option<&str>, limit: usize) -> Option<String> {
+    let text = value.map(str::trim).filter(|value| !value.is_empty())?;
+    if limit == 0 || text.len() <= limit {
+        return Some(text.to_string());
+    }
+    let mut end = limit;
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    let mut truncated = text[..end].to_string();
+    truncated.push('\n');
+    truncated.push_str(BODY_TRUNCATED_MARKER);
+    Some(truncated)
+}
+
+/// 把请求体字节转换为可用于日志的文本（非 UTF-8 或空内容返回 None）。
+pub(crate) fn request_body_text(body: Option<&[u8]>) -> Option<&str> {
+    let body = body?;
+    std::str::from_utf8(body)
+        .ok()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
 }
 
 fn should_write_gateway_error_fallback(status_code: Option<u16>, error: Option<&str>) -> bool {
@@ -260,6 +298,9 @@ pub(crate) fn write_request_log_with_attempts(
     let duration_ms = normalize_duration_ms(duration_ms);
     let first_response_ms = usage.first_response_ms.map(|value| value.max(0));
     let queue_wait_ms = normalize_duration_ms(trace_context.queue_wait_ms);
+    let body_limit = body_limit_bytes();
+    let request_body = limit_body_text(trace_context.request_body, body_limit);
+    let response_body = limit_body_text(trace_context.response_body, body_limit);
     let created_at = now_ts();
     let request_type = trace_context
         .request_type
@@ -376,6 +417,10 @@ pub(crate) fn write_request_log_with_attempts(
             upstream_client_request_id: trace_context
                 .upstream_client_request_id
                 .map(str::to_string),
+            request_body,
+            response_body,
+            has_request_body: false,
+            has_response_body: false,
             input_tokens: None,
             cached_input_tokens: None,
             output_tokens: None,

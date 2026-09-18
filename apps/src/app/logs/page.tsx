@@ -21,6 +21,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/modals/confirm-dialog";
+import { RequestLogBodyCell } from "@/components/logs/request-log-body-cell";
+import { RequestLogBodyDialog } from "@/components/logs/request-log-body-dialog";
 import { RequestLogImageResultCell } from "@/components/logs/request-log-image-result-cell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -1294,6 +1296,7 @@ function LogsPageContent() {
   const [activeTab, setActiveTab] = useState<LogsTab>("all");
   const [gatewayStageFilter, setGatewayStageFilter] = useState("all");
   const [previewedImage, setPreviewedImage] = useState<RequestLogImageData | null>(null);
+  const [viewedBodyLog, setViewedBodyLog] = useState<RequestLog | null>(null);
   const pageSizeNumber = Number(pageSize) || 10;
   const gatewayPageSizeNumber = Number(gatewayPageSize) || 10;
   const startupSnapshot = queryClient.getQueryData<StartupSnapshot>(
@@ -1839,7 +1842,7 @@ function LogsPageContent() {
               </div>
             </CardHeader>
             <CardContent className="px-0">
-              <Table className={cn("table-fixed", modelTypeFilter === "image" ? "min-w-[1620px]" : "min-w-[1490px]")}>
+              <Table className={cn("table-fixed", modelTypeFilter === "image" ? "min-w-[1620px]" : "min-w-[1640px]")}>
             <TableHeader>
               <TableRow>
                 <TableHead className="h-12 w-[150px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
@@ -1866,11 +1869,13 @@ function LogsPageContent() {
                 <TableHead className="w-[148px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
                   {modelTypeFilter === "image" ? "图片参数" : "词元"}
                 </TableHead>
-                {modelTypeFilter === "image" ? (
-                  <TableHead className="w-[150px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                    图片结果
-                  </TableHead>
-                ) : null}
+                <TableHead className="w-[150px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+                  {modelTypeFilter === "image"
+                    ? "图片结果"
+                    : modelTypeFilter === "all"
+                      ? "输入 / 输出 / 图片"
+                      : "输入 / 输出"}
+                </TableHead>
                 <TableHead className="w-[240px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
                   错误
                 </TableHead>
@@ -1904,11 +1909,15 @@ function LogsPageContent() {
                     <TableCell>
                       <Skeleton className="h-4 w-20" />
                     </TableCell>
-                    {modelTypeFilter === "image" ? (
+                    {modelTypeFilter === "image" || modelTypeFilter === "all" ? (
                       <TableCell>
                         <Skeleton className="h-12 w-16" />
                       </TableCell>
-                    ) : null}
+                    ) : (
+                      <TableCell>
+                        <Skeleton className="h-6 w-16" />
+                      </TableCell>
+                    )}
                     <TableCell>
                       <Skeleton className="h-4 w-full" />
                     </TableCell>
@@ -1917,7 +1926,7 @@ function LogsPageContent() {
               ) : logs.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={modelTypeFilter === "image" ? 10 : 9}
+                    colSpan={10}
                     className="h-52 px-4 text-center text-sm text-muted-foreground"
                   >
                     {!serviceStatus.connected
@@ -2000,7 +2009,8 @@ function LogsPageContent() {
                         </div>
                       )}
                     </TableCell>
-                    {modelTypeFilter === "image" ? (
+                    {modelTypeFilter === "image" ||
+                    (log.modelType === "image" && log.imageResults.length > 0) ? (
                       <TableCell className="px-4 py-3 align-top">
                         <RequestLogImageResultCell
                           traceId={log.traceId}
@@ -2009,7 +2019,15 @@ function LogsPageContent() {
                           onPreview={setPreviewedImage}
                         />
                       </TableCell>
-                    ) : null}
+                    ) : (
+                      <TableCell className="px-4 py-3 align-top">
+                        <RequestLogBodyCell
+                          hasRequestBody={log.hasRequestBody}
+                          hasResponseBody={log.hasResponseBody}
+                          onOpen={() => setViewedBodyLog(log)}
+                        />
+                      </TableCell>
+                    )}
                     <TableCell className="px-4 py-3 text-left align-top">
                       <ErrorInfoCell
                         error={log.error}
@@ -2460,6 +2478,13 @@ function LogsPageContent() {
           ) : null}
         </DialogContent>
       </Dialog>
+      <RequestLogBodyDialog
+        log={viewedBodyLog}
+        serviceAddr={serviceStatus.addr}
+        onOpenChange={(open) => {
+          if (!open) setViewedBodyLog(null);
+        }}
+      />
     </div>
   );
 }

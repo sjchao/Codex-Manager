@@ -20,6 +20,7 @@ pub(crate) struct UpstreamResponseUsage {
     pub reasoning_output_tokens: Option<i64>,
     pub first_response_ms: Option<i64>,
     pub output_text: Option<String>,
+    pub output_text_is_snapshot: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -149,7 +150,14 @@ pub(in super::super) fn merge_usage(
     }
     if let Some(source_text) = source.output_text {
         let target_text = target.output_text.get_or_insert_with(String::new);
-        append_output_text_raw(target_text, source_text.as_str());
+        if source.output_text_is_snapshot && !target_text.is_empty() {
+            // 中文注释：完整响应快照与增量拼接内容取更长者，避免重复拼接。
+            if source_text.len() > target_text.len() {
+                *target_text = source_text;
+            }
+        } else {
+            append_output_text_raw(target_text, source_text.as_str());
+        }
     }
 }
 
@@ -234,6 +242,7 @@ fn parse_usage_from_object(usage: Option<&Map<String, Value>>) -> UpstreamRespon
         reasoning_output_tokens,
         first_response_ms: None,
         output_text: None,
+        output_text_is_snapshot: false,
     }
 }
 
@@ -564,6 +573,11 @@ pub(in super::super) fn parse_usage_from_json(value: &Value) -> UpstreamResponse
         .and_then(Value::as_object);
     merge_usage(&mut usage, parse_usage_from_object(response_usage));
     usage.output_text = extract_output_text_from_json(value);
+    usage.output_text_is_snapshot = usage.output_text.is_some()
+        && value
+            .get("type")
+            .and_then(Value::as_str)
+            .is_some_and(super::is_response_completed_event_name);
     usage
 }
 
