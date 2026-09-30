@@ -594,8 +594,8 @@ export default function AggregateApiPage() {
               <Table className="w-full table-fixed">
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="max-w-[220px]">供应商 / URL</TableHead>
-                    <TableHead className="w-[180px]">支持模型</TableHead>
+                    <TableHead className="w-[180px]">供应商 / URL</TableHead>
+                    <TableHead>支持模型</TableHead>
                     <TableHead className="w-[148px]">密钥</TableHead>
                     <TableHead className="w-[64px] text-center">排序</TableHead>
                     <TableHead className="w-[72px] text-center">权重</TableHead>
@@ -607,7 +607,7 @@ export default function AggregateApiPage() {
                     </TableHead>
                     <TableHead className="w-[112px]">状态</TableHead>
                     <TableHead className="w-[130px]">测试连通性</TableHead>
-                    <TableHead className="text-center">操作</TableHead>
+                    <TableHead className="w-[96px] text-center">操作</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -727,7 +727,7 @@ export default function AggregateApiPage() {
                                 ] || api.providerType}
                               </Badge>
                               {api.supportedModels.length > 0 ? (
-                                api.supportedModels.slice(0, 2).map((model) => (
+                                api.supportedModels.map((model) => (
                                   <Badge
                                     key={model.toLowerCase()}
                                     variant="outline"
@@ -740,11 +740,6 @@ export default function AggregateApiPage() {
                               ) : (
                                 <span className="text-xs text-muted-foreground">-</span>
                               )}
-                              {api.supportedModels.length > 2 ? (
-                                <Badge variant="outline" className="text-[10px] font-normal">
-                                  +{api.supportedModels.length - 2}
-                                </Badge>
-                              ) : null}
                             </div>
                           </TableCell>
                           <TableCell className="overflow-hidden">
