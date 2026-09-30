@@ -151,7 +151,12 @@ fn request_body_text_skips_blank_and_invalid_utf8_bodies() {
 }
 
 #[test]
-fn request_log_persists_request_and_response_bodies() {
+fn request_log_persists_request_and_response_bodies_on_disk() {
+    let _env_lock = crate::test_env_guard();
+    let db_path = temporary_database_path("bodies");
+    fs::create_dir_all(db_path.parent().expect("database parent"))
+        .expect("create database directory");
+    let _db_path_guard = EnvGuard::set_database_path(&db_path);
     let storage = Storage::open_in_memory().expect("open storage");
     storage.init().expect("init storage");
 
@@ -178,25 +183,45 @@ fn request_log_persists_request_and_response_bodies() {
 
     let logs = storage.list_request_logs(None, 20).expect("list logs");
     assert_eq!(logs.len(), 1);
-    assert!(logs[0].has_request_body);
-    assert!(logs[0].has_response_body);
-    assert!(logs[0].request_body.is_none());
-    assert!(logs[0].response_body.is_none());
+    assert_eq!(logs[0].trace_id.as_deref(), Some("trc-bodies"));
 
-    let bodies = storage
-        .read_request_log_bodies_by_trace_id("trc-bodies")
-        .expect("read bodies")
-        .expect("bodies present");
+    let date = crate::requestlog::storage_paths::date_dir_name(logs[0].created_at)
+        .expect("date directory");
+    let body_dir = db_path
+        .parent()
+        .expect("database parent")
+        .join("request-log-bodies")
+        .join(date);
+    let request_file = body_dir.join("trc-bodies-request.gz");
+    assert!(request_file.is_file());
+    assert!(body_dir.join("trc-bodies-response.gz").is_file());
+    let compressed = fs::read(&request_file).expect("read request body file");
+    assert!(compressed.starts_with(&[0x1f, 0x8b]));
+
+    let (request_body, response_body) =
+        crate::requestlog::body_assets::read_request_log_bodies(&db_path, "trc-bodies")
+            .expect("read bodies");
     assert_eq!(
-        bodies.request_body.as_deref(),
+        request_body.as_deref(),
         Some(r#"{"model":"gpt-5","input":"hi"}"#)
     );
-    assert_eq!(bodies.response_body.as_deref(), Some("你好，有什么可以帮你？"));
+    assert_eq!(response_body.as_deref(), Some("你好，有什么可以帮你？"));
+    let _ = fs::remove_dir_all(
+        db_path
+            .parent()
+            .expect("database parent")
+            .parent()
+            .expect("test root"),
+    );
 }
 
 #[test]
 fn request_log_truncates_bodies_at_configured_limit() {
     let _env_lock = crate::test_env_guard();
+    let db_path = temporary_database_path("body-limit");
+    fs::create_dir_all(db_path.parent().expect("database parent"))
+        .expect("create database directory");
+    let _db_path_guard = EnvGuard::set_database_path(&db_path);
     let storage = Storage::open_in_memory().expect("open storage");
     storage.init().expect("init storage");
     let original_limit = std::env::var_os("CODEXMANAGER_REQUEST_LOG_BODY_LIMIT_BYTES");
@@ -229,12 +254,31 @@ fn request_log_truncates_bodies_at_configured_limit() {
         None => std::env::remove_var("CODEXMANAGER_REQUEST_LOG_BODY_LIMIT_BYTES"),
     }
 
-    let bodies = storage
-        .read_request_log_bodies_by_trace_id("trc-body-limit")
-        .expect("read bodies")
-        .expect("bodies present");
-    let stored = bodies.request_body.expect("request body stored");
-    assert!(stored.starts_with("xxxxxxxxxxxxxxxx"));
-    assert!(stored.ends_with("[truncated]"));
-    assert_eq!(bodies.response_body.as_deref(), Some("short"));
+    let created_at = storage
+        .list_request_logs(None, 20)
+        .expect("list logs")
+        .first()
+        .expect("stored log")
+        .created_at;
+    let date = crate::requestlog::storage_paths::date_dir_name(created_at).expect("date directory");
+    let body_dir = db_path
+        .parent()
+        .expect("database parent")
+        .join("request-log-bodies")
+        .join(date);
+    let (stored_request, stored_response) =
+        crate::requestlog::body_assets::read_request_log_bodies(&db_path, "trc-body-limit")
+            .expect("read bodies");
+    let stored_request = stored_request.expect("stored request body");
+    assert!(stored_request.starts_with("xxxxxxxxxxxxxxxx"));
+    assert!(stored_request.ends_with("[truncated]"));
+    assert_eq!(stored_response.as_deref(), Some("short"));
+    assert!(body_dir.join("trc-body-limit-request.gz").is_file());
+    let _ = fs::remove_dir_all(
+        db_path
+            .parent()
+            .expect("database parent")
+            .parent()
+            .expect("test root"),
+    );
 }

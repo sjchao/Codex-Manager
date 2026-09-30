@@ -37,6 +37,22 @@ fn new_test_dir(prefix: &str) -> PathBuf {
     dir
 }
 
+/// 请求日志落盘资源的日期目录（与服务端一致，使用本地时区）。
+fn request_asset_date_dir(ts: i64) -> String {
+    chrono::DateTime::from_timestamp(ts, 0)
+        .expect("timestamp")
+        .with_timezone(&chrono::Local)
+        .format("%Y%m%d")
+        .to_string()
+}
+
+fn write_gzip_asset(path: &std::path::Path, text: &str) {
+    let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    encoder.write_all(text.as_bytes()).expect("compress asset");
+    let compressed = encoder.finish().expect("finish gzip asset");
+    fs::write(path, compressed).expect("write compressed asset");
+}
+
 struct RpcTestContext {
     _env_lock: MutexGuard<'static, ()>,
     _db_path_guard: EnvGuard,
@@ -2012,24 +2028,23 @@ fn rpc_requestlog_images_read_and_clear_remove_cached_assets() {
     let ctx = RpcTestContext::new("rpc-requestlog-images");
     let storage = Storage::open(ctx.db_path()).expect("open db");
     storage.init().expect("init schema");
-    let image_path = ctx
-        .dir
-        .join("request-log-images")
-        .join("trc-image")
-        .join("0.png");
-    fs::create_dir_all(image_path.parent().expect("image parent"))
-        .expect("create image directory");
+    let created_at = now_ts();
+    let date = request_asset_date_dir(created_at);
+    let image_key = format!("{date}/trc-image-0.png");
+    let image_path = ctx.dir.join("request-log-images").join(&image_key);
+    fs::create_dir_all(image_path.parent().expect("image parent")).expect("create image directory");
     fs::write(&image_path, b"\x89PNG\r\n\x1a\n").expect("write cached image");
-    let image_results_json = r#"[{"storageKey":"trc-image/0.png","mimeType":"image/png","byteLength":8}]"#;
+    let image_results_json =
+        format!(r#"[{{"storageKey":"{image_key}","mimeType":"image/png","byteLength":8}}]"#);
     let request_log_id = storage
         .insert_request_log(&RequestLog {
             trace_id: Some("trc-image".to_string()),
             request_path: "/v1/images/generations".to_string(),
             method: "POST".to_string(),
             model_type: Some("image".to_string()),
-            image_results_json: Some(image_results_json.to_string()),
+            image_results_json: Some(image_results_json),
             status_code: Some(200),
-            created_at: now_ts(),
+            created_at,
             ..Default::default()
         })
         .expect("insert image request log");
@@ -2038,7 +2053,7 @@ fn rpc_requestlog_images_read_and_clear_remove_cached_assets() {
             request_log_id,
             input_tokens: Some(100),
             total_tokens: Some(100),
-            created_at: now_ts(),
+            created_at,
             ..Default::default()
         })
         .expect("insert token stat");
@@ -2055,7 +2070,10 @@ fn rpc_requestlog_images_read_and_clear_remove_cached_assets() {
         &serde_json::to_string(&list_request).expect("serialize list request"),
     );
     let list_item = &list_response["result"]["items"][0];
-    assert_eq!(list_item["imageResults"][0]["storageKey"], "trc-image/0.png");
+    assert_eq!(
+        list_item["imageResults"][0]["storageKey"].as_str(),
+        Some(image_key.as_str())
+    );
     assert!(list_item.get("dataUrl").is_none());
 
     let read_server = codexmanager_service::start_one_shot_server().expect("start read server");
@@ -2101,19 +2119,28 @@ fn rpc_requestlog_body_read_returns_captured_text() {
     let ctx = RpcTestContext::new("rpc-requestlog-bodies");
     let storage = Storage::open(ctx.db_path()).expect("open db");
     storage.init().expect("init schema");
+    let created_at = now_ts();
     storage
         .insert_request_log(&RequestLog {
             trace_id: Some("trc-body".to_string()),
             request_path: "/v1/responses".to_string(),
             method: "POST".to_string(),
             model: Some("gpt-5".to_string()),
-            request_body: Some(r#"{"input":"你好"}"#.to_string()),
-            response_body: Some("你好，有什么可以帮你？".to_string()),
             status_code: Some(200),
-            created_at: now_ts(),
+            created_at,
             ..Default::default()
         })
-        .expect("insert request log with bodies");
+        .expect("insert request log");
+    let body_dir = ctx
+        .dir
+        .join("request-log-bodies")
+        .join(request_asset_date_dir(created_at));
+    fs::create_dir_all(&body_dir).expect("create request-log body directory");
+    write_gzip_asset(&body_dir.join("trc-body-request.gz"), r#"{"input":"你好"}"#);
+    write_gzip_asset(
+        &body_dir.join("trc-body-response.gz"),
+        "你好，有什么可以帮你？",
+    );
 
     let list_server = codexmanager_service::start_one_shot_server().expect("start list server");
     let list_request = JsonRpcRequest {

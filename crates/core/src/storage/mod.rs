@@ -10,6 +10,7 @@ mod api_keys;
 mod conversation_bindings;
 mod events;
 mod gateway_error_logs;
+mod maintenance;
 mod model_options;
 mod plugins;
 mod request_log_query;
@@ -148,18 +149,8 @@ pub struct RequestLog {
     pub output_tokens: Option<i64>,
     pub total_tokens: Option<i64>,
     pub reasoning_output_tokens: Option<i64>,
-    pub request_body: Option<String>,
-    pub response_body: Option<String>,
-    pub has_request_body: bool,
-    pub has_response_body: bool,
     pub error: Option<String>,
     pub created_at: i64,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct RequestLogBodies {
-    pub request_body: Option<String>,
-    pub response_body: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -769,11 +760,9 @@ impl Storage {
             include_str!("../../migrations/059_api_key_allowed_models.sql"),
             |s| s.ensure_api_key_allowed_models_column(),
         )?;
-        self.apply_sql_or_compat_migration(
-            "060_request_logs_request_response_body",
-            include_str!("../../migrations/060_request_logs_request_response_body.sql"),
-            |s| s.ensure_request_log_body_columns(),
-        )?;
+        // 中文注释：模型输入/输出已改为按 trace 落盘（request-log-bodies），不再在 sqlite 中建列；
+        // 历史库存量列的删除由存储维护任务在服务就绪后执行，避免升级启动时重写大表。
+        self.apply_compat_migration("060_request_logs_request_response_body", |_s| Ok(()))?;
         self.apply_sql_migration(
             "061_aggregate_api_drop_weight",
             include_str!("../../migrations/061_aggregate_api_drop_weight.sql"),
@@ -793,7 +782,6 @@ impl Storage {
         self.ensure_request_log_queue_wait_column()?;
         self.ensure_request_log_first_response_column()?;
         self.ensure_request_log_model_type_and_media_columns()?;
-        self.ensure_request_log_body_columns()?;
         self.ensure_aggregate_api_usage_tables()?;
         self.ensure_request_log_sub2api_usage_columns()?;
         let _ = self.maintain_request_token_stats_if_due();

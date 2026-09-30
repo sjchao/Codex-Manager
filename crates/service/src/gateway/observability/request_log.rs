@@ -2,7 +2,7 @@ use crate::gateway::error_log::GatewayErrorLogInput;
 use crate::gateway::ModelType;
 use codexmanager_core::storage::{now_ts, RequestLog, RequestTokenStat, Storage};
 use serde::Serialize;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct RequestLogUsage {
@@ -40,6 +40,41 @@ fn cleanup_uncatalogued_image_results(image_results_json: Option<&str>) {
     ) {
         log::warn!(
             "event=request_log_image_cleanup_failed reason=request_log_write_failed err={}",
+            err
+        );
+    }
+}
+
+/// 把限长后的输入/输出文本按 trace 落盘，sqlite 只保留元数据。
+fn persist_request_log_bodies(
+    trace_id: Option<&str>,
+    created_at: i64,
+    request_body: Option<&str>,
+    response_body: Option<&str>,
+) {
+    let Some(trace_id) = trace_id.map(str::trim).filter(|value| !value.is_empty()) else {
+        return;
+    };
+    if request_body.is_none() && response_body.is_none() {
+        return;
+    }
+    let db_path = match std::env::var("CODEXMANAGER_DB_PATH") {
+        Ok(path) => PathBuf::from(path),
+        Err(_) => {
+            log::warn!("event=request_log_body_persist_skipped reason=database_path_missing");
+            return;
+        }
+    };
+    if let Err(err) = crate::requestlog::body_assets::write_request_log_bodies(
+        db_path.as_path(),
+        trace_id,
+        created_at,
+        request_body,
+        response_body,
+    ) {
+        log::warn!(
+            "event=request_log_body_persist_failed trace_id={} err={}",
+            trace_id,
             err
         );
     }
@@ -120,7 +155,7 @@ const BODY_LIMIT_BYTES_ENV: &str = "CODEXMANAGER_REQUEST_LOG_BODY_LIMIT_BYTES";
 const DEFAULT_BODY_LIMIT_BYTES: usize = 64 * 1024;
 const BODY_TRUNCATED_MARKER: &str = "[truncated]";
 
-/// 请求日志输入/输出文本的落库截断上限（0 表示不截断）。
+/// 请求日志输入/输出文本的落盘截断上限（0 表示不截断）。
 fn body_limit_bytes() -> usize {
     std::env::var(BODY_LIMIT_BYTES_ENV)
         .ok()
@@ -417,10 +452,6 @@ pub(crate) fn write_request_log_with_attempts(
             upstream_client_request_id: trace_context
                 .upstream_client_request_id
                 .map(str::to_string),
-            request_body,
-            response_body,
-            has_request_body: false,
-            has_response_body: false,
             input_tokens: None,
             cached_input_tokens: None,
             output_tokens: None,
@@ -458,6 +489,14 @@ pub(crate) fn write_request_log_with_attempts(
             return;
         }
     };
+
+    // 落库成功后再把输入/输出文本落盘，避免插入失败留下无主文件。
+    persist_request_log_bodies(
+        trace_context.trace_id,
+        created_at,
+        request_body.as_deref(),
+        response_body.as_deref(),
+    );
 
     if let Some(err) = token_stat_error {
         let err_text = err.to_string();

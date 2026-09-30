@@ -10,7 +10,10 @@ pub(crate) mod summary;
 pub(crate) mod model_usage;
 #[path = "requestlog_today_summary.rs"]
 pub(crate) mod today_summary;
+pub(crate) mod body_assets;
 pub(crate) mod image_assets;
+pub(crate) mod storage_maintenance;
+pub(crate) mod storage_paths;
 
 #[cfg(test)]
 mod image_assets_tests {
@@ -74,7 +77,9 @@ mod image_assets_tests {
         assert_eq!(assets.len(), 1);
         assert_eq!(assets[0].mime_type, "image/png");
         assert_eq!(assets[0].byte_length, PNG_BYTES.len() as u64);
-        assert!(assets[0].storage_key.starts_with("trc-image/"));
+        let date = crate::requestlog::storage_paths::date_dir_name(codexmanager_core::storage::now_ts())
+            .expect("date directory");
+        assert!(assets[0].storage_key.starts_with(&format!("{date}/trc-image-")));
         let root = db_path
             .parent()
             .expect("database parent")
@@ -291,6 +296,53 @@ mod image_assets_tests {
                     .expect("test root"),
             );
         }
+    }
+
+    #[test]
+    fn reads_images_cached_with_the_previous_storage_key_layout() {
+        let db_path = test_db_path("legacy-key");
+        fs::create_dir_all(db_path.parent().expect("database parent"))
+            .expect("create data directory");
+        let legacy_path = db_path
+            .parent()
+            .expect("database parent")
+            .join("request-log-images")
+            .join("trc-legacy")
+            .join("0.png");
+        fs::create_dir_all(legacy_path.parent().expect("legacy parent"))
+            .expect("create legacy image directory");
+        fs::write(&legacy_path, PNG_BYTES).expect("write legacy image");
+        let metadata = r#"[{"storageKey":"trc-legacy/0.png","mimeType":"image/png","byteLength":8}]"#;
+
+        let read = read_image_data_urls(&db_path, "trc-legacy", Some(metadata))
+            .expect("read legacy cached image");
+
+        assert_eq!(read.len(), 1);
+        assert_eq!(read[0].data_url, format!("data:image/png;base64,{PNG_BASE64}"));
+        let _ = fs::remove_dir_all(db_path.parent().expect("database parent").parent().expect("test root"));
+    }
+
+    #[test]
+    fn clears_images_cached_with_the_previous_storage_key_layout() {
+        let db_path = test_db_path("legacy-clear");
+        fs::create_dir_all(db_path.parent().expect("database parent"))
+            .expect("create data directory");
+        let legacy_path = db_path
+            .parent()
+            .expect("database parent")
+            .join("request-log-images")
+            .join("trc-legacy-clear")
+            .join("0.png");
+        fs::create_dir_all(legacy_path.parent().expect("legacy parent"))
+            .expect("create legacy image directory");
+        fs::write(&legacy_path, PNG_BYTES).expect("write legacy image");
+        let metadata = r#"[{"storageKey":"trc-legacy-clear/0.png","mimeType":"image/png","byteLength":8}]"#;
+
+        clear_image_results(&db_path, [Some(metadata.to_string())])
+            .expect("clear legacy cached image");
+
+        assert!(!legacy_path.exists());
+        let _ = fs::remove_dir_all(db_path.parent().expect("database parent").parent().expect("test root"));
     }
 
     #[test]

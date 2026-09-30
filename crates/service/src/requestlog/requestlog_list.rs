@@ -4,7 +4,7 @@ use codexmanager_core::rpc::types::{
     RequestLogListResult, RequestLogSummary,
 };
 use codexmanager_core::storage::RequestLog;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::storage_helpers::open_storage;
 
@@ -59,7 +59,18 @@ pub(crate) fn read_request_logs(
     let logs = storage
         .list_request_logs(query.as_deref(), limit.unwrap_or(200))
         .map_err(|err| format!("list request logs failed: {err}"))?;
-    Ok(logs.into_iter().map(to_request_log_summary).collect())
+    let db_path = request_log_db_path();
+    Ok(logs
+        .into_iter()
+        .map(|log| to_request_log_summary(log, db_path.as_deref()))
+        .collect())
+}
+
+/// 输入/输出文本按 trace 落盘在数据库同级目录，列表查询用它判断按钮可用性。
+fn request_log_db_path() -> Option<PathBuf> {
+    std::env::var("CODEXMANAGER_DB_PATH")
+        .ok()
+        .map(PathBuf::from)
 }
 
 /// 函数 `read_request_log_page`
@@ -103,9 +114,13 @@ pub(crate) fn read_request_log_page(
             page_size,
         )
         .map_err(|err| format!("list request logs failed: {err}"))?;
+    let db_path = request_log_db_path();
 
     Ok(RequestLogListResult {
-        items: logs.into_iter().map(to_request_log_summary).collect(),
+        items: logs
+            .into_iter()
+            .map(|log| to_request_log_summary(log, db_path.as_deref()))
+            .collect(),
         total,
         page,
         page_size,
@@ -145,16 +160,14 @@ pub(crate) fn read_request_log_bodies(
     if trace_id.is_empty() {
         return Err("request log trace ID is required".to_string());
     }
-    let storage = open_storage().ok_or_else(|| "open storage failed".to_string())?;
-    let bodies = storage
-        .read_request_log_bodies_by_trace_id(trace_id)
-        .map_err(|err| format!("read request log bodies failed: {err}"))?;
-    Ok(bodies
-        .map(|bodies| RequestLogBodyReadResult {
-            request_body: bodies.request_body,
-            response_body: bodies.response_body,
-        })
-        .unwrap_or_default())
+    let db_path = std::env::var("CODEXMANAGER_DB_PATH")
+        .map_err(|_| "CODEXMANAGER_DB_PATH not set".to_string())?;
+    let (request_body, response_body) =
+        crate::requestlog::body_assets::read_request_log_bodies(Path::new(&db_path), trace_id)?;
+    Ok(RequestLogBodyReadResult {
+        request_body,
+        response_body,
+    })
 }
 
 /// 函数 `normalize_optional_text`
@@ -257,7 +270,17 @@ fn clamp_page(page: i64, total: i64, page_size: i64) -> i64 {
 ///
 /// # 返回
 /// 返回函数执行结果
-fn to_request_log_summary(item: RequestLog) -> RequestLogSummary {
+fn to_request_log_summary(item: RequestLog, db_path: Option<&Path>) -> RequestLogSummary {
+    let (has_request_body, has_response_body) = match (item.trace_id.as_deref(), db_path) {
+        (Some(trace_id), Some(db_path)) if !trace_id.trim().is_empty() => {
+            crate::requestlog::body_assets::request_log_body_presence(
+                db_path,
+                trace_id.trim(),
+                item.created_at,
+            )
+        }
+        _ => (false, false),
+    };
     let attempted_account_ids = item
         .attempted_account_ids_json
         .as_deref()
@@ -318,8 +341,8 @@ fn to_request_log_summary(item: RequestLog) -> RequestLogSummary {
         output_tokens: item.output_tokens,
         total_tokens: item.total_tokens,
         reasoning_output_tokens: item.reasoning_output_tokens,
-        has_request_body: item.has_request_body,
-        has_response_body: item.has_response_body,
+        has_request_body,
+        has_response_body,
         error: item.error,
         created_at: item.created_at,
     }
@@ -423,14 +446,17 @@ mod tests {
 
     #[test]
     fn to_request_log_summary_preserves_first_response_ms() {
-        let summary = super::to_request_log_summary(RequestLog {
-            request_path: "/v1/responses".to_string(),
-            method: "POST".to_string(),
-            duration_ms: Some(2345),
-            first_response_ms: Some(340),
-            created_at: 1,
-            ..Default::default()
-        });
+        let summary = super::to_request_log_summary(
+            RequestLog {
+                request_path: "/v1/responses".to_string(),
+                method: "POST".to_string(),
+                duration_ms: Some(2345),
+                first_response_ms: Some(340),
+                created_at: 1,
+                ..Default::default()
+            },
+            None,
+        );
 
         assert_eq!(summary.duration_ms, Some(2345));
         assert_eq!(summary.first_response_ms, Some(340));
@@ -438,16 +464,19 @@ mod tests {
 
     #[test]
     fn to_request_log_summary_exposes_image_result_metadata() {
-        let summary = super::to_request_log_summary(RequestLog {
-            request_path: "/v1/images/generations".to_string(),
-            method: "POST".to_string(),
-            image_results_json: Some(
-                r#"[{"storageKey":"trc-image/0.png","mimeType":"image/png","byteLength":8}]"#
-                    .to_string(),
-            ),
-            created_at: 1,
-            ..Default::default()
-        });
+        let summary = super::to_request_log_summary(
+            RequestLog {
+                request_path: "/v1/images/generations".to_string(),
+                method: "POST".to_string(),
+                image_results_json: Some(
+                    r#"[{"storageKey":"trc-image/0.png","mimeType":"image/png","byteLength":8}]"#
+                        .to_string(),
+                ),
+                created_at: 1,
+                ..Default::default()
+            },
+            None,
+        );
 
         assert_eq!(summary.image_results.len(), 1);
         assert_eq!(summary.image_results[0].storage_key, "trc-image/0.png");
@@ -457,19 +486,47 @@ mod tests {
 
     #[test]
     fn to_request_log_summary_exposes_body_presence_flags() {
-        let summary = super::to_request_log_summary(RequestLog {
-            request_path: "/v1/responses".to_string(),
-            method: "POST".to_string(),
-            request_body: Some(r#"{"input":"hi"}"#.to_string()),
-            response_body: Some("你好".to_string()),
-            has_request_body: true,
-            has_response_body: true,
-            created_at: 1,
-            ..Default::default()
-        });
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let db_path = std::env::temp_dir()
+            .join(format!(
+                "codexmanager-request-log-summary-{}-{unique}",
+                std::process::id()
+            ))
+            .join("data")
+            .join("codexmanager.db");
+        let created_at = codexmanager_core::storage::now_ts();
+        crate::requestlog::body_assets::write_request_log_bodies(
+            &db_path,
+            "trc-flags",
+            created_at,
+            Some(r#"{"input":"hi"}"#),
+            Some("你好"),
+        )
+        .expect("write bodies");
+
+        let summary = super::to_request_log_summary(
+            RequestLog {
+                trace_id: Some("trc-flags".to_string()),
+                request_path: "/v1/responses".to_string(),
+                method: "POST".to_string(),
+                created_at,
+                ..Default::default()
+            },
+            Some(&db_path),
+        );
 
         assert!(summary.has_request_body);
         assert!(summary.has_response_body);
+        let _ = std::fs::remove_dir_all(
+            db_path
+                .parent()
+                .expect("database parent")
+                .parent()
+                .expect("test root"),
+        );
     }
 
     /// 函数 `request_log_list_params_default_to_first_page_with_twenty_items`

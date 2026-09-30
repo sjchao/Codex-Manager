@@ -5,9 +5,12 @@ use std::time::Duration;
 
 use base64::Engine;
 use codexmanager_core::rpc::types::{RequestLogImageData, RequestLogImageResult};
+use codexmanager_core::storage::now_ts;
 use rand::RngCore;
 use serde_json::Value;
 use url::Url;
+
+use super::storage_paths::{date_dir_name, is_date_dir_name};
 
 const IMAGE_DIRECTORY_NAME: &str = "request-log-images";
 const MAX_IMAGE_BYTES: usize = 20 * 1024 * 1024;
@@ -153,6 +156,16 @@ pub(crate) fn cache_openai_image_results_with_encoding(
 
     let client = build_image_download_client();
     let root = image_root(db_path);
+    let date = match date_dir_name(now_ts()) {
+        Some(date) => date,
+        None => {
+            log::warn!(
+                "event=request_log_image_cache_skipped trace_id={} reason=invalid_timestamp",
+                trace_id
+            );
+            return Vec::new();
+        }
+    };
     let mut assets = Vec::new();
     let mut total_bytes = 0usize;
 
@@ -191,7 +204,7 @@ pub(crate) fn cache_openai_image_results_with_encoding(
             );
             continue;
         };
-        let request_dir = match ensure_request_image_dir(&root, trace_id) {
+        let request_dir = match ensure_request_image_dir(&root, &date) {
             Ok(dir) => dir,
             Err(err) => {
                 log::warn!(
@@ -202,7 +215,8 @@ pub(crate) fn cache_openai_image_results_with_encoding(
                 break;
             }
         };
-        let file_name = match write_image_atomically(&request_dir, extension, &image_bytes) {
+        let write_result = write_image_atomically(&request_dir, trace_id, extension, &image_bytes);
+        let file_name = match write_result {
             Ok(file_name) => file_name,
             Err(err) => {
                 log::warn!(
@@ -215,7 +229,7 @@ pub(crate) fn cache_openai_image_results_with_encoding(
         };
         total_bytes = total_bytes.saturating_add(image_bytes.len());
         assets.push(RequestLogImageResult {
-            storage_key: format!("{trace_id}/{file_name}"),
+            storage_key: format!("{date}/{file_name}"),
             mime_type: mime_type.to_string(),
             byte_length: image_bytes.len() as u64,
         });
@@ -333,11 +347,13 @@ fn cache_raw_image_response(
     if response_body.len() > MAX_IMAGE_BYTES {
         return None;
     }
+    let date = date_dir_name(now_ts())?;
     let (mime_type, extension) = detect_image_type(response_body)?;
-    let request_dir = ensure_request_image_dir(&image_root(db_path), trace_id).ok()?;
-    let file_name = write_image_atomically(&request_dir, extension, response_body).ok()?;
+    let request_dir = ensure_request_image_dir(&image_root(db_path), &date).ok()?;
+    let file_name =
+        write_image_atomically(&request_dir, trace_id, extension, response_body).ok()?;
     Some(RequestLogImageResult {
-        storage_key: format!("{trace_id}/{file_name}"),
+        storage_key: format!("{date}/{file_name}"),
         mime_type: mime_type.to_string(),
         byte_length: response_body.len() as u64,
     })
@@ -517,24 +533,29 @@ fn download_image_url(client: &reqwest::blocking::Client, raw_url: &str) -> Resu
     Ok(bytes)
 }
 
-fn ensure_request_image_dir(root: &Path, trace_id: &str) -> Result<PathBuf, String> {
+fn ensure_request_image_dir(root: &Path, date: &str) -> Result<PathBuf, String> {
     fs::create_dir_all(root).map_err(|err| format!("create request-log image directory failed: {err}"))?;
     let root = fs::canonicalize(root)
         .map_err(|err| format!("resolve request-log image directory failed: {err}"))?;
-    let request_dir = root.join(trace_id);
+    let request_dir = root.join(date);
     fs::create_dir_all(&request_dir)
-        .map_err(|err| format!("create request-log image trace directory failed: {err}"))?;
+        .map_err(|err| format!("create request-log image date directory failed: {err}"))?;
     let request_dir = fs::canonicalize(&request_dir)
-        .map_err(|err| format!("resolve request-log image trace directory failed: {err}"))?;
+        .map_err(|err| format!("resolve request-log image date directory failed: {err}"))?;
     if !request_dir.starts_with(&root) {
-        return Err("request-log image trace directory escapes storage root".to_string());
+        return Err("request-log image date directory escapes storage root".to_string());
     }
     Ok(request_dir)
 }
 
-fn write_image_atomically(dir: &Path, extension: &str, bytes: &[u8]) -> Result<String, String> {
+fn write_image_atomically(
+    dir: &Path,
+    trace_id: &str,
+    extension: &str,
+    bytes: &[u8],
+) -> Result<String, String> {
     for _ in 0..8 {
-        let file_name = format!("{}.{}", random_hex(16), extension);
+        let file_name = format!("{trace_id}-{}.{}", random_hex(16), extension);
         let final_path = dir.join(&file_name);
         if final_path.exists() {
             continue;
@@ -581,30 +602,43 @@ fn resolve_asset_path(root: &Path, trace_id: &str, storage_key: &str) -> Result<
     Ok(path)
 }
 
+/// 校验 storageKey 的两种布局：
+/// - 新布局 `<日期>/<trace_id>-<随机名>`（首个路径段为 8 位日期）；
+/// - 旧布局 `<trace_id>/<文件名>`，为升级前落库的历史数据保留。
 fn validate_storage_key(storage_key: &str, expected_trace_id: Option<&str>) -> Result<(), String> {
     let path = Path::new(storage_key);
     if path.is_absolute() {
         return Err("invalid request-log image storage key".to_string());
     }
     let mut components = path.components();
-    let Some(Component::Normal(trace_component)) = components.next() else {
+    let Some(Component::Normal(first_component)) = components.next() else {
         return Err("invalid request-log image storage key".to_string());
     };
     let Some(Component::Normal(file_component)) = components.next() else {
         return Err("invalid request-log image storage key".to_string());
     };
-    if components.next().is_some()
-        || trace_component.is_empty()
-        || file_component.is_empty()
-        || !is_safe_trace_id(trace_component.to_string_lossy().as_ref())
-        || expected_trace_id.is_some_and(|trace_id| trace_component != trace_id)
+    if components.next().is_some() || file_component.is_empty() {
+        return Err("invalid request-log image storage key".to_string());
+    }
+    let first_component = first_component.to_string_lossy();
+    let file_component = file_component.to_string_lossy();
+    if is_date_dir_name(&first_component) {
+        if expected_trace_id
+            .is_some_and(|trace_id| !file_component.starts_with(&format!("{trace_id}-")))
+        {
+            return Err("invalid request-log image storage key".to_string());
+        }
+        return Ok(());
+    }
+    if !is_safe_trace_id(&first_component)
+        || expected_trace_id.is_some_and(|trace_id| first_component != trace_id)
     {
         return Err("invalid request-log image storage key".to_string());
     }
     Ok(())
 }
 
-fn is_safe_trace_id(trace_id: &str) -> bool {
+pub(super) fn is_safe_trace_id(trace_id: &str) -> bool {
     let mut components = Path::new(trace_id).components();
     matches!(components.next(), Some(Component::Normal(_))) && components.next().is_none()
 }
