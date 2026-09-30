@@ -925,7 +925,6 @@ mod tests {
                 supported_models: Vec::new(),
                 supplier_name: None,
                 sort: 0,
-                weight: 0,
                 url: "https://sub2api.example".to_string(),
                 auth_type: "apikey".to_string(),
                 auth_params_json: None,

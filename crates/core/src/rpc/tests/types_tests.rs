@@ -112,14 +112,13 @@ fn account_list_result_serialization_includes_pagination_fields() {
 }
 
 #[test]
-fn aggregate_api_summary_serialization_includes_weight_and_supported_models() {
+fn aggregate_api_summary_serialization_includes_supported_models() {
     let summary = AggregateApiSummary {
         id: "agg_1".to_string(),
         provider_type: "codex".to_string(),
         supported_models: vec!["gpt-5.6-terra".to_string(), "gpt-image2".to_string()],
-        supplier_name: Some("weighted".to_string()),
+        supplier_name: Some("aggregate".to_string()),
         sort: 10,
-        weight: 250,
         url: "https://aggregate.example.com/v1".to_string(),
         auth_type: "apikey".to_string(),
         auth_params: None,
@@ -142,7 +141,6 @@ fn aggregate_api_summary_serialization_includes_weight_and_supported_models() {
 
     let value = serde_json::to_value(summary).expect("serialize aggregate api summary");
     let obj = value.as_object().expect("aggregate api summary object");
-    assert_eq!(obj.get("weight"), Some(&serde_json::Value::from(250)));
     assert_eq!(
         obj.get("supportedModels"),
         Some(&serde_json::json!(["gpt-5.6-terra", "gpt-image2"]))

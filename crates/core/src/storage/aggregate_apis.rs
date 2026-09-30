@@ -12,7 +12,6 @@ const AGGREGATE_API_SELECT_SQL: &str = "SELECT
     supported_models_json,
     supplier_name,
     sort,
-    weight,
     url,
     auth_type,
     auth_params_json,
@@ -47,7 +46,6 @@ impl Storage {
                 supported_models_json,
                 supplier_name,
                 sort,
-                weight,
                 url,
                 auth_type,
                 auth_params_json,
@@ -59,14 +57,13 @@ impl Storage {
                 last_test_status,
                 last_test_error,
                 sub2api_account_id
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
             params![
                 &api.id,
                 &api.provider_type,
                 serialize_supported_models(api.supported_models.as_slice()),
                 &api.supplier_name,
                 api.sort,
-                api.weight,
                 &api.url,
                 &api.auth_type,
                 &api.auth_params_json,
@@ -97,7 +94,7 @@ impl Storage {
     pub fn list_aggregate_apis(&self) -> Result<Vec<AggregateApi>> {
         self.ensure_aggregate_apis_table()?;
         let mut stmt = self.conn.prepare(&format!(
-            "{AGGREGATE_API_SELECT_SQL} ORDER BY sort ASC, weight DESC, created_at DESC"
+            "{AGGREGATE_API_SELECT_SQL} ORDER BY sort ASC, created_at DESC"
         ))?;
         let mut rows = stmt.query([])?;
         let mut out = Vec::new();
@@ -197,14 +194,6 @@ impl Storage {
         self.conn.execute(
             "UPDATE aggregate_apis SET sort = ?1, updated_at = ?2 WHERE id = ?3",
             (sort, now_ts(), api_id),
-        )?;
-        Ok(())
-    }
-
-    pub fn update_aggregate_api_weight(&self, api_id: &str, weight: i64) -> Result<()> {
-        self.conn.execute(
-            "UPDATE aggregate_apis SET weight = ?1, updated_at = ?2 WHERE id = ?3",
-            (weight, now_ts(), api_id),
         )?;
         Ok(())
     }
@@ -440,7 +429,6 @@ impl Storage {
                 supported_models_json TEXT NOT NULL DEFAULT '[]',
                 supplier_name TEXT,
                 sort INTEGER NOT NULL DEFAULT 0,
-                weight INTEGER NOT NULL DEFAULT 100,
                 url TEXT NOT NULL,
                 auth_type TEXT NOT NULL DEFAULT 'apikey',
                 auth_params_json TEXT,
@@ -467,7 +455,6 @@ impl Storage {
         )?;
         self.ensure_column("aggregate_apis", "supplier_name", "TEXT")?;
         self.ensure_column("aggregate_apis", "sort", "INTEGER DEFAULT 0")?;
-        self.ensure_column("aggregate_apis", "weight", "INTEGER NOT NULL DEFAULT 100")?;
         self.ensure_column("aggregate_apis", "auth_type", "TEXT NOT NULL DEFAULT 'apikey'")?;
         self.ensure_column("aggregate_apis", "auth_params_json", "TEXT")?;
         self.ensure_column("aggregate_apis", "action", "TEXT")?;
@@ -498,12 +485,6 @@ impl Storage {
             "UPDATE aggregate_apis
              SET sort = COALESCE(sort, 0)
              WHERE sort IS NULL",
-            [],
-        )?;
-        self.conn.execute(
-            "UPDATE aggregate_apis
-             SET weight = 100
-             WHERE weight IS NULL OR weight <= 0",
             [],
         )?;
         Ok(())
@@ -917,18 +898,17 @@ fn map_aggregate_api_row(row: &Row<'_>) -> Result<AggregateApi> {
         supported_models: parse_supported_models(row.get::<_, String>(2)?.as_str()),
         supplier_name: row.get(3)?,
         sort: row.get(4)?,
-        weight: row.get(5)?,
-        url: row.get(6)?,
-        auth_type: row.get(7)?,
-        auth_params_json: row.get(8)?,
-        action: row.get(9)?,
-        status: row.get(10)?,
-        created_at: row.get(11)?,
-        updated_at: row.get(12)?,
-        last_test_at: row.get(13)?,
-        last_test_status: row.get(14)?,
-        last_test_error: row.get(15)?,
-        sub2api_account_id: row.get(16)?,
+        url: row.get(5)?,
+        auth_type: row.get(6)?,
+        auth_params_json: row.get(7)?,
+        action: row.get(8)?,
+        status: row.get(9)?,
+        created_at: row.get(10)?,
+        updated_at: row.get(11)?,
+        last_test_at: row.get(12)?,
+        last_test_status: row.get(13)?,
+        last_test_error: row.get(14)?,
+        sub2api_account_id: row.get(15)?,
     })
 }
 

@@ -1874,7 +1874,6 @@ fn aggregate_api_models_return_the_enabled_supported_model_union() {
                 supported_models: models.into_iter().map(str::to_string).collect(),
                 supplier_name: Some(id.to_string()),
                 sort: 0,
-                weight: 100,
                 url: "https://example.com/v1".to_string(),
                 auth_type: "apikey".to_string(),
                 auth_params_json: None,

@@ -43,7 +43,6 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
             let supported_models = super::string_array_param(req, "supportedModels");
             let supplier_name = super::string_param(req, "supplierName");
             let sort = super::i64_param(req, "sort");
-            let weight = super::i64_param(req, "weight");
             let url = super::string_param(req, "url");
             let key = super::string_param(req, "key");
             let auth_type = super::string_param(req, "authType");
@@ -65,7 +64,6 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 supported_models,
                 supplier_name,
                 sort,
-                weight,
                 auth_type,
                 auth_custom_enabled,
                 auth_params,
@@ -82,7 +80,6 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
             let supported_models = super::string_array_param(req, "supportedModels");
             let supplier_name = super::string_param(req, "supplierName");
             let sort = super::i64_param(req, "sort");
-            let weight = super::i64_param(req, "weight");
             let url = super::string_param(req, "url");
             let key = super::string_param(req, "key");
             let auth_type = super::string_param(req, "authType");
@@ -105,7 +102,6 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 supported_models,
                 supplier_name,
                 sort,
-                weight,
                 auth_type,
                 auth_custom_enabled,
                 auth_params,

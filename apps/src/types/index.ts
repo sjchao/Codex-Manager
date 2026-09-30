@@ -110,7 +110,6 @@ export interface AggregateApi {
   supportedModels: string[];
   supplierName: string | null;
   sort: number;
-  weight: number;
   url: string;
   authType: string;
   authParams: Record<string, unknown> | null;

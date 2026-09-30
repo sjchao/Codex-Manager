@@ -253,7 +253,6 @@ pub struct AggregateApi {
     pub supported_models: Vec<String>,
     pub supplier_name: Option<String>,
     pub sort: i64,
-    pub weight: i64,
     pub url: String,
     pub auth_type: String,
     pub auth_params_json: Option<String>,
@@ -774,6 +773,10 @@ impl Storage {
             "060_request_logs_request_response_body",
             include_str!("../../migrations/060_request_logs_request_response_body.sql"),
             |s| s.ensure_request_log_body_columns(),
+        )?;
+        self.apply_sql_migration(
+            "061_aggregate_api_drop_weight",
+            include_str!("../../migrations/061_aggregate_api_drop_weight.sql"),
         )?;
         self.ensure_api_key_rotation_columns()?;
         self.ensure_api_key_group_name_column()?;

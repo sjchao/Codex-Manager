@@ -414,7 +414,6 @@ pub struct AggregateApiSummary {
     pub supported_models: Vec<String>,
     pub supplier_name: Option<String>,
     pub sort: i64,
-    pub weight: i64,
     pub url: String,
     pub auth_type: String,
     pub auth_params: Option<serde_json::Value>,

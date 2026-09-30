@@ -286,6 +286,15 @@ fn init_tracks_schema_migrations_and_is_idempotent() {
         )
         .expect("count 056 migration");
     assert_eq!(applied_056, 1);
+    let applied_061: i64 = storage
+        .conn
+        .query_row(
+            "SELECT COUNT(1) FROM schema_migrations WHERE version = '061_aggregate_api_drop_weight'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count 061 migration");
+    assert_eq!(applied_061, 1);
 
     assert!(storage
         .has_column("request_token_daily_stats", "actual_cost_usd")
@@ -341,7 +350,7 @@ fn init_tracks_schema_migrations_and_is_idempotent() {
     assert!(storage
         .has_column("request_logs", "aggregate_api_attempt_failures_json")
         .expect("check request_logs.aggregate_api_attempt_failures_json"));
-    assert!(storage
+    assert!(!storage
         .has_column("aggregate_apis", "weight")
         .expect("check aggregate_apis.weight"));
     assert!(storage
