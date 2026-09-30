@@ -32,6 +32,7 @@ interface BarItem {
   label: string;
   ratio: number;
   display: string;
+  secondary?: string;
   hint?: string;
 }
 
@@ -92,6 +93,20 @@ function formatUsd(value: number | null | undefined): string {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(normalized);
+}
+
+/**
+ * DeepSeek 费用按官网人民币价格估算，保留 2 位小数。
+ */
+function formatCny(value: number | null | undefined): string {
+  const normalized =
+    typeof value === "number" && Number.isFinite(value) ? Math.max(0, value) : 0;
+  return new Intl.NumberFormat("zh-CN", {
+    style: "currency",
+    currency: "CNY",
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(normalized);
@@ -251,6 +266,11 @@ function BarList({
                 title={item.hint || item.label}
               >
                 {item.display}
+                {item.secondary ? (
+                  <span className="ml-2 text-[10px] font-normal text-muted-foreground">
+                    {item.secondary}
+                  </span>
+                ) : null}
               </span>
             </div>
             <div className="h-2 w-full overflow-hidden rounded-full bg-muted/60">
@@ -394,6 +414,10 @@ export default function DashboardPage() {
       label: apiKeyNames[item.keyId] || item.keyId,
       ratio: maxTokens > 0 ? item.todayDeepseekTokens / maxTokens : 0,
       display: formatCompactTokenAmount(item.todayDeepseekTokens),
+      secondary: formatCny(item.todayDeepseekCostCny),
+      hint: `${apiKeyNames[item.keyId] || item.keyId} · 今日预估费用 ${formatCny(
+        item.todayDeepseekCostCny
+      )}（按 DeepSeek 官网高峰/空闲价估算）`,
     }));
   }, [apiKeyUsageStats, apiKeyNames]);
 

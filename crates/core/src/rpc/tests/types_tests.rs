@@ -435,6 +435,7 @@ fn api_key_usage_stat_summary_serialization_uses_camel_case() {
         actual_cost_usd: 4.56,
         today_deepseek_tokens: 7,
         total_deepseek_tokens: 78,
+        today_deepseek_cost_cny: 0.12,
     };
 
     let value = serde_json::to_value(result).expect("serialize api key usage stat summary");
@@ -449,6 +450,7 @@ fn api_key_usage_stat_summary_serialization_uses_camel_case() {
         "actualCostUsd",
         "todayDeepseekTokens",
         "totalDeepseekTokens",
+        "todayDeepseekCostCny",
     ] {
         assert!(obj.contains_key(key), "missing key: {key}");
     }

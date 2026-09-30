@@ -1,5 +1,7 @@
 #[path = "apikey_create.rs"]
 pub(crate) mod create;
+#[path = "deepseek_pricing.rs"]
+pub(crate) mod deepseek_pricing;
 #[path = "apikey_delete.rs"]
 pub(crate) mod delete;
 #[path = "apikey_disable.rs"]

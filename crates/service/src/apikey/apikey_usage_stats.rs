@@ -1,7 +1,10 @@
+use std::collections::HashMap;
+
 use chrono::{Duration, Local, LocalResult, TimeZone};
 use codexmanager_core::rpc::types::ApiKeyUsageStatSummary;
 
-use crate::storage_helpers::open_storage;
+use super::deepseek_pricing::estimate_deepseek_cost_cny;
+use crate::storage_helpers::{open_storage, StorageHandle};
 
 pub(crate) fn local_day_bounds_ts() -> Result<(i64, i64), String> {
     let now = Local::now();
@@ -43,17 +46,56 @@ pub(crate) fn read_api_key_usage_stats() -> Result<Vec<ApiKeyUsageStatSummary>, 
     let items = storage
         .summarize_request_token_stats_by_key(start_ts, end_ts)
         .map_err(|err| format!("summarize api key token stats failed: {err}"))?;
+    let deepseek_costs = read_deepseek_cost_by_key(&storage, start_ts, end_ts)?;
 
     Ok(items
         .into_iter()
-        .map(|item| ApiKeyUsageStatSummary {
-            key_id: item.key_id,
-            today_tokens: item.today_tokens.max(0),
-            total_tokens: item.total_tokens.max(0),
-            today_actual_cost_usd: item.today_actual_cost_usd.max(0.0),
-            actual_cost_usd: item.actual_cost_usd.max(0.0),
-            today_deepseek_tokens: item.today_deepseek_tokens.max(0),
-            total_deepseek_tokens: item.total_deepseek_tokens.max(0),
+        .map(|item| {
+            let today_deepseek_cost_cny = deepseek_costs.get(&item.key_id).copied().unwrap_or(0.0);
+            ApiKeyUsageStatSummary {
+                key_id: item.key_id,
+                today_tokens: item.today_tokens.max(0),
+                total_tokens: item.total_tokens.max(0),
+                today_actual_cost_usd: item.today_actual_cost_usd.max(0.0),
+                actual_cost_usd: item.actual_cost_usd.max(0.0),
+                today_deepseek_tokens: item.today_deepseek_tokens.max(0),
+                total_deepseek_tokens: item.total_deepseek_tokens.max(0),
+                today_deepseek_cost_cny: today_deepseek_cost_cny.max(0.0),
+            }
         })
         .collect())
+}
+
+/// 按请求发生时间逐条估算当天 DeepSeek 费用，并按平台密钥汇总（单位：元）。
+fn read_deepseek_cost_by_key(
+    storage: &StorageHandle,
+    start_ts: i64,
+    end_ts: i64,
+) -> Result<HashMap<String, f64>, String> {
+    let rows = storage
+        .list_deepseek_request_token_stats_between(start_ts, end_ts)
+        .map_err(|err| format!("list deepseek token stats failed: {err}"))?;
+
+    let mut costs: HashMap<String, f64> = HashMap::new();
+    for row in rows {
+        let Some(key_id) = row
+            .key_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            continue;
+        };
+        let cost = estimate_deepseek_cost_cny(
+            row.model.as_deref().unwrap_or_default(),
+            row.created_at,
+            row.input_tokens.unwrap_or(0),
+            row.cached_input_tokens.unwrap_or(0),
+            row.output_tokens.unwrap_or(0),
+        );
+        if cost > 0.0 {
+            *costs.entry(key_id.to_string()).or_insert(0.0) += cost;
+        }
+    }
+    Ok(costs)
 }

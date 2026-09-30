@@ -861,6 +861,12 @@ export function normalizeApiKeyUsageStats(payload: unknown): ApiKeyUsageStat[] {
           0,
           0
         ),
+        todayDeepseekCostCny: Math.max(
+          0,
+          toNullableNumber(
+            current.todayDeepseekCostCny ?? current.today_deepseek_cost_cny
+          ) ?? 0
+        ),
       };
     })
     .filter((item): item is ApiKeyUsageStat => Boolean(item));

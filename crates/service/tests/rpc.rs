@@ -2486,6 +2486,31 @@ fn rpc_apikey_usage_stats_reports_deepseek_tokens() {
         })
         .expect("insert token stat");
 
+    let flash_request_log_id = storage
+        .insert_request_log(&RequestLog {
+            trace_id: Some("trc-ds-flash-usage".to_string()),
+            key_id: Some("gk-ds-flash-usage".to_string()),
+            request_path: "/v1/chat/completions".to_string(),
+            method: "POST".to_string(),
+            created_at,
+            ..Default::default()
+        })
+        .expect("insert request log");
+    storage
+        .insert_request_token_stat(&RequestTokenStat {
+            request_log_id: flash_request_log_id,
+            key_id: Some("gk-ds-flash-usage".to_string()),
+            account_id: None,
+            model: Some("deepseek-flash".to_string()),
+            input_tokens: Some(1_000_000),
+            cached_input_tokens: Some(0),
+            output_tokens: Some(0),
+            total_tokens: Some(1_000_000),
+            reasoning_output_tokens: Some(0),
+            created_at,
+        })
+        .expect("insert token stat");
+
     let server = codexmanager_service::start_one_shot_server().expect("start server");
     let request = JsonRpcRequest {
         id: 76.into(),
@@ -2508,6 +2533,22 @@ fn rpc_apikey_usage_stats_reports_deepseek_tokens() {
     assert_eq!(item["totalTokens"].as_i64(), Some(100));
     assert_eq!(item["todayDeepseekTokens"].as_i64(), Some(100));
     assert_eq!(item["totalDeepseekTokens"].as_i64(), Some(100));
+    // deepseek-chat 未收录价格，费用按 0 计
+    assert_eq!(item["todayDeepseekCostCny"].as_f64(), Some(0.0));
+
+    let flash_item = items
+        .iter()
+        .find(|value| value["keyId"] == "gk-ds-flash-usage")
+        .expect("deepseek flash key usage stat");
+    assert_eq!(flash_item["todayDeepseekTokens"].as_i64(), Some(1_000_000));
+    // 1M 缓存未命中输入：空闲价 ¥1，高峰价 ¥2
+    let flash_cost = flash_item["todayDeepseekCostCny"]
+        .as_f64()
+        .expect("deepseek flash cost");
+    assert!(
+        (1.0..=2.0).contains(&flash_cost),
+        "unexpected deepseek flash cost: {flash_cost}"
+    );
 }
 
 /// 函数 `rpc_rejects_missing_token`

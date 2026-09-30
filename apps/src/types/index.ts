@@ -214,6 +214,7 @@ export interface ApiKeyUsageStat {
   actualCostUsd: number;
   todayDeepseekTokens: number;
   totalDeepseekTokens: number;
+  todayDeepseekCostCny: number;
 }
 
 export interface PluginCatalogTask {

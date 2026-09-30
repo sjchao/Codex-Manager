@@ -477,6 +477,42 @@ impl Storage {
         Ok(items)
     }
 
+    /// 读取时间窗口内 DeepSeek 模型的逐条 token 明细，用于按请求发生时间估算费用。
+    pub fn list_deepseek_request_token_stats_between(
+        &self,
+        start_ts: i64,
+        end_ts: i64,
+    ) -> Result<Vec<RequestTokenStat>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT
+                request_log_id, key_id, account_id, model,
+                input_tokens, cached_input_tokens, output_tokens, total_tokens,
+                reasoning_output_tokens, created_at
+             FROM request_token_stats
+             WHERE created_at >= ?1
+               AND created_at < ?2
+               AND model IS NOT NULL
+               AND LOWER(TRIM(model)) LIKE 'deepseek%'",
+        )?;
+        let mut rows = stmt.query((start_ts, end_ts))?;
+        let mut items = Vec::new();
+        while let Some(row) = rows.next()? {
+            items.push(RequestTokenStat {
+                request_log_id: row.get(0)?,
+                key_id: row.get(1)?,
+                account_id: row.get(2)?,
+                model: row.get(3)?,
+                input_tokens: row.get(4)?,
+                cached_input_tokens: row.get(5)?,
+                output_tokens: row.get(6)?,
+                total_tokens: row.get(7)?,
+                reasoning_output_tokens: row.get(8)?,
+                created_at: row.get(9)?,
+            });
+        }
+        Ok(items)
+    }
+
     pub fn maintain_request_token_stats_if_due(&self) -> Result<bool> {
         let now = now_ts();
         let last_maintained_at = parse_setting_i64(

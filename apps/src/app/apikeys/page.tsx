@@ -101,6 +101,20 @@ function formatCompactTokenAmount(value: number | null | undefined): string {
   return formatCompactNumber(normalized, "0.00", 2, true);
 }
 
+/**
+ * DeepSeek 费用按官网人民币价格估算，保留 2 位小数。
+ */
+function formatCny(value: number | null | undefined): string {
+  const normalized =
+    typeof value === "number" && Number.isFinite(value) ? Math.max(0, value) : 0;
+  return new Intl.NumberFormat("zh-CN", {
+    style: "currency",
+    currency: "CNY",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(normalized);
+}
+
 function formatTokenUsagePair(
   todayValue: number | null | undefined,
   totalValue: number | null | undefined
@@ -175,6 +189,7 @@ type ApiKeyUsageOverviewItem = {
   totalCostUsd: number;
   todayDeepseekTokens: number;
   totalDeepseekTokens: number;
+  todayDeepseekCostCny: number;
 };
 
 type UsageSortField = "todayTokens" | "todayCostUsd" | "todayDeepseekTokens";
@@ -337,6 +352,7 @@ export default function ApiKeysPage() {
           totalCostUsd: Math.max(0, item.actualCostUsd || 0),
           todayDeepseekTokens: Math.max(0, item.todayDeepseekTokens || 0),
           totalDeepseekTokens: Math.max(0, item.totalDeepseekTokens || 0),
+          todayDeepseekCostCny: Math.max(0, item.todayDeepseekCostCny || 0),
         };
         return result;
       }, {});
@@ -365,6 +381,10 @@ export default function ApiKeysPage() {
         (sum, item) => sum + Math.max(0, item.totalDeepseekTokens || 0),
         0,
       );
+      const todayDeepseekCostCny = stats.reduce(
+        (sum, item) => sum + Math.max(0, item.todayDeepseekCostCny || 0),
+        0,
+      );
       return {
         usageByKey,
         todayTokens,
@@ -373,6 +393,7 @@ export default function ApiKeysPage() {
         totalCostUsd,
         todayDeepseekTokens,
         totalDeepseekTokens,
+        todayDeepseekCostCny,
       };
     },
     enabled: isUsageQueryEnabled && isPageActive,
@@ -608,7 +629,9 @@ export default function ApiKeysPage() {
               )}
               icon={Bot}
               color="h-4 w-4 text-sky-500"
-              sub="当天 / 总量（模型名以 deepseek 开头）"
+              sub={`当天 / 总量（模型名以 deepseek 开头）· 今日预估费用 ${formatCny(
+                usageOverview?.todayDeepseekCostCny,
+              )}`}
             />
             <ApiKeyStatCard
               title="总费用"
@@ -765,10 +788,20 @@ export default function ApiKeysPage() {
                         )}
                       </TableCell>
                       <TableCell className="font-mono text-xs">
-                        {formatTokenUsagePair(
-                          usageByKey[key.id]?.todayDeepseekTokens,
-                          usageByKey[key.id]?.totalDeepseekTokens,
-                        )}
+                        <div>
+                          {formatTokenUsagePair(
+                            usageByKey[key.id]?.todayDeepseekTokens,
+                            usageByKey[key.id]?.totalDeepseekTokens,
+                          )}
+                        </div>
+                        {(usageByKey[key.id]?.todayDeepseekTokens ?? 0) > 0 ? (
+                          <div
+                            className="mt-0.5 text-[10px] text-muted-foreground"
+                            title="按 DeepSeek 官网人民币价格估算：高峰为北京时间周一至周五 9:00-12:00、14:00-18:00，其余时段半价，法定节假日按工作日计算"
+                          >
+                            今日预估 {formatCny(usageByKey[key.id]?.todayDeepseekCostCny)}
+                          </div>
+                        ) : null}
                       </TableCell>
                       <TableCell className="font-mono text-xs">
                         {formatUsdUsagePair(
