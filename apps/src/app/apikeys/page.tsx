@@ -776,6 +776,14 @@ export default function ApiKeysPage() {
                               限 {key.allowedModels.length} 个模型
                             </span>
                           ) : null}
+                          {key.excludedAggregateApiIds.length > 0 ? (
+                            <span
+                              className="rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-normal text-amber-600"
+                              title={`聚合API轮转已排除 ${key.excludedAggregateApiIds.length} 个聚合 API，编辑密钥可查看与调整`}
+                            >
+                              排除 {key.excludedAggregateApiIds.length} 个聚合API
+                            </span>
+                          ) : null}
                         </div>
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">

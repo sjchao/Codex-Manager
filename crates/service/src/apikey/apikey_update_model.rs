@@ -5,7 +5,7 @@ use crate::apikey_profile::{
 };
 use crate::reasoning_effort::normalize_reasoning_effort;
 use crate::storage_helpers::open_storage;
-use codexmanager_core::storage::normalize_allowed_models;
+use codexmanager_core::storage::{normalize_allowed_models, normalize_excluded_aggregate_api_ids};
 
 /// 函数 `update_api_key_model`
 ///
@@ -34,6 +34,8 @@ pub(crate) fn update_api_key_model(
     aggregate_api_id: Option<String>,
     allowed_models: Option<Vec<String>>,
     has_allowed_models: bool,
+    excluded_aggregate_api_ids: Option<Vec<String>>,
+    has_excluded_aggregate_api_ids: bool,
 ) -> Result<(), String> {
     if key_id.is_empty() {
         return Err("key id required".to_string());
@@ -62,6 +64,14 @@ pub(crate) fn update_api_key_model(
             normalize_allowed_models(allowed_models.unwrap_or_default().as_slice());
         storage
             .update_api_key_allowed_models(key_id, normalized_allowed_models.as_slice())
+            .map_err(|e| e.to_string())?;
+    }
+    if has_excluded_aggregate_api_ids {
+        let normalized_excluded = normalize_excluded_aggregate_api_ids(
+            excluded_aggregate_api_ids.unwrap_or_default().as_slice(),
+        );
+        storage
+            .update_api_key_excluded_aggregate_api_ids(key_id, normalized_excluded.as_slice())
             .map_err(|e| e.to_string())?;
     }
     let normalized = model_slug

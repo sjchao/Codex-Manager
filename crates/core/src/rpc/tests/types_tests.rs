@@ -174,6 +174,7 @@ fn api_key_summary_serialization_uses_group_name_camel_case() {
         upstream_base_url: None,
         static_headers_json: None,
         allowed_models: vec!["gpt-5".to_string()],
+        excluded_aggregate_api_ids: vec!["agg_1".to_string()],
         status: "active".to_string(),
         created_at: 1,
         last_used_at: None,
@@ -185,6 +186,10 @@ fn api_key_summary_serialization_uses_group_name_camel_case() {
     assert_eq!(
         obj.get("allowedModels"),
         Some(&serde_json::Value::from(vec!["gpt-5"]))
+    );
+    assert_eq!(
+        obj.get("excludedAggregateApiIds"),
+        Some(&serde_json::Value::from(vec!["agg_1"]))
     );
 }
 

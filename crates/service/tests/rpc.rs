@@ -2381,6 +2381,97 @@ fn rpc_apikey_allowed_models_create_and_update() {
     assert_eq!(updated["allowedModels"], serde_json::json!([]));
 }
 
+/// 函数 `rpc_apikey_excluded_aggregate_apis_create_and_update`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-10-08
+///
+/// # 参数
+/// 无
+///
+/// # 返回
+/// 无
+#[test]
+fn rpc_apikey_excluded_aggregate_apis_create_and_update() {
+    let ctx = RpcTestContext::new("rpc-apikey-excluded-aggregate-apis");
+    let storage = Storage::open(ctx.db_path()).expect("open db");
+    storage.init().expect("init schema");
+
+    let create_server = codexmanager_service::start_one_shot_server().expect("start server");
+    let create_req = JsonRpcRequest {
+        id: 81.into(),
+        method: "apikey/create".to_string(),
+        params: Some(serde_json::json!({
+            "protocolType": "openai_compat",
+            "rotationStrategy": "aggregate_api_rotation",
+            "excludedAggregateApiIds": ["agg-b", " agg-a ", "agg-a"]
+        })),
+        trace: None,
+    };
+    let create_resp = post_rpc(
+        &create_server.addr,
+        &serde_json::to_string(&create_req).expect("serialize apikey create"),
+    );
+    let key_id = create_resp
+        .get("result")
+        .and_then(|value| value.get("id"))
+        .and_then(|value| value.as_str())
+        .expect("created api key id")
+        .to_string();
+
+    let list_server = codexmanager_service::start_one_shot_server().expect("start server");
+    let list_req = JsonRpcRequest {
+        id: 82.into(),
+        method: "apikey/list".to_string(),
+        params: None,
+        trace: None,
+    };
+    let list_resp = post_rpc(
+        &list_server.addr,
+        &serde_json::to_string(&list_req).expect("serialize apikey list"),
+    );
+    let created = list_resp["result"]["items"]
+        .as_array()
+        .expect("apikey items")
+        .iter()
+        .find(|value| value["id"] == key_id.as_str())
+        .expect("created api key");
+    assert_eq!(
+        created["excludedAggregateApiIds"],
+        serde_json::json!(["agg-b", "agg-a"])
+    );
+
+    let update_server = codexmanager_service::start_one_shot_server().expect("start server");
+    let update_req = JsonRpcRequest {
+        id: 83.into(),
+        method: "apikey/updateModel".to_string(),
+        params: Some(serde_json::json!({
+            "id": key_id,
+            "excludedAggregateApiIds": []
+        })),
+        trace: None,
+    };
+    let update_resp = post_rpc(
+        &update_server.addr,
+        &serde_json::to_string(&update_req).expect("serialize apikey update"),
+    );
+    assert_eq!(update_resp["result"]["ok"].as_bool(), Some(true));
+
+    let list_server = codexmanager_service::start_one_shot_server().expect("start server");
+    let list_resp = post_rpc(
+        &list_server.addr,
+        &serde_json::to_string(&list_req).expect("serialize apikey list"),
+    );
+    let updated = list_resp["result"]["items"]
+        .as_array()
+        .expect("apikey items")
+        .iter()
+        .find(|value| value["id"] == key_id.as_str())
+        .expect("updated api key");
+    assert_eq!(updated["excludedAggregateApiIds"], serde_json::json!([]));
+}
+
 /// 函数 `rpc_apikey_models_include_aggregate_api_models`
 ///
 /// 作者: gaohongshun

@@ -364,6 +364,7 @@ pub struct ApiKeySummary {
     pub upstream_base_url: Option<String>,
     pub static_headers_json: Option<String>,
     pub allowed_models: Vec<String>,
+    pub excluded_aggregate_api_ids: Vec<String>,
     pub status: String,
     pub created_at: i64,
     pub last_used_at: Option<i64>,

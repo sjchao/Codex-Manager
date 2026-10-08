@@ -107,6 +107,7 @@ interface ApiKeyPayload {
   rotationStrategy?: string | null;
   aggregateApiId?: string | null;
   allowedModels?: string[] | null;
+  excludedAggregateApiIds?: string[] | null;
 }
 
 interface AggregateApiPayload {
@@ -625,6 +626,7 @@ export const accountClient = {
         rotationStrategy: params.rotationStrategy || null,
         aggregateApiId: params.aggregateApiId || null,
         allowedModels: params.allowedModels ?? null,
+        excludedAggregateApiIds: params.excludedAggregateApiIds ?? null,
       })
     );
     return normalizeApiKeyCreateResult(result);
@@ -651,6 +653,7 @@ export const accountClient = {
         rotationStrategy: params.rotationStrategy || null,
         aggregateApiId: params.aggregateApiId || null,
         allowedModels: params.allowedModels ?? null,
+        excludedAggregateApiIds: params.excludedAggregateApiIds ?? null,
       })
     ),
   disableApiKey: (keyId: string) =>

@@ -1,5 +1,7 @@
 use codexmanager_core::rpc::types::ApiKeyCreateResult;
-use codexmanager_core::storage::{normalize_allowed_models, now_ts, ApiKey};
+use codexmanager_core::storage::{
+    normalize_allowed_models, normalize_excluded_aggregate_api_ids, now_ts, ApiKey,
+};
 
 use crate::apikey::service_tier::normalize_service_tier_owned;
 use crate::apikey_profile::{
@@ -34,6 +36,7 @@ pub(crate) fn create_api_key(
     rotation_strategy: Option<String>,
     aggregate_api_id: Option<String>,
     allowed_models: Option<Vec<String>>,
+    excluded_aggregate_api_ids: Option<Vec<String>>,
 ) -> Result<ApiKeyCreateResult, String> {
     // 创建平台 Key 并写入存储
     let storage = open_storage().ok_or_else(|| "storage unavailable".to_string())?;
@@ -82,6 +85,17 @@ pub(crate) fn create_api_key(
         last_used_at: None,
     };
     storage.insert_api_key(&record).map_err(|e| e.to_string())?;
+    let excluded_aggregate_api_ids = normalize_excluded_aggregate_api_ids(
+        excluded_aggregate_api_ids.unwrap_or_default().as_slice(),
+    );
+    if !excluded_aggregate_api_ids.is_empty() {
+        storage
+            .update_api_key_excluded_aggregate_api_ids(
+                &key_id,
+                excluded_aggregate_api_ids.as_slice(),
+            )
+            .map_err(|e| e.to_string())?;
+    }
     if let Err(err) = storage.upsert_api_key_secret(&key_id, &key) {
         let _ = storage.delete_api_key(&key_id);
         return Err(format!("persist api key secret failed: {err}"));

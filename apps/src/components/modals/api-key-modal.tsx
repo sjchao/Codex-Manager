@@ -29,14 +29,7 @@ import { copyTextToClipboard } from "@/lib/utils/clipboard";
 import { toast } from "sonner";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { Key, Clipboard, ShieldCheck } from "lucide-react";
-import { ApiKey } from "@/types";
-
-const PROTOCOL_LABELS: Record<string, string> = {
-  openai_compat: "通配兼容 (Codex / Claude Code / Gemini CLI)",
-  azure_openai: "Azure OpenAI",
-  anthropic_native: "通配兼容 (Codex / Claude Code / Gemini CLI)",
-  gemini_native: "通配兼容 (Codex / Claude Code / Gemini CLI)",
-};
+import { AggregateApi, ApiKey } from "@/types";
 
 const REASONING_LABELS: Record<string, string> = {
   auto: "跟随请求",
@@ -56,10 +49,10 @@ function normalizeEditableServiceTier(value?: string | null): string {
   return normalized === "fast" ? "fast" : "";
 }
 
-const ROTATION_STRATEGY_LABELS: Record<string, string> = {
-  account_rotation: "账号轮转",
-  aggregate_api_rotation: "聚合API轮转",
-};
+function aggregateApiLabel(api: AggregateApi): string {
+  const provider = api.providerType === "claude" ? "Claude" : "Codex";
+  return `${api.supplierName || api.url || api.id} · ${provider}`;
+}
 
 interface ApiKeyModalProps {
   open: boolean;
@@ -95,6 +88,7 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
   const [azureApiKey, setAzureApiKey] = useState("");
   const [restrictModels, setRestrictModels] = useState(false);
   const [allowedModels, setAllowedModels] = useState<string[]>([]);
+  const [excludedAggregateApiIds, setExcludedAggregateApiIds] = useState<string[]>([]);
   const [generatedKey, setGeneratedKey] = useState("");
 
   const [isLoading, setIsLoading] = useState(false);
@@ -110,9 +104,13 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
     enabled: open && isServiceReady,
   });
 
-  const modelLabelMap = Object.fromEntries(
-    (models || []).map((model) => [model.slug, model.slug]),
-  );
+  const { data: aggregateApis, isFetching: isAggregateApisFetching } = useQuery({
+    queryKey: ["aggregate-apis", "exclusion-options"],
+    queryFn: () => accountClient.listAggregateApis(),
+    enabled: open && isServiceReady && rotationStrategy === "aggregate_api_rotation",
+    staleTime: 60_000,
+  });
+
   const restrictionModelSlugs = Array.from(
     new Set([...(models || []).map((model) => model.slug), ...allowedModels]),
   );
@@ -125,6 +123,15 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
           : [...current, slug];
       }
       return current.filter((item) => item.toLowerCase() !== slug.toLowerCase());
+    });
+  };
+
+  const toggleExcludedAggregateApi = (id: string, checked: boolean) => {
+    setExcludedAggregateApiIds((current) => {
+      if (checked) {
+        return current.includes(id) ? current : [...current, id];
+      }
+      return current.filter((item) => item !== id);
     });
   };
 
@@ -144,6 +151,7 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
       setAzureApiKey("");
       setRestrictModels(false);
       setAllowedModels([]);
+      setExcludedAggregateApiIds([]);
       setGeneratedKey("");
       return;
     }
@@ -159,6 +167,7 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
     setRotationStrategy(apiKey.rotationStrategy || "account_rotation");
     setRestrictModels((apiKey.allowedModels || []).length > 0);
     setAllowedModels(apiKey.allowedModels || []);
+    setExcludedAggregateApiIds(apiKey.excludedAggregateApiIds || []);
     setGeneratedKey("");
 
     if (apiKey.protocol === "azure_openai") {
@@ -235,6 +244,7 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
             : null,
         rotationStrategy,
         allowedModels: restrictModels ? allowedModels : null,
+        excludedAggregateApiIds,
       };
 
       if (apiKey?.id) {
@@ -327,97 +337,6 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
                 onChange={(e) => setGroupName(e.target.value)}
               />
             </div>
-            {apiKey?.id ? (
-              <>
-                <div className="grid gap-2 content-start">
-                  <Label>轮转策略</Label>
-                  <Select
-                    value={rotationStrategy}
-                    onValueChange={(val) => {
-                      if (!val) return;
-                      setRotationStrategy(val);
-                    }}
-                    disabled={!isServiceReady}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue>
-                        {(value) =>
-                          ROTATION_STRATEGY_LABELS[String(value || "")] ||
-                          "账号轮转"
-                        }
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent align="start">
-                      <SelectItem value="account_rotation">账号轮转</SelectItem>
-                      <SelectItem value="aggregate_api_rotation">
-                        聚合API轮转
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <p className="col-span-2 -mt-1 text-[11px] text-muted-foreground">
-                  账号轮转保持现有路由逻辑；聚合API轮转会直接透传请求。
-                </p>
-              </>
-            ) : null}
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="grid gap-2 content-start">
-              <Label>协议类型</Label>
-              <Select
-                value={protocolType}
-                onValueChange={(val) => val && setProtocolType(val)}
-                disabled={!isServiceReady}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue>
-                    {(value) =>
-                      PROTOCOL_LABELS[String(value || "")] ||
-                      "通配兼容 (Codex / Claude Code / Gemini CLI)"
-                    }
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent align="start">
-                  <SelectItem value="openai_compat">
-                    通配兼容 (Codex / Claude Code / Gemini CLI)
-                  </SelectItem>
-                  <SelectItem value="azure_openai">Azure OpenAI</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="min-h-[32px] text-[11px] text-muted-foreground">
-                默认按路径通配：<code>/v1/messages*</code> 走 Claude 语义，<code>/v1beta/models/*:generateContent</code> 这类路径走 Gemini 语义，其它标准路径走 Codex / OpenAI 语义。
-              </p>
-            </div>
-            <div className="grid gap-2 content-start">
-              <Label>绑定模型 (可选)</Label>
-              <Select
-                value={modelSlug}
-                onValueChange={(val) => val && setModelSlug(val)}
-                disabled={!isServiceReady}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="跟随请求">
-                    {(value) => {
-                      const nextValue = String(value || "").trim();
-                      if (!nextValue || nextValue === "auto") return "跟随请求";
-                      return modelLabelMap[nextValue] || nextValue;
-                    }}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent align="start">
-                  <SelectItem value="auto">跟随请求</SelectItem>
-                  {models?.map((model) => (
-                    <SelectItem key={model.slug} value={model.slug}>
-                      {model.slug}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-[11px] text-muted-foreground">
-                选择“跟随请求”时，会使用请求体里的实际模型；请求日志展示的是最终生效模型。
-              </p>
-            </div>
           </div>
 
           <div className="grid gap-3 rounded-xl border border-border/60 p-4">
@@ -437,7 +356,7 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
             {restrictModels ? (
               <>
                 {restrictionModelSlugs.length > 0 ? (
-                  <div className="grid max-h-44 gap-1 overflow-y-auto rounded-md border border-border/60 p-2 sm:grid-cols-2">
+                  <div className="grid max-h-44 gap-1 overflow-y-auto rounded-md border border-border/60 p-2 sm:grid-cols-3">
                     {restrictionModelSlugs.map((slug) => {
                       const checked = allowedModels.some(
                         (item) => item.toLowerCase() === slug.toLowerCase(),
@@ -474,6 +393,53 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
               </>
             ) : null}
           </div>
+
+          {rotationStrategy === "aggregate_api_rotation" ? (
+            <div className="grid gap-3 rounded-xl border border-border/60 p-4">
+              <div className="grid gap-1">
+                <Label>排除聚合API (可选)</Label>
+                <p className="text-[11px] text-muted-foreground">
+                  勾选的聚合 API 不参与该密钥的聚合API轮转，请求失败也不会回退到它们。
+                </p>
+              </div>
+              {(aggregateApis || []).length > 0 ? (
+                <div className="grid max-h-44 gap-1 overflow-y-auto rounded-md border border-border/60 p-2 sm:grid-cols-3">
+                  {(aggregateApis || []).map((api) => {
+                    const checked = excludedAggregateApiIds.includes(api.id);
+                    return (
+                      <label
+                        key={api.id}
+                        className="flex min-w-0 items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-muted/50"
+                      >
+                        <Checkbox
+                          checked={checked}
+                          disabled={!isServiceReady}
+                          onCheckedChange={(value) =>
+                            toggleExcludedAggregateApi(api.id, Boolean(value))
+                          }
+                        />
+                        <span
+                          className="truncate text-xs"
+                          title={`${aggregateApiLabel(api)}\n${api.url}`}
+                        >
+                          {aggregateApiLabel(api)}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="rounded-md border border-dashed border-border/60 px-3 py-2 text-xs text-muted-foreground">
+                  {isAggregateApisFetching ? "正在加载聚合 API…" : "暂无聚合 API"}
+                </div>
+              )}
+              {excludedAggregateApiIds.length > 0 ? (
+                <p className="text-[11px] text-muted-foreground">
+                  已排除 {excludedAggregateApiIds.length} 个聚合 API。
+                </p>
+              ) : null}
+            </div>
+          ) : null}
 
           <div className="grid grid-cols-2 gap-4">
             <div className="grid gap-2 content-start">

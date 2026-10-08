@@ -19,9 +19,13 @@ pub(crate) fn read_api_keys() -> Result<Vec<ApiKeySummary>, String> {
     let keys = storage
         .list_api_keys()
         .map_err(|err| format!("list api keys failed: {err}"))?;
+    let excluded_by_key = storage
+        .list_api_key_excluded_aggregate_api_ids()
+        .map_err(|err| format!("list api key exclusions failed: {err}"))?;
     Ok(keys
         .into_iter()
         .map(|key| ApiKeySummary {
+            excluded_aggregate_api_ids: excluded_by_key.get(&key.id).cloned().unwrap_or_default(),
             id: key.id,
             name: key.name,
             group_name: key.group_name,

@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use rusqlite::{Result, Row};
 
 use super::{now_ts, ApiKey, Storage};
@@ -565,6 +567,85 @@ impl Storage {
         }
     }
 
+    /// 函数 `update_api_key_excluded_aggregate_api_ids`
+    ///
+    /// 作者: gaohongshun
+    ///
+    /// 时间: 2026-10-08
+    ///
+    /// # 参数
+    /// - self: 参数 self
+    /// - key_id: 参数 key_id
+    /// - excluded_ids: 参数 excluded_ids
+    ///
+    /// # 返回
+    /// 返回函数执行结果
+    pub fn update_api_key_excluded_aggregate_api_ids(
+        &self,
+        key_id: &str,
+        excluded_ids: &[String],
+    ) -> Result<()> {
+        self.conn.execute(
+            "UPDATE api_keys SET excluded_aggregate_api_ids_json = ?1 WHERE id = ?2",
+            (serialize_excluded_aggregate_api_ids(excluded_ids), key_id),
+        )?;
+        Ok(())
+    }
+
+    /// 函数 `read_api_key_excluded_aggregate_api_ids`
+    ///
+    /// 作者: gaohongshun
+    ///
+    /// 时间: 2026-10-08
+    ///
+    /// # 参数
+    /// - self: 参数 self
+    /// - key_id: 参数 key_id
+    ///
+    /// # 返回
+    /// 返回函数执行结果
+    pub fn read_api_key_excluded_aggregate_api_ids(&self, key_id: &str) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT excluded_aggregate_api_ids_json FROM api_keys WHERE id = ?1 LIMIT 1",
+        )?;
+        let mut rows = stmt.query([key_id])?;
+        if let Some(row) = rows.next()? {
+            Ok(parse_excluded_aggregate_api_ids(
+                row.get::<_, Option<String>>(0)?.as_deref(),
+            ))
+        } else {
+            Ok(Vec::new())
+        }
+    }
+
+    /// 函数 `list_api_key_excluded_aggregate_api_ids`
+    ///
+    /// 作者: gaohongshun
+    ///
+    /// 时间: 2026-10-08
+    ///
+    /// # 参数
+    /// - self: 参数 self
+    ///
+    /// # 返回
+    /// 返回函数执行结果
+    pub fn list_api_key_excluded_aggregate_api_ids(&self) -> Result<HashMap<String, Vec<String>>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, excluded_aggregate_api_ids_json FROM api_keys")?;
+        let mut rows = stmt.query([])?;
+        let mut out = HashMap::new();
+        while let Some(row) = rows.next()? {
+            let key_id: String = row.get(0)?;
+            let items =
+                parse_excluded_aggregate_api_ids(row.get::<_, Option<String>>(1)?.as_deref());
+            if !items.is_empty() {
+                out.insert(key_id, items);
+            }
+        }
+        Ok(out)
+    }
+
     /// 函数 `ensure_api_key_model_column`
     ///
     /// 作者: gaohongshun
@@ -649,6 +730,22 @@ impl Storage {
     /// 返回函数执行结果
     pub(super) fn ensure_api_key_allowed_models_column(&self) -> Result<()> {
         self.ensure_column("api_key_profiles", "allowed_models_json", "TEXT")?;
+        Ok(())
+    }
+
+    /// 函数 `ensure_api_key_excluded_aggregate_api_ids_column`
+    ///
+    /// 作者: gaohongshun
+    ///
+    /// 时间: 2026-10-08
+    ///
+    /// # 参数
+    /// - super: 参数 super
+    ///
+    /// # 返回
+    /// 返回函数执行结果
+    pub(super) fn ensure_api_key_excluded_aggregate_api_ids_column(&self) -> Result<()> {
+        self.ensure_column("api_keys", "excluded_aggregate_api_ids_json", "TEXT")?;
         Ok(())
     }
 
@@ -880,3 +977,67 @@ pub fn normalize_allowed_models(items: &[String]) -> Vec<String> {
     }
     out
 }
+
+/// 函数 `parse_excluded_aggregate_api_ids`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-10-08
+///
+/// # 参数
+/// - raw: 参数 raw
+///
+/// # 返回
+/// 返回函数执行结果
+fn parse_excluded_aggregate_api_ids(raw: Option<&str>) -> Vec<String> {
+    let Some(raw) = raw.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Vec::new();
+    };
+    let Ok(items) = serde_json::from_str::<Vec<String>>(raw) else {
+        return Vec::new();
+    };
+    normalize_excluded_aggregate_api_ids(&items)
+}
+
+/// 函数 `serialize_excluded_aggregate_api_ids`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-10-08
+///
+/// # 参数
+/// - items: 参数 items
+///
+/// # 返回
+/// 返回函数执行结果
+fn serialize_excluded_aggregate_api_ids(items: &[String]) -> Option<String> {
+    let normalized = normalize_excluded_aggregate_api_ids(items);
+    if normalized.is_empty() {
+        return None;
+    }
+    serde_json::to_string(&normalized).ok()
+}
+
+/// 函数 `normalize_excluded_aggregate_api_ids`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-10-08
+///
+/// # 参数
+/// - items: 参数 items
+///
+/// # 返回
+/// 返回函数执行结果
+pub fn normalize_excluded_aggregate_api_ids(items: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
+    for item in items {
+        let id = item.trim();
+        if id.is_empty() || out.iter().any(|existing| existing == id) {
+            continue;
+        }
+        out.push(id.to_string());
+    }
+    out
+}
+

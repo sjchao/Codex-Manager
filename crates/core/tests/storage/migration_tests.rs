@@ -295,7 +295,19 @@ fn init_tracks_schema_migrations_and_is_idempotent() {
         )
         .expect("count 061 migration");
     assert_eq!(applied_061, 1);
+    let applied_062: i64 = storage
+        .conn
+        .query_row(
+            "SELECT COUNT(1) FROM schema_migrations WHERE version = '062_api_key_excluded_aggregate_apis'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count 062 migration");
+    assert_eq!(applied_062, 1);
 
+    assert!(storage
+        .has_column("api_keys", "excluded_aggregate_api_ids_json")
+        .expect("check api_keys.excluded_aggregate_api_ids_json"));
     assert!(storage
         .has_column("request_token_daily_stats", "actual_cost_usd")
         .expect("check request_token_daily_stats.actual_cost_usd"));

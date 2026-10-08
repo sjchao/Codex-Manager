@@ -94,6 +94,7 @@ export interface ApiKey {
   upstreamBaseUrl: string;
   staticHeadersJson: string;
   allowedModels: string[];
+  excludedAggregateApiIds: string[];
   status: string;
   createdAt: number | null;
   lastUsedAt: number | null;

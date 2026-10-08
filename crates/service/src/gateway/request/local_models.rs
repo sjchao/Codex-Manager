@@ -142,25 +142,27 @@ fn aggregate_api_provider_type(value: &str) -> &'static str {
 fn aggregate_api_model_options(
     storage: &codexmanager_core::storage::Storage,
     protocol_type: &str,
+    excluded_aggregate_api_ids: &[String],
 ) -> Vec<ModelOption> {
     let provider_type = if protocol_type == PROTOCOL_ANTHROPIC_NATIVE {
         AGGREGATE_API_PROVIDER_CLAUDE
     } else {
         AGGREGATE_API_PROVIDER_CODEX
     };
-    collect_aggregate_api_model_options(storage, Some(provider_type))
+    collect_aggregate_api_model_options(storage, Some(provider_type), excluded_aggregate_api_ids)
 }
 
 /// 收集全部启用聚合 API 的模型列表（不区分供应商），供模型选择器使用。
 pub(crate) fn aggregate_api_model_options_all(
     storage: &codexmanager_core::storage::Storage,
 ) -> Vec<ModelOption> {
-    collect_aggregate_api_model_options(storage, None)
+    collect_aggregate_api_model_options(storage, None, &[])
 }
 
 fn collect_aggregate_api_model_options(
     storage: &codexmanager_core::storage::Storage,
     provider_type: Option<&str>,
+    excluded_aggregate_api_ids: &[String],
 ) -> Vec<ModelOption> {
     let mut seen = HashSet::new();
     let mut items = Vec::new();
@@ -172,6 +174,9 @@ fn collect_aggregate_api_model_options(
         }
     };
     for api in apis {
+        if excluded_aggregate_api_ids.iter().any(|id| id == &api.id) {
+            continue;
+        }
         if !api.status.eq_ignore_ascii_case(AGGREGATE_API_STATUS_ACTIVE) {
             continue;
         }
@@ -278,7 +283,23 @@ pub(super) fn maybe_respond_local_models(
     };
 
     let items = if rotation_strategy == ROTATION_AGGREGATE_API {
-        aggregate_api_model_options(storage, protocol_type)
+        let excluded_aggregate_api_ids =
+            match storage.read_api_key_excluded_aggregate_api_ids(key_id) {
+                Ok(ids) => ids,
+                Err(err) => {
+                    log::warn!(
+                        "event=gateway_model_options_exclusions_read_failed key_id={} err={}",
+                        key_id,
+                        err
+                    );
+                    Vec::new()
+                }
+            };
+        aggregate_api_model_options(
+            storage,
+            protocol_type,
+            excluded_aggregate_api_ids.as_slice(),
+        )
     } else if !cached_items.is_empty() {
         cached_items
     } else {

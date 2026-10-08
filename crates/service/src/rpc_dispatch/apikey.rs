@@ -35,6 +35,8 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
             let rotation_strategy = super::string_param(req, "rotationStrategy");
             let aggregate_api_id = super::string_param(req, "aggregateApiId");
             let allowed_models = super::string_array_param(req, "allowedModels");
+            let excluded_aggregate_api_ids =
+                super::string_array_param(req, "excludedAggregateApiIds");
             super::value_or_error(apikey_create::create_api_key(
                 name,
                 group_name,
@@ -47,6 +49,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 rotation_strategy,
                 aggregate_api_id,
                 allowed_models,
+                excluded_aggregate_api_ids,
             ))
         }
         "apikey/readSecret" => {
@@ -73,6 +76,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
             let has_name = has_param("name");
             let has_group_name = has_param("groupName");
             let has_allowed_models = has_param("allowedModels");
+            let has_excluded_aggregate_api_ids = has_param("excludedAggregateApiIds");
             let name = super::string_param(req, "name");
             let group_name = super::string_param(req, "groupName");
             let model_slug = super::string_param(req, "modelSlug");
@@ -84,6 +88,8 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
             let rotation_strategy = super::string_param(req, "rotationStrategy");
             let aggregate_api_id = super::string_param(req, "aggregateApiId");
             let allowed_models = super::string_array_param(req, "allowedModels");
+            let excluded_aggregate_api_ids =
+                super::string_array_param(req, "excludedAggregateApiIds");
             super::ok_or_error(apikey_update_model::update_api_key_model(
                 key_id,
                 name,
@@ -100,6 +106,8 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 aggregate_api_id,
                 allowed_models,
                 has_allowed_models,
+                excluded_aggregate_api_ids,
+                has_excluded_aggregate_api_ids,
             ))
         }
         "apikey/delete" => {

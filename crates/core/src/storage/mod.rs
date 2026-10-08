@@ -21,7 +21,7 @@ mod tokens;
 mod usage;
 
 pub use aggregate_apis::normalize_supported_models;
-pub use api_keys::normalize_allowed_models;
+pub use api_keys::{normalize_allowed_models, normalize_excluded_aggregate_api_ids};
 
 #[derive(Debug, Clone)]
 pub struct Account {
@@ -767,9 +767,15 @@ impl Storage {
             "061_aggregate_api_drop_weight",
             include_str!("../../migrations/061_aggregate_api_drop_weight.sql"),
         )?;
+        self.apply_sql_or_compat_migration(
+            "062_api_key_excluded_aggregate_apis",
+            include_str!("../../migrations/062_api_key_excluded_aggregate_apis.sql"),
+            |s| s.ensure_api_key_excluded_aggregate_api_ids_column(),
+        )?;
         self.ensure_api_key_rotation_columns()?;
         self.ensure_api_key_group_name_column()?;
         self.ensure_api_key_allowed_models_column()?;
+        self.ensure_api_key_excluded_aggregate_api_ids_column()?;
         self.ensure_aggregate_apis_table()?;
         self.ensure_sub2api_accounts_table()?;
         self.ensure_aggregate_api_secrets_table()?;

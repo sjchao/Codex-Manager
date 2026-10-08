@@ -55,6 +55,7 @@ pub async fn service_apikey_read_secret(
 /// - rotation_strategy: 参数 rotation_strategy
 /// - aggregate_api_id: 参数 aggregate_api_id
 /// - allowed_models: 参数 allowed_models
+/// - excluded_aggregate_api_ids: 参数 excluded_aggregate_api_ids
 ///
 /// # 返回
 /// 返回函数执行结果
@@ -71,6 +72,7 @@ pub async fn service_apikey_create(
     rotation_strategy: Option<String>,
     aggregate_api_id: Option<String>,
     allowed_models: Option<Vec<String>>,
+    excluded_aggregate_api_ids: Option<Vec<String>>,
 ) -> Result<serde_json::Value, String> {
     let params = serde_json::json!({
       "name": name,
@@ -83,6 +85,7 @@ pub async fn service_apikey_create(
       "rotationStrategy": rotation_strategy,
       "aggregateApiId": aggregate_api_id,
       "allowedModels": allowed_models,
+      "excludedAggregateApiIds": excluded_aggregate_api_ids,
     });
     rpc_call_in_background("apikey/create", addr, Some(params)).await
 }
@@ -143,6 +146,7 @@ pub async fn service_apikey_usage_stats(addr: Option<String>) -> Result<serde_js
 /// - rotation_strategy: 参数 rotation_strategy
 /// - aggregate_api_id: 参数 aggregate_api_id
 /// - allowed_models: 参数 allowed_models
+/// - excluded_aggregate_api_ids: 参数 excluded_aggregate_api_ids
 ///
 /// # 返回
 /// 返回函数执行结果
@@ -160,6 +164,7 @@ pub async fn service_apikey_update_model(
     rotation_strategy: Option<String>,
     aggregate_api_id: Option<String>,
     allowed_models: Option<Vec<String>>,
+    excluded_aggregate_api_ids: Option<Vec<String>>,
 ) -> Result<serde_json::Value, String> {
     let params = serde_json::json!({
       "id": key_id,
@@ -173,6 +178,7 @@ pub async fn service_apikey_update_model(
       "rotationStrategy": rotation_strategy,
       "aggregateApiId": aggregate_api_id,
       "allowedModels": allowed_models,
+      "excludedAggregateApiIds": excluded_aggregate_api_ids,
     });
     rpc_call_in_background("apikey/updateModel", addr, Some(params)).await
 }

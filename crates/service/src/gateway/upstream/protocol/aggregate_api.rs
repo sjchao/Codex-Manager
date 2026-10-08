@@ -648,12 +648,17 @@ pub(crate) fn resolve_aggregate_api_rotation_candidates(
     protocol_type: &str,
     requested_model: Option<&str>,
     aggregate_api_id: Option<&str>,
+    key_id: &str,
 ) -> Result<Vec<AggregateApi>, String> {
     let provider_type = if protocol_type == "anthropic_native" {
         AGGREGATE_API_PROVIDER_CLAUDE
     } else {
         AGGREGATE_API_PROVIDER_CODEX
     };
+    // 中文注释：平台密钥可排除部分聚合 API，命中排除名单的供应商不参与本次轮转。
+    let excluded_ids = storage
+        .read_api_key_excluded_aggregate_api_ids(key_id)
+        .map_err(|err| err.to_string())?;
 
     let mut candidates = storage
         .list_aggregate_apis()
@@ -663,6 +668,7 @@ pub(crate) fn resolve_aggregate_api_rotation_candidates(
             is_aggregate_api_active(api.status.as_str())
                 && normalize_provider_type_value(api.provider_type.as_str()) == provider_type
                 && aggregate_api_supports_model(api, requested_model)
+                && !excluded_ids.iter().any(|id| id == &api.id)
         })
         .collect::<Vec<_>>();
     candidates = normalize_candidate_order(candidates);
@@ -679,6 +685,7 @@ pub(crate) fn resolve_aggregate_api_rotation_candidates(
             if is_aggregate_api_active(preferred.status.as_str())
                 && preferred_provider == provider_type
                 && aggregate_api_supports_model(&preferred, requested_model)
+                && !excluded_ids.iter().any(|id| id == &preferred.id)
             {
                 candidates.retain(|api| api.id != preferred.id);
                 candidates.insert(0, preferred);
@@ -687,10 +694,14 @@ pub(crate) fn resolve_aggregate_api_rotation_candidates(
     }
 
     if candidates.is_empty() {
-        Err(format!(
+        let mut message = format!(
             "aggregate api not found for provider {provider_type} and model {}",
             requested_model.unwrap_or("unknown")
-        ))
+        );
+        if !excluded_ids.is_empty() {
+            message.push_str("; excluded by platform key");
+        }
+        Err(message)
     } else {
         Ok(candidates)
     }
@@ -1605,6 +1616,7 @@ mod tests {
             "openai_compat",
             Some("GPT-IMAGE2"),
             Some("text-preferred"),
+            "gk-test",
         )
         .expect("resolve image candidates");
 
@@ -1615,5 +1627,90 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["image-supplier"]
         );
+    }
+
+    fn insert_platform_key_with_exclusions(storage: &Storage, excluded_ids: &[String]) {
+        storage
+            .insert_api_key(&codexmanager_core::storage::ApiKey {
+                id: "gk-exclusion-test".to_string(),
+                name: None,
+                group_name: None,
+                model_slug: None,
+                reasoning_effort: None,
+                service_tier: None,
+                rotation_strategy: "aggregate_api_rotation".to_string(),
+                aggregate_api_id: None,
+                aggregate_api_url: None,
+                client_type: "codex".to_string(),
+                protocol_type: "openai_compat".to_string(),
+                auth_scheme: "authorization_bearer".to_string(),
+                upstream_base_url: None,
+                static_headers_json: None,
+                allowed_models: Vec::new(),
+                key_hash: "hash-exclusion-test".to_string(),
+                status: "active".to_string(),
+                created_at: 0,
+                last_used_at: None,
+            })
+            .expect("insert platform key");
+        storage
+            .update_api_key_excluded_aggregate_api_ids("gk-exclusion-test", excluded_ids)
+            .expect("update excluded aggregate api ids");
+    }
+
+    #[test]
+    fn aggregate_rotation_skips_platform_key_excluded_suppliers() {
+        let storage = Storage::open_in_memory().expect("open storage");
+        storage.init().expect("init storage");
+
+        let mut excluded = aggregate_api_with_action(None);
+        excluded.id = "agg-excluded".to_string();
+        excluded.provider_type = "codex".to_string();
+        excluded.supported_models = vec!["gpt-5.6-terra".to_string()];
+        storage
+            .insert_aggregate_api(&excluded)
+            .expect("insert excluded supplier");
+
+        let mut active = aggregate_api_with_action(None);
+        active.id = "agg-active".to_string();
+        active.provider_type = "codex".to_string();
+        active.supported_models = vec!["gpt-5.6-terra".to_string()];
+        storage
+            .insert_aggregate_api(&active)
+            .expect("insert active supplier");
+
+        insert_platform_key_with_exclusions(&storage, &["agg-excluded".to_string()]);
+
+        // 中文注释：即使被排除的供应商是密钥绑定的优选，也不再参与轮转。
+        let candidates = resolve_aggregate_api_rotation_candidates(
+            &storage,
+            "openai_compat",
+            Some("gpt-5.6-terra"),
+            Some("agg-excluded"),
+            "gk-exclusion-test",
+        )
+        .expect("resolve candidates");
+
+        assert_eq!(
+            candidates
+                .iter()
+                .map(|candidate| candidate.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["agg-active"]
+        );
+
+        insert_platform_key_with_exclusions(
+            &storage,
+            &["agg-excluded".to_string(), "agg-active".to_string()],
+        );
+        let err = resolve_aggregate_api_rotation_candidates(
+            &storage,
+            "openai_compat",
+            Some("gpt-5.6-terra"),
+            None,
+            "gk-exclusion-test",
+        )
+        .expect_err("all suppliers excluded");
+        assert!(err.contains("excluded by platform key"));
     }
 }

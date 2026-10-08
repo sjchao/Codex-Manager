@@ -159,6 +159,7 @@ pub(in super::super) fn proxy_validated_request(
                 protocol_type.as_str(),
                 model_for_log.as_deref(),
                 aggregate_api_id.as_deref(),
+                key_id.as_str(),
             ) {
                 Ok(candidates) => candidates,
                 Err(err) => {
