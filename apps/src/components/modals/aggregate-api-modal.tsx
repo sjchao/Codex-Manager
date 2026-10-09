@@ -96,6 +96,9 @@ export function AggregateApiModal({
   const [password, setPassword] = useState("");
   const [actionCustomEnabled, setActionCustomEnabled] = useState(false);
   const [action, setAction] = useState("");
+  const [activeTimeEnabled, setActiveTimeEnabled] = useState(false);
+  const [activeTimeStart, setActiveTimeStart] = useState("23:00");
+  const [activeTimeEnd, setActiveTimeEnd] = useState("07:30");
   const [key, setKey] = useState("");
   const [sub2apiAccounts, setSub2apiAccounts] = useState<Sub2ApiAccount[]>([]);
   const [sub2apiAccountId, setSub2apiAccountId] = useState("");
@@ -171,6 +174,11 @@ export function AggregateApiModal({
     const nextAction = aggregateApi?.action ?? "";
     setAction(nextAction);
     setActionCustomEnabled(aggregateApi?.action !== null && aggregateApi?.action !== undefined);
+    const nextActiveTimeStart = aggregateApi?.activeTimeStart || "";
+    const nextActiveTimeEnd = aggregateApi?.activeTimeEnd || "";
+    setActiveTimeEnabled(Boolean(nextActiveTimeStart && nextActiveTimeEnd));
+    setActiveTimeStart(nextActiveTimeStart || "23:00");
+    setActiveTimeEnd(nextActiveTimeEnd || "07:30");
     setKey("");
     setUsername("");
     setPassword("");
@@ -289,6 +297,16 @@ export function AggregateApiModal({
         return;
       }
     }
+    if (activeTimeEnabled) {
+      if (!activeTimeStart || !activeTimeEnd) {
+        toast.error("请选择完整的时间段");
+        return;
+      }
+      if (activeTimeStart === activeTimeEnd) {
+        toast.error("开始时间与结束时间不能相同");
+        return;
+      }
+    }
 
     const authParams =
       authCustomEnabled && authType === "apikey"
@@ -342,6 +360,8 @@ export function AggregateApiModal({
           username: authType === "userpass" ? username.trim() || null : null,
           password: authType === "userpass" ? password.trim() || null : null,
           sub2apiAccountId: sub2apiAccountId || null,
+          activeTimeStart: activeTimeEnabled ? activeTimeStart : "",
+          activeTimeEnd: activeTimeEnabled ? activeTimeEnd : "",
         });
         toast.success("聚合 API 已更新");
         await Promise.all([
@@ -368,6 +388,8 @@ export function AggregateApiModal({
         username: authType === "userpass" ? username.trim() : null,
         password: authType === "userpass" ? password.trim() : null,
         sub2apiAccountId: sub2apiAccountId || null,
+        activeTimeStart: activeTimeEnabled ? activeTimeStart : "",
+        activeTimeEnd: activeTimeEnabled ? activeTimeEnd : "",
       });
       setGeneratedKey(result.key);
       toast.success("聚合 API 已创建");
@@ -645,6 +667,52 @@ export function AggregateApiModal({
                   </SelectContent>
                 </Select>
                 <p className="text-[11px] leading-4 text-muted-foreground">用量、余额和上游耗时将从所选 Sub2API 账户同步。</p>
+              </div>
+
+              <div className="grid gap-3 rounded-xl border border-border/60 bg-muted/20 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <Label className="text-sm">可用时间段</Label>
+                    <p className="text-[11px] text-muted-foreground">
+                      开启后仅在该时间段内参与聚合 API 轮转，支持跨天（如 23:00～07:30），按本机时区判断。
+                    </p>
+                  </div>
+                  <Switch
+                    checked={activeTimeEnabled}
+                    disabled={!isServiceReady}
+                    onCheckedChange={(checked) =>
+                      setActiveTimeEnabled(Boolean(checked))
+                    }
+                  />
+                </div>
+                {activeTimeEnabled ? (
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="grid gap-2">
+                      <Label className="text-xs" htmlFor="aggregate-api-active-start">
+                        开始时间
+                      </Label>
+                      <Input
+                        id="aggregate-api-active-start"
+                        type="time"
+                        value={activeTimeStart}
+                        disabled={!isServiceReady}
+                        onChange={(event) => setActiveTimeStart(event.target.value)}
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label className="text-xs" htmlFor="aggregate-api-active-end">
+                        结束时间
+                      </Label>
+                      <Input
+                        id="aggregate-api-active-end"
+                        type="time"
+                        value={activeTimeEnd}
+                        disabled={!isServiceReady}
+                        onChange={(event) => setActiveTimeEnd(event.target.value)}
+                      />
+                    </div>
+                  </div>
+                ) : null}
               </div>
 
               <div className="grid gap-4 xl:grid-cols-2">

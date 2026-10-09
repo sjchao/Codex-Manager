@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowUp,
+  Clock,
   Copy,
   Database,
   Eye,
@@ -126,6 +127,26 @@ function formatCacheHitRateLabel(rate: number | null): string {
     return "-";
   }
   return `${(rate * 100).toFixed(1)}%`;
+}
+
+function isNowWithinActiveTimeWindow(
+  start: string | null,
+  end: string | null,
+): boolean | null {
+  if (!start || !end) return null;
+  const [startHour, startMinute] = start.split(":").map(Number);
+  const [endHour, endMinute] = end.split(":").map(Number);
+  if (![startHour, startMinute, endHour, endMinute].every(Number.isFinite)) {
+    return null;
+  }
+  const now = new Date();
+  const minutes = now.getHours() * 60 + now.getMinutes();
+  const startMinutes = startHour * 60 + startMinute;
+  const endMinutes = endHour * 60 + endMinute;
+  if (startMinutes === endMinutes) return true;
+  return startMinutes < endMinutes
+    ? minutes >= startMinutes && minutes < endMinutes
+    : minutes >= startMinutes || minutes < endMinutes;
 }
 
 export default function AggregateApiPage() {
@@ -678,6 +699,10 @@ export default function AggregateApiPage() {
                           ? latestResult.error || api.lastTestError
                           : api.lastTestError;
                       const isTesting = Boolean(testingApiIds[api.id]);
+                      const activeWindowState = isNowWithinActiveTimeWindow(
+                        api.activeTimeStart,
+                        api.activeTimeEnd,
+                      );
 
                       return (
                         <TableRow key={api.id} className="group">
@@ -721,6 +746,24 @@ export default function AggregateApiPage() {
                                   api.providerType
                                 ] || api.providerType}
                               </Badge>
+                              {api.activeTimeStart && api.activeTimeEnd ? (
+                                <Badge
+                                  variant="outline"
+                                  className={`w-fit gap-1 font-mono text-[10px] font-normal ${
+                                    activeWindowState === false
+                                      ? "text-muted-foreground opacity-70"
+                                      : "border-primary/30 text-primary"
+                                  }`}
+                                  title={`可用时间段 ${api.activeTimeStart} ~ ${api.activeTimeEnd}${
+                                    activeWindowState === false
+                                      ? "（当前不可用）"
+                                      : "（当前可用）"
+                                  }`}
+                                >
+                                  <Clock className="h-3 w-3" />
+                                  {`${api.activeTimeStart}~${api.activeTimeEnd}`}
+                                </Badge>
+                              ) : null}
                               {api.supportedModels.length > 0 ? (
                                 api.supportedModels.map((model) => (
                                   <Badge

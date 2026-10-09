@@ -22,7 +22,9 @@ const AGGREGATE_API_SELECT_SQL: &str = "SELECT
     last_test_at,
     last_test_status,
     last_test_error,
-    sub2api_account_id
+    sub2api_account_id,
+    active_time_start,
+    active_time_end
  FROM aggregate_apis";
 
 impl Storage {
@@ -56,8 +58,10 @@ impl Storage {
                 last_test_at,
                 last_test_status,
                 last_test_error,
-                sub2api_account_id
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+                sub2api_account_id,
+                active_time_start,
+                active_time_end
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
             params![
                 &api.id,
                 &api.provider_type,
@@ -75,6 +79,8 @@ impl Storage {
                 &api.last_test_status,
                 &api.last_test_error,
                 &api.sub2api_account_id,
+                &api.active_time_start,
+                &api.active_time_end,
             ],
         )?;
         Ok(())
@@ -285,6 +291,21 @@ impl Storage {
         Ok(())
     }
 
+    pub fn update_aggregate_api_active_time(
+        &self,
+        api_id: &str,
+        active_time_start: Option<&str>,
+        active_time_end: Option<&str>,
+    ) -> Result<()> {
+        self.conn.execute(
+            "UPDATE aggregate_apis
+             SET active_time_start = ?1, active_time_end = ?2, updated_at = ?3
+             WHERE id = ?4",
+            (active_time_start, active_time_end, now_ts(), api_id),
+        )?;
+        Ok(())
+    }
+
     /// 函数 `delete_aggregate_api`
     ///
     /// 作者: gaohongshun
@@ -439,7 +460,9 @@ impl Storage {
                 last_test_at INTEGER,
                 last_test_status TEXT,
                 last_test_error TEXT,
-                sub2api_account_id TEXT REFERENCES sub2api_accounts(id) ON DELETE SET NULL
+                sub2api_account_id TEXT REFERENCES sub2api_accounts(id) ON DELETE SET NULL,
+                active_time_start TEXT,
+                active_time_end TEXT
             )",
             [],
         )?;
@@ -463,6 +486,7 @@ impl Storage {
             "sub2api_account_id",
             "TEXT REFERENCES sub2api_accounts(id) ON DELETE SET NULL",
         )?;
+        self.ensure_aggregate_api_active_time_columns()?;
         self.conn.execute(
             "UPDATE aggregate_apis
              SET provider_type = COALESCE(NULLIF(TRIM(provider_type), ''), 'codex')
@@ -487,6 +511,12 @@ impl Storage {
              WHERE sort IS NULL",
             [],
         )?;
+        Ok(())
+    }
+
+    pub(super) fn ensure_aggregate_api_active_time_columns(&self) -> Result<()> {
+        self.ensure_column("aggregate_apis", "active_time_start", "TEXT")?;
+        self.ensure_column("aggregate_apis", "active_time_end", "TEXT")?;
         Ok(())
     }
 
@@ -909,6 +939,8 @@ fn map_aggregate_api_row(row: &Row<'_>) -> Result<AggregateApi> {
         last_test_status: row.get(13)?,
         last_test_error: row.get(14)?,
         sub2api_account_id: row.get(15)?,
+        active_time_start: row.get(16)?,
+        active_time_end: row.get(17)?,
     })
 }
 

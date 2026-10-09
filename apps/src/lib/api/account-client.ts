@@ -125,6 +125,8 @@ interface AggregateApiPayload {
   username?: string | null;
   password?: string | null;
   sub2apiAccountId?: string | null;
+  activeTimeStart?: string | null;
+  activeTimeEnd?: string | null;
 }
 
 const MAX_IMPORT_RPC_BODY_BYTES = 4 * 1024 * 1024;
@@ -492,6 +494,12 @@ export const accountClient = {
         username: params.username || null,
         password: params.password || null,
         sub2apiAccountId: params.sub2apiAccountId || null,
+        activeTimeStart:
+          typeof params.activeTimeStart === "string"
+            ? params.activeTimeStart
+            : null,
+        activeTimeEnd:
+          typeof params.activeTimeEnd === "string" ? params.activeTimeEnd : null,
       })
     );
     return normalizeAggregateApiCreateResult(result);
@@ -521,6 +529,12 @@ export const accountClient = {
         username: params.username || null,
         password: params.password || null,
         sub2apiAccountId: params.sub2apiAccountId || null,
+        activeTimeStart:
+          typeof params.activeTimeStart === "string"
+            ? params.activeTimeStart
+            : null,
+        activeTimeEnd:
+          typeof params.activeTimeEnd === "string" ? params.activeTimeEnd : null,
       })
     ),
   deleteAggregateApi: (apiId: string) =>

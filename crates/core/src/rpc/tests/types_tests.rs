@@ -137,6 +137,8 @@ fn aggregate_api_summary_serialization_includes_supported_models() {
         today_input_tokens: 1234,
         today_cached_input_tokens: 567,
         today_cache_hit_rate: Some(0.459),
+        active_time_start: None,
+        active_time_end: None,
     };
 
     let value = serde_json::to_value(summary).expect("serialize aggregate api summary");

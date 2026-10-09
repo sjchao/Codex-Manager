@@ -433,6 +433,10 @@ pub struct AggregateApiSummary {
     pub today_input_tokens: i64,
     pub today_cached_input_tokens: i64,
     pub today_cache_hit_rate: Option<f64>,
+    #[serde(default)]
+    pub active_time_start: Option<String>,
+    #[serde(default)]
+    pub active_time_end: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

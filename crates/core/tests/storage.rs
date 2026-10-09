@@ -140,6 +140,8 @@ fn storage_aggregate_api_supported_models_roundtrip() {
         last_test_status: None,
         last_test_error: None,
         sub2api_account_id: None,
+        active_time_start: None,
+        active_time_end: None,
     };
     storage
         .insert_aggregate_api(&aggregate_api)
@@ -162,6 +164,26 @@ fn storage_aggregate_api_supported_models_roundtrip() {
         .expect("find aggregate api after model update")
         .expect("aggregate api exists after model update");
     assert_eq!(updated_models.supported_models, vec!["gpt-video"]);
+
+    storage
+        .update_aggregate_api_active_time("agg-models-1", Some("23:00"), Some("07:30"))
+        .expect("update aggregate api active time");
+    let updated_time = storage
+        .find_aggregate_api_by_id("agg-models-1")
+        .expect("find aggregate api after time update")
+        .expect("aggregate api exists after time update");
+    assert_eq!(updated_time.active_time_start.as_deref(), Some("23:00"));
+    assert_eq!(updated_time.active_time_end.as_deref(), Some("07:30"));
+
+    storage
+        .update_aggregate_api_active_time("agg-models-1", None, None)
+        .expect("clear aggregate api active time");
+    let cleared_time = storage
+        .find_aggregate_api_by_id("agg-models-1")
+        .expect("find aggregate api after clearing time")
+        .expect("aggregate api exists after clearing time");
+    assert_eq!(cleared_time.active_time_start, None);
+    assert_eq!(cleared_time.active_time_end, None);
 }
 
 #[test]
@@ -187,6 +209,8 @@ fn storage_aggregate_api_list_uses_created_at_as_tiebreaker() {
             last_test_status: None,
             last_test_error: None,
             sub2api_account_id: None,
+            active_time_start: None,
+            active_time_end: None,
         })
         .expect("insert older aggregate api");
 
@@ -208,6 +232,8 @@ fn storage_aggregate_api_list_uses_created_at_as_tiebreaker() {
             last_test_status: None,
             last_test_error: None,
             sub2api_account_id: None,
+            active_time_start: None,
+            active_time_end: None,
         })
         .expect("insert newer aggregate api");
 

@@ -57,6 +57,8 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
             let username = super::string_param(req, "username");
             let password = super::string_param(req, "password");
             let sub2api_account_id = super::string_param(req, "sub2apiAccountId");
+            let active_time_start = super::string_param(req, "activeTimeStart");
+            let active_time_end = super::string_param(req, "activeTimeEnd");
             super::value_or_error(create_aggregate_api(
                 url,
                 key,
@@ -72,6 +74,8 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 username,
                 password,
                 sub2api_account_id,
+                active_time_start,
+                active_time_end,
             ))
         }
         "aggregateApi/update" => {
@@ -94,6 +98,8 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
             let username = super::string_param(req, "username");
             let password = super::string_param(req, "password");
             let sub2api_account_id = super::string_param(req, "sub2apiAccountId");
+            let active_time_start = super::string_param(req, "activeTimeStart");
+            let active_time_end = super::string_param(req, "activeTimeEnd");
             super::ok_or_error(update_aggregate_api(
                 api_id,
                 url,
@@ -110,6 +116,8 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 username,
                 password,
                 sub2api_account_id,
+                active_time_start,
+                active_time_end,
             ))
         }
         "aggregateApi/readSecret" => {

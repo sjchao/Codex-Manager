@@ -129,6 +129,8 @@ export interface AggregateApi {
   todayInputTokens: number;
   todayCachedInputTokens: number;
   todayCacheHitRate: number | null;
+  activeTimeStart: string | null;
+  activeTimeEnd: string | null;
 }
 
 export interface Sub2ApiAccount {

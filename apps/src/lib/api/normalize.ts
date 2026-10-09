@@ -638,6 +638,10 @@ export function normalizeAggregateApi(item: unknown): AggregateApi | null {
     todayCacheHitRate: toNullableNumber(
       source.todayCacheHitRate ?? source.today_cache_hit_rate
     ),
+    activeTimeStart:
+      asString(source.activeTimeStart ?? source.active_time_start) || null,
+    activeTimeEnd:
+      asString(source.activeTimeEnd ?? source.active_time_end) || null,
   };
 }
 

@@ -255,6 +255,8 @@ pub struct AggregateApi {
     pub last_test_status: Option<String>,
     pub last_test_error: Option<String>,
     pub sub2api_account_id: Option<String>,
+    pub active_time_start: Option<String>,
+    pub active_time_end: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -772,10 +774,16 @@ impl Storage {
             include_str!("../../migrations/062_api_key_excluded_aggregate_apis.sql"),
             |s| s.ensure_api_key_excluded_aggregate_api_ids_column(),
         )?;
+        self.apply_sql_or_compat_migration(
+            "063_aggregate_api_active_time_window",
+            include_str!("../../migrations/063_aggregate_api_active_time_window.sql"),
+            |s| s.ensure_aggregate_api_active_time_columns(),
+        )?;
         self.ensure_api_key_rotation_columns()?;
         self.ensure_api_key_group_name_column()?;
         self.ensure_api_key_allowed_models_column()?;
         self.ensure_api_key_excluded_aggregate_api_ids_column()?;
+        self.ensure_aggregate_api_active_time_columns()?;
         self.ensure_aggregate_apis_table()?;
         self.ensure_sub2api_accounts_table()?;
         self.ensure_aggregate_api_secrets_table()?;

@@ -936,6 +936,8 @@ mod tests {
                 last_test_status: None,
                 last_test_error: None,
                 sub2api_account_id: None,
+                active_time_start: None,
+                active_time_end: None,
             })
             .expect("insert supplier");
         let payload = serde_json::json!({

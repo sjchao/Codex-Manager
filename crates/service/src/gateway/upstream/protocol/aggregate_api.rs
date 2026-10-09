@@ -57,6 +57,53 @@ fn is_aggregate_api_active(status: &str) -> bool {
         .eq_ignore_ascii_case(AGGREGATE_API_STATUS_ACTIVE)
 }
 
+/// 可用时间段按本机时区判断；未配置时视为全天可用，跨天时间段（如 23:00-07:30）按两段区间匹配。
+fn aggregate_api_within_active_time_window(api: &AggregateApi, minutes_of_day: u32) -> bool {
+    let Some((start, end)) = crate::aggregate_api::active_time_window_minutes(
+        api.active_time_start.as_deref(),
+        api.active_time_end.as_deref(),
+    ) else {
+        return true;
+    };
+    if start < end {
+        minutes_of_day >= start && minutes_of_day < end
+    } else {
+        minutes_of_day >= start || minutes_of_day < end
+    }
+}
+
+fn local_minutes_of_day() -> u32 {
+    use chrono::Timelike;
+    let now = chrono::Local::now();
+    now.hour() * 60 + now.minute()
+}
+
+/// 过滤出可参与轮转的候选；`time_window_blocked` 表示存在仅因可用时间段被排除的供应商。
+fn filter_aggregate_api_candidates(
+    apis: Vec<AggregateApi>,
+    provider_type: &str,
+    requested_model: Option<&str>,
+    excluded_ids: &[String],
+    minutes_of_day: u32,
+) -> (Vec<AggregateApi>, bool) {
+    let mut time_window_blocked = false;
+    let candidates = apis
+        .into_iter()
+        .filter(|api| {
+            let matches_rotation = is_aggregate_api_active(api.status.as_str())
+                && normalize_provider_type_value(api.provider_type.as_str()) == provider_type
+                && aggregate_api_supports_model(api, requested_model)
+                && !excluded_ids.iter().any(|id| id == &api.id);
+            if matches_rotation && !aggregate_api_within_active_time_window(api, minutes_of_day) {
+                time_window_blocked = true;
+                return false;
+            }
+            matches_rotation
+        })
+        .collect::<Vec<_>>();
+    (candidates, time_window_blocked)
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ApiKeyAuthParams {
@@ -660,17 +707,17 @@ pub(crate) fn resolve_aggregate_api_rotation_candidates(
         .read_api_key_excluded_aggregate_api_ids(key_id)
         .map_err(|err| err.to_string())?;
 
-    let mut candidates = storage
-        .list_aggregate_apis()
-        .map_err(|err| err.to_string())?
-        .into_iter()
-        .filter(|api| {
-            is_aggregate_api_active(api.status.as_str())
-                && normalize_provider_type_value(api.provider_type.as_str()) == provider_type
-                && aggregate_api_supports_model(api, requested_model)
-                && !excluded_ids.iter().any(|id| id == &api.id)
-        })
-        .collect::<Vec<_>>();
+    let now_minutes = local_minutes_of_day();
+    // 中文注释：可用时间段外的供应商（如夜间分组）同样不参与本次轮转。
+    let (mut candidates, time_window_blocked) = filter_aggregate_api_candidates(
+        storage
+            .list_aggregate_apis()
+            .map_err(|err| err.to_string())?,
+        provider_type,
+        requested_model,
+        excluded_ids.as_slice(),
+        now_minutes,
+    );
     candidates = normalize_candidate_order(candidates);
 
     if let Some(api_id) = aggregate_api_id
@@ -686,6 +733,7 @@ pub(crate) fn resolve_aggregate_api_rotation_candidates(
                 && preferred_provider == provider_type
                 && aggregate_api_supports_model(&preferred, requested_model)
                 && !excluded_ids.iter().any(|id| id == &preferred.id)
+                && aggregate_api_within_active_time_window(&preferred, now_minutes)
             {
                 candidates.retain(|api| api.id != preferred.id);
                 candidates.insert(0, preferred);
@@ -700,6 +748,9 @@ pub(crate) fn resolve_aggregate_api_rotation_candidates(
         );
         if !excluded_ids.is_empty() {
             message.push_str("; excluded by platform key");
+        }
+        if time_window_blocked {
+            message.push_str("; outside active time window");
         }
         Err(message)
     } else {
@@ -1272,6 +1323,8 @@ mod bridge_tests {
             last_test_status: None,
             last_test_error: None,
             sub2api_account_id: None,
+            active_time_start: None,
+            active_time_end: None,
         }
     }
 
@@ -1400,7 +1453,8 @@ mod tests {
     use codexmanager_core::storage::{AggregateApi, Storage};
 
     use super::{
-        build_upstream_url, effective_action_path, resolve_aggregate_api_rotation_candidates,
+        aggregate_api_within_active_time_window, build_upstream_url, effective_action_path,
+        filter_aggregate_api_candidates, resolve_aggregate_api_rotation_candidates,
         resolve_passthrough_sse_protocol, should_failover_after_aggregate_bridge,
         should_retry_same_aggregate_candidate,
     };
@@ -1424,6 +1478,8 @@ mod tests {
             last_test_status: None,
             last_test_error: None,
             sub2api_account_id: None,
+            active_time_start: None,
+            active_time_end: None,
         }
     }
 
@@ -1502,6 +1558,77 @@ mod tests {
             false,
             true,
         ));
+    }
+
+    #[test]
+    fn aggregate_api_active_time_window_allows_all_day_when_unset() {
+        let api = aggregate_api_with_action(None);
+        for minutes in [0, 1, 60, 12 * 60, 23 * 60 + 59] {
+            assert!(aggregate_api_within_active_time_window(&api, minutes));
+        }
+    }
+
+    #[test]
+    fn aggregate_api_active_time_window_matches_same_day_range() {
+        let mut api = aggregate_api_with_action(None);
+        api.active_time_start = Some("09:00".to_string());
+        api.active_time_end = Some("17:30".to_string());
+        assert!(!aggregate_api_within_active_time_window(&api, 8 * 60 + 59));
+        assert!(aggregate_api_within_active_time_window(&api, 9 * 60));
+        assert!(aggregate_api_within_active_time_window(&api, 17 * 60 + 29));
+        assert!(!aggregate_api_within_active_time_window(&api, 17 * 60 + 30));
+    }
+
+    #[test]
+    fn aggregate_api_active_time_window_matches_overnight_range() {
+        let mut api = aggregate_api_with_action(None);
+        api.active_time_start = Some("23:00".to_string());
+        api.active_time_end = Some("07:30".to_string());
+        assert!(aggregate_api_within_active_time_window(&api, 23 * 60));
+        assert!(aggregate_api_within_active_time_window(&api, 2 * 60));
+        assert!(aggregate_api_within_active_time_window(&api, 7 * 60 + 29));
+        assert!(!aggregate_api_within_active_time_window(&api, 7 * 60 + 30));
+        assert!(!aggregate_api_within_active_time_window(&api, 12 * 60));
+    }
+
+    #[test]
+    fn filter_aggregate_api_candidates_skips_suppliers_outside_active_window() {
+        let mut night = aggregate_api_with_action(None);
+        night.id = "agg-night".to_string();
+        night.provider_type = "codex".to_string();
+        night.active_time_start = Some("23:00".to_string());
+        night.active_time_end = Some("07:30".to_string());
+
+        let mut day = aggregate_api_with_action(None);
+        day.id = "agg-day".to_string();
+        day.provider_type = "codex".to_string();
+
+        let apis = vec![night, day];
+        let (candidates, blocked) = filter_aggregate_api_candidates(
+            apis.clone(),
+            "codex",
+            Some("claude-haiku-4-5-20251001"),
+            &[],
+            2 * 60,
+        );
+        assert!(!blocked);
+        assert_eq!(candidates.len(), 2);
+
+        let (candidates, blocked) = filter_aggregate_api_candidates(
+            apis,
+            "codex",
+            Some("claude-haiku-4-5-20251001"),
+            &[],
+            12 * 60,
+        );
+        assert!(blocked);
+        assert_eq!(
+            candidates
+                .iter()
+                .map(|candidate| candidate.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["agg-day"]
+        );
     }
 
     /// 函数 `final_error_promotes_success_status_to_bad_gateway`

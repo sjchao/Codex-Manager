@@ -51,6 +51,8 @@ pub async fn service_aggregate_api_create(
     username: Option<String>,
     password: Option<String>,
     sub2api_account_id: Option<String>,
+    active_time_start: Option<String>,
+    active_time_end: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let params = serde_json::json!({
         "providerType": provider_type,
@@ -67,6 +69,8 @@ pub async fn service_aggregate_api_create(
         "username": username,
         "password": password,
         "sub2apiAccountId": sub2api_account_id,
+        "activeTimeStart": active_time_start,
+        "activeTimeEnd": active_time_end,
     });
     rpc_call_in_background("aggregateApi/create", addr, Some(params)).await
 }
@@ -106,6 +110,8 @@ pub async fn service_aggregate_api_update(
     username: Option<String>,
     password: Option<String>,
     sub2api_account_id: Option<String>,
+    active_time_start: Option<String>,
+    active_time_end: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let params = serde_json::json!({
         "id": id,
@@ -123,6 +129,8 @@ pub async fn service_aggregate_api_update(
         "username": username,
         "password": password,
         "sub2apiAccountId": sub2api_account_id,
+        "activeTimeStart": active_time_start,
+        "activeTimeEnd": active_time_end,
     });
     rpc_call_in_background("aggregateApi/update", addr, Some(params)).await
 }

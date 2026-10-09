@@ -254,7 +254,8 @@ mod tests {
     use super::{
         action_path_or_default, aggregate_api_today_cache_usage,
         backfill_empty_aggregate_api_models, build_codex_probe_body,
-        normalize_action_override, probe_accept_header, probe_claude_endpoint,
+        normalize_action_override, normalize_active_time_range, probe_accept_header,
+        probe_claude_endpoint,
         probe_codex_endpoint,
         probe_default_path_for_model_type, probe_model_for_aggregate_api, probe_model_for_type,
         refresh_aggregate_api_model_catalog,
@@ -287,6 +288,8 @@ mod tests {
             last_test_status: None,
             last_test_error: None,
             sub2api_account_id: None,
+            active_time_start: None,
+            active_time_end: None,
         }
     }
 
@@ -296,6 +299,35 @@ mod tests {
         let value =
             normalize_action_override(Some(false), Some("/v1/messages".to_string())).unwrap();
         assert_eq!(value, Some(None));
+    }
+
+    #[test]
+    fn active_time_range_requires_complete_pair_in_hh_mm() {
+        let _guard = crate::test_env_guard();
+        assert_eq!(
+            normalize_active_time_range(Some("23:00".to_string()), Some("7:30".to_string()))
+                .unwrap(),
+            (Some("23:00".to_string()), Some("07:30".to_string()))
+        );
+        assert_eq!(
+            normalize_active_time_range(Some("  ".to_string()), Some(String::new())).unwrap(),
+            (None, None)
+        );
+        assert_eq!(normalize_active_time_range(None, None).unwrap(), (None, None));
+        assert!(normalize_active_time_range(Some("23:00".to_string()), None).is_err());
+        assert!(normalize_active_time_range(None, Some("07:30".to_string())).is_err());
+        assert!(
+            normalize_active_time_range(Some("24:00".to_string()), Some("07:30".to_string()))
+                .is_err()
+        );
+        assert!(
+            normalize_active_time_range(Some("23:60".to_string()), Some("07:30".to_string()))
+                .is_err()
+        );
+        assert!(
+            normalize_active_time_range(Some("23:00".to_string()), Some("23:00".to_string()))
+                .is_err()
+        );
     }
 
     #[test]
@@ -878,6 +910,66 @@ fn serialize_userpass_secret(username: &str, password: &str) -> Result<String, S
         password: password.trim().to_string(),
     };
     serde_json::to_string(&secret).map_err(|_| "invalid username/password".to_string())
+}
+
+fn parse_time_of_day(value: &str) -> Option<(u32, u32)> {
+    let (hour, minute) = value.split_once(':')?;
+    if hour.is_empty() || minute.is_empty() || hour.len() > 2 || minute.len() > 2 {
+        return None;
+    }
+    let hour = hour.parse::<u32>().ok()?;
+    let minute = minute.parse::<u32>().ok()?;
+    if hour > 23 || minute > 59 {
+        return None;
+    }
+    Some((hour, minute))
+}
+
+fn normalize_active_time_value(
+    value: Option<String>,
+    field: &str,
+) -> Result<Option<String>, String> {
+    let Some(raw) = value else {
+        return Ok(None);
+    };
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    let (hour, minute) =
+        parse_time_of_day(trimmed).ok_or_else(|| format!("{field} must use HH:MM format"))?;
+    Ok(Some(format!("{hour:02}:{minute:02}")))
+}
+
+/// 解析可用时间段为当天分钟数；未配置或格式不合法时返回 None（视为不限制）。
+pub(crate) fn active_time_window_minutes(
+    start: Option<&str>,
+    end: Option<&str>,
+) -> Option<(u32, u32)> {
+    let (start_hour, start_minute) = parse_time_of_day(start?.trim())?;
+    let (end_hour, end_minute) = parse_time_of_day(end?.trim())?;
+    Some((
+        start_hour * 60 + start_minute,
+        end_hour * 60 + end_minute,
+    ))
+}
+
+/// 可用时间段按本机时区解析；只填一个端点视为无效。
+fn normalize_active_time_range(
+    start: Option<String>,
+    end: Option<String>,
+) -> Result<(Option<String>, Option<String>), String> {
+    let start = normalize_active_time_value(start, "activeTimeStart")?;
+    let end = normalize_active_time_value(end, "activeTimeEnd")?;
+    match (start.as_deref(), end.as_deref()) {
+        (Some(_), None) | (None, Some(_)) => Err(
+            "activeTimeStart and activeTimeEnd must be provided together".to_string(),
+        ),
+        (Some(start), Some(end)) if start == end => {
+            Err("activeTimeStart and activeTimeEnd must differ".to_string())
+        }
+        _ => Ok((start, end)),
+    }
 }
 
 fn action_path_or_default(api: &AggregateApi, default: &str) -> String {
@@ -1703,6 +1795,8 @@ pub(crate) fn list_aggregate_apis() -> Result<Vec<AggregateApiSummary>, String> 
             today_input_tokens,
             today_cached_input_tokens,
             today_cache_hit_rate,
+            active_time_start: item.active_time_start,
+            active_time_end: item.active_time_end,
         }
         })
         .collect())
@@ -1734,9 +1828,13 @@ pub(crate) fn create_aggregate_api(
     username: Option<String>,
     password: Option<String>,
     sub2api_account_id: Option<String>,
+    active_time_start: Option<String>,
+    active_time_end: Option<String>,
 ) -> Result<AggregateApiCreateResult, String> {
     let storage = open_storage().ok_or_else(|| "storage unavailable".to_string())?;
     let normalized_provider_type = normalize_provider_type(provider_type)?;
+    let (active_time_start, active_time_end) =
+        normalize_active_time_range(active_time_start, active_time_end)?;
     let normalized_supported_models = normalize_supported_models(
         supported_models.unwrap_or_default().as_slice(),
     );
@@ -1797,6 +1895,8 @@ pub(crate) fn create_aggregate_api(
         last_test_status: None,
         last_test_error: None,
         sub2api_account_id: normalized_sub2api_account_id.map(str::to_string),
+        active_time_start,
+        active_time_end,
     };
     storage
         .insert_aggregate_api(&record)
@@ -1845,6 +1945,8 @@ pub(crate) fn update_aggregate_api(
     username: Option<String>,
     password: Option<String>,
     sub2api_account_id: Option<String>,
+    active_time_start: Option<String>,
+    active_time_end: Option<String>,
 ) -> Result<(), String> {
     if api_id.is_empty() {
         return Err("aggregate api id required".to_string());
@@ -1909,6 +2011,13 @@ pub(crate) fn update_aggregate_api(
             if storage.find_sub2api_account_by_id(id).map_err(|e| e.to_string())?.is_none() { return Err("Sub2API 账号不存在".to_string()); }
         }
         storage.update_aggregate_api_sub2api_account_id(api_id, account_id).map_err(|e| e.to_string())?;
+    }
+
+    if active_time_start.is_some() || active_time_end.is_some() {
+        let (start, end) = normalize_active_time_range(active_time_start, active_time_end)?;
+        storage
+            .update_aggregate_api_active_time(api_id, start.as_deref(), end.as_deref())
+            .map_err(|err| err.to_string())?;
     }
 
     if let Some(auth_params_json) =
