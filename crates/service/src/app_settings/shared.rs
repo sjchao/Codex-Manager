@@ -31,6 +31,11 @@ pub const APP_SETTING_PLUGIN_MARKET_MODE_KEY: &str = "plugin.market_mode";
 pub const APP_SETTING_PLUGIN_MARKET_SOURCE_URL_KEY: &str = "plugin.market_source_url";
 pub const APP_SETTING_ENV_OVERRIDES_KEY: &str = "app.env_overrides";
 pub const APP_SETTING_WEB_ACCESS_PASSWORD_HASH_KEY: &str = "web.auth.password_hash";
+pub const APP_SETTING_QODER_BASE_URL_KEY: &str = "qoder.base_url";
+pub const APP_SETTING_QODER_ORGANIZATION_ID_KEY: &str = "qoder.organization_id";
+pub const APP_SETTING_QODER_API_KEY_KEY: &str = "qoder.api_key";
+pub const APP_SETTING_QODER_ENABLED_KEY: &str = "qoder.enabled";
+pub const APP_SETTING_QODER_BACKFILL_DAYS_KEY: &str = "qoder.backfill_days";
 pub const WEB_ACCESS_SESSION_COOKIE_NAME: &str = "codexmanager_web_auth";
 
 /// 函数 `parse_bool_with_default`

@@ -4,6 +4,7 @@ export const ROOT_PAGE_PATHS = [
   "/aggregate-api",
   "/apikeys",
   "/plugins",
+  "/qoder",
   "/logs",
   "/settings",
 ] as const;

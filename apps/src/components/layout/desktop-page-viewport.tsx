@@ -11,6 +11,7 @@ import AccountsPage from "@/app/accounts/page";
 import AggregateApiPage from "@/app/aggregate-api/page";
 import ApiKeysPage from "@/app/apikeys/page";
 import PluginsPage from "@/app/plugins/page";
+import QoderPage from "@/app/qoder/page";
 import LogsPage from "@/app/logs/page";
 import SettingsPage from "@/app/settings/page";
 
@@ -20,6 +21,7 @@ const PAGE_COMPONENTS: Record<RootPagePath, ComponentType> = {
   "/aggregate-api": AggregateApiPage,
   "/apikeys": ApiKeysPage,
   "/plugins": PluginsPage,
+  "/qoder": QoderPage,
   "/logs": LogsPage,
   "/settings": SettingsPage,
 };

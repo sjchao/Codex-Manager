@@ -74,6 +74,13 @@ const WEB_COMMAND_MAP: Record<string, WebCommandDescriptor> = {
   service_sub2api_delete: { rpcMethod: "sub2api/delete" },
   service_sub2api_sync: { rpcMethod: "sub2api/sync" },
   service_sub2api_sync_all: { rpcMethod: "sub2api/syncAll" },
+  service_qoder_settings_get: { rpcMethod: "qoder/settingsGet" },
+  service_qoder_settings_set: { rpcMethod: "qoder/settingsSet" },
+  service_qoder_status: { rpcMethod: "qoder/status" },
+  service_qoder_sync: { rpcMethod: "qoder/sync" },
+  service_qoder_overview: { rpcMethod: "qoder/overview" },
+  service_qoder_events: { rpcMethod: "qoder/events" },
+  service_qoder_today_top: { rpcMethod: "qoder/todayTop" },
   service_login_start: {
     rpcMethod: "account/login/start",
     mapParams: (params) => ({

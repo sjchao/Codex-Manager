@@ -7,6 +7,7 @@ import {
   Database,
   FileText, 
   Settings, 
+  Sparkles,
   ChevronLeft, 
   ChevronRight
 } from "lucide-react";
@@ -28,6 +29,7 @@ import {
 const NAV_ITEMS = [
   { name: "仪表盘", href: "/", icon: LayoutDashboard },
   { name: "聚合API", href: "/aggregate-api/", icon: Database },
+  { name: "Qoder", href: "/qoder/", icon: Sparkles },
   { name: "平台密钥", href: "/apikeys/", icon: Key },
   { name: "请求日志", href: "/logs/", icon: FileText },
   { name: "设置", href: "/settings/", icon: Settings },

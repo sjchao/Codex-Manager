@@ -14,6 +14,7 @@ mod sub2api;
 mod apikey;
 mod app_settings;
 mod gateway;
+mod qoder;
 mod requestlog;
 mod service_config;
 mod startup;
@@ -224,6 +225,9 @@ pub(crate) fn handle_request(req: JsonRpcRequest) -> JsonRpcMessage {
         return JsonRpcMessage::Response(resp);
     }
     if let Some(resp) = sub2api::try_handle(&req) {
+        return JsonRpcMessage::Response(resp);
+    }
+    if let Some(resp) = qoder::try_handle(&req) {
         return JsonRpcMessage::Response(resp);
     }
     if let Some(resp) = apikey::try_handle(&req) {

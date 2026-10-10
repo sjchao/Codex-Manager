@@ -4,6 +4,7 @@ pub mod apikey;
 pub mod login;
 pub mod plugin;
 mod registry;
+pub mod qoder;
 pub mod requestlog;
 pub mod service;
 pub mod settings;

@@ -933,6 +933,146 @@ pub struct StartupSnapshotResult {
     pub request_logs: Vec<RequestLogSummary>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QoderSettingsView {
+    pub base_url: String,
+    pub organization_id: String,
+    pub has_api_key: bool,
+    pub enabled: bool,
+    pub backfill_days: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QoderSyncStatus {
+    pub configured: bool,
+    pub enabled: bool,
+    pub running: bool,
+    pub last_sync_at: Option<i64>,
+    pub last_sync_status: Option<String>,
+    pub last_sync_error: Option<String>,
+    pub last_event_at: Option<i64>,
+    pub covered_until: Option<i64>,
+    pub backfill_from: Option<i64>,
+    pub event_count: i64,
+    pub member_count: i64,
+    pub data_from_day: Option<String>,
+    pub data_to_day: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QoderSettingsResult {
+    pub settings: QoderSettingsView,
+    pub status: QoderSyncStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QoderSyncTriggerResult {
+    pub started: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QoderModelUsageStat {
+    pub model_tier: String,
+    pub credits: f64,
+    pub events: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QoderUsageBucket {
+    pub key: String,
+    pub label: String,
+    pub credits: f64,
+    pub events: i64,
+    pub models: Vec<QoderModelUsageStat>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QoderMemberQuotaStat {
+    pub member_id: String,
+    pub name: Option<String>,
+    pub email: Option<String>,
+    pub status: Option<String>,
+    pub plan_used: Option<f64>,
+    pub plan_limit: Option<f64>,
+    pub resource_used: Option<f64>,
+    pub resource_limit: Option<f64>,
+    pub total_used: Option<f64>,
+    pub total_limit: Option<f64>,
+    pub shared_used: Option<f64>,
+    pub shared_limit: Option<f64>,
+    pub quota_unit: Option<String>,
+    pub quota_status: Option<String>,
+    pub next_reset_at: Option<String>,
+    pub quota_synced_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QoderOverviewResult {
+    pub start_day: String,
+    pub end_day: String,
+    /// `day` 或 `half_hour`：单日区间按半小时分桶，否则按天分桶。
+    pub bucket_unit: String,
+    pub total_credits: f64,
+    pub total_events: i64,
+    pub active_members: i64,
+    pub member_count: i64,
+    pub models: Vec<QoderModelUsageStat>,
+    pub buckets: Vec<QoderUsageBucket>,
+    pub members: Vec<QoderMemberQuotaStat>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QoderUsageEventItem {
+    pub event_id: String,
+    pub occurred_at: i64,
+    pub day: String,
+    pub member_id: Option<String>,
+    pub name: Option<String>,
+    pub email: Option<String>,
+    pub model_tier: String,
+    pub source: Option<String>,
+    pub operation: Option<String>,
+    pub credits: f64,
+    pub cost: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QoderUsageEventListResult {
+    pub items: Vec<QoderUsageEventItem>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QoderTopMember {
+    pub member_id: String,
+    pub name: Option<String>,
+    pub email: Option<String>,
+    pub credits: f64,
+    pub events: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QoderTodayTopResult {
+    pub day: String,
+    pub total_credits: f64,
+    pub total_events: i64,
+    pub items: Vec<QoderTopMember>,
+}
+
 #[cfg(test)]
 #[path = "tests/types_tests.rs"]
 mod tests;

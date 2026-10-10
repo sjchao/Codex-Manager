@@ -13,6 +13,7 @@ mod gateway_error_logs;
 mod maintenance;
 mod model_options;
 mod plugins;
+mod qoder;
 mod request_log_query;
 mod request_logs;
 mod request_token_stats;
@@ -22,6 +23,10 @@ mod usage;
 
 pub use aggregate_apis::normalize_supported_models;
 pub use api_keys::{normalize_allowed_models, normalize_excluded_aggregate_api_ids};
+pub use qoder::{
+    QoderBucketUsageRow, QoderMember, QoderMemberQuota, QoderMemberUsageRow, QoderModelUsageRow,
+    QoderSyncState, QoderUsageEvent,
+};
 
 #[derive(Debug, Clone)]
 pub struct Account {
@@ -779,6 +784,15 @@ impl Storage {
             include_str!("../../migrations/063_aggregate_api_active_time_window.sql"),
             |s| s.ensure_aggregate_api_active_time_columns(),
         )?;
+        self.apply_sql_migration(
+            "064_qoder_usage_sync",
+            include_str!("../../migrations/064_qoder_usage_sync.sql"),
+        )?;
+        self.apply_sql_or_compat_migration(
+            "065_qoder_member_quotas",
+            include_str!("../../migrations/065_qoder_member_quotas.sql"),
+            |s| s.ensure_qoder_member_quota_columns(),
+        )?;
         self.ensure_api_key_rotation_columns()?;
         self.ensure_api_key_group_name_column()?;
         self.ensure_api_key_allowed_models_column()?;
@@ -798,6 +812,7 @@ impl Storage {
         self.ensure_request_log_model_type_and_media_columns()?;
         self.ensure_aggregate_api_usage_tables()?;
         self.ensure_request_log_sub2api_usage_columns()?;
+        self.ensure_qoder_member_quota_columns()?;
         let _ = self.maintain_request_token_stats_if_due();
         Ok(())
     }

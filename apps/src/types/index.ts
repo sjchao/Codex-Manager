@@ -149,6 +149,121 @@ export interface Sub2ApiAccount {
   lastSyncError: string | null;
 }
 
+export interface QoderSettings {
+  baseUrl: string;
+  organizationId: string;
+  hasApiKey: boolean;
+  enabled: boolean;
+  backfillDays: number;
+}
+
+export interface QoderSyncStatus {
+  configured: boolean;
+  enabled: boolean;
+  running: boolean;
+  lastSyncAt: number | null;
+  lastSyncStatus: string | null;
+  lastSyncError: string | null;
+  lastEventAt: number | null;
+  coveredUntil: number | null;
+  backfillFrom: number | null;
+  eventCount: number;
+  memberCount: number;
+  dataFromDay: string | null;
+  dataToDay: string | null;
+}
+
+export interface QoderSettingsResult {
+  settings: QoderSettings;
+  status: QoderSyncStatus;
+}
+
+export interface QoderSyncTriggerResult {
+  started: boolean;
+}
+
+export interface QoderModelUsage {
+  modelTier: string;
+  credits: number;
+  events: number;
+}
+
+export interface QoderUsageBucket {
+  key: string;
+  label: string;
+  credits: number;
+  events: number;
+  models: QoderModelUsage[];
+}
+
+export interface QoderMemberQuota {
+  memberId: string;
+  name: string | null;
+  email: string | null;
+  status: string | null;
+  planUsed: number | null;
+  planLimit: number | null;
+  resourceUsed: number | null;
+  resourceLimit: number | null;
+  totalUsed: number | null;
+  totalLimit: number | null;
+  sharedUsed: number | null;
+  sharedLimit: number | null;
+  quotaUnit: string | null;
+  quotaStatus: string | null;
+  nextResetAt: string | null;
+  quotaSyncedAt: number | null;
+}
+
+export interface QoderOverview {
+  startDay: string;
+  endDay: string;
+  bucketUnit: string;
+  totalCredits: number;
+  totalEvents: number;
+  activeMembers: number;
+  memberCount: number;
+  models: QoderModelUsage[];
+  buckets: QoderUsageBucket[];
+  members: QoderMemberQuota[];
+}
+
+export interface QoderUsageEventItem {
+  eventId: string;
+  occurredAt: number;
+  day: string;
+  memberId: string | null;
+  name: string | null;
+  email: string | null;
+  modelTier: string;
+  source: string | null;
+  operation: string | null;
+  credits: number;
+  cost: number | null;
+}
+
+export interface QoderUsageEventList {
+  items: QoderUsageEventItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface QoderTopMember {
+  memberId: string;
+  name: string | null;
+  email: string | null;
+  credits: number;
+  events: number;
+}
+
+export interface QoderTodayTop {
+  day: string;
+  totalCredits: number;
+  totalEvents: number;
+  items: QoderTopMember[];
+}
+
 export interface AggregateApiUsageDailySummary {
   aggregateApiId: string;
   supplierName: string | null;

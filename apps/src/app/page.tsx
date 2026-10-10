@@ -8,10 +8,13 @@ import {
   Gauge,
   KeyRound,
   RefreshCw,
+  Sparkles,
+  Users,
   Wallet,
   Zap,
   type LucideIcon,
 } from "lucide-react";
+import { MemberQuotaBarChart } from "@/components/qoder/member-quota-bar-chart";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -96,6 +99,18 @@ function formatUsd(value: number | null | undefined): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(normalized);
+}
+
+/**
+ * Qoder 积分保留 2 位小数展示。
+ */
+function formatCredits(value: number | null | undefined): string {
+  const normalized =
+    typeof value === "number" && Number.isFinite(value) ? value : 0;
+  return normalized.toLocaleString("zh-CN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 }
 
 /**
@@ -321,11 +336,26 @@ export default function DashboardPage() {
     sub2ApiAccounts,
     sub2ApiTotals,
     modelTokenUsage,
+    qoderTodayTop,
+    qoderMembers,
     refreshSub2ApiAccounts,
     isLoading,
     isServiceReady,
   } = useDashboardStats();
   usePageTransitionReady("/", !isServiceReady || !isLoading);
+
+  const qoderQuotaSyncedAt = useMemo(() => {
+    let latest: number | null = null;
+    for (const member of qoderMembers) {
+      if (
+        typeof member.quotaSyncedAt === "number" &&
+        (latest == null || member.quotaSyncedAt > latest)
+      ) {
+        latest = member.quotaSyncedAt;
+      }
+    }
+    return latest;
+  }, [qoderMembers]);
 
   const modelItems = useMemo<BarItem[]>(() => {
     const items = modelTokenUsage
@@ -420,6 +450,31 @@ export default function DashboardPage() {
       )}（按 DeepSeek 官网高峰/空闲价估算）`,
     }));
   }, [apiKeyUsageStats, apiKeyNames]);
+
+  const topQoderMemberItems = useMemo<BarItem[]>(() => {
+    const items = (qoderTodayTop?.items || []).filter(
+      (item) => item.credits > 0
+    );
+    const maxCredits = items.reduce(
+      (max, item) => Math.max(max, item.credits),
+      0
+    );
+    return items.slice(0, TOP_KEY_LIMIT).map((item) => {
+      const label =
+        String(item.name || "").trim() ||
+        String(item.email || "").trim() ||
+        item.memberId ||
+        "未知成员";
+      return {
+        label,
+        ratio: maxCredits > 0 ? item.credits / maxCredits : 0,
+        display: formatCredits(item.credits),
+        hint: `${label} · 今日 ${formatCredits(item.credits)} 积分 · ${
+          item.events
+        } 次事件`,
+      };
+    });
+  }, [qoderTodayTop]);
 
   return (
     <div className="space-y-6 animate-in fade-in duration-700">
@@ -597,7 +652,33 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+      <Card className="glass-card border-none shadow-md">
+        <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
+          <CardTitle className="text-base font-semibold">
+            Qoder成员套餐额度
+          </CardTitle>
+          <div className="flex items-center gap-2">
+            {qoderQuotaSyncedAt ? (
+              <span className="text-[10px] text-muted-foreground">
+                额度更新于 {formatTsFromSeconds(qoderQuotaSyncedAt)}
+              </span>
+            ) : null}
+            <Users className="h-4 w-4 text-primary" />
+          </div>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <Skeleton className="h-60 w-full rounded-2xl" />
+          ) : (
+            <MemberQuotaBarChart
+              members={qoderMembers}
+              emptyText="暂无占席位的成员数据（未配置或尚未同步 Qoder）"
+            />
+          )}
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
         <Card className="glass-card border-none shadow-md">
           <CardHeader className="flex flex-row items-center justify-between space-y-0">
             <CardTitle className="text-base font-semibold">
@@ -657,6 +738,35 @@ export default function DashboardPage() {
                 emptyText="今日暂无 DeepSeek 用量"
                 showRank
               />
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="glass-card border-none shadow-md">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0">
+            <CardTitle className="text-base font-semibold">
+              今日 Qoder 积分 Top 10
+            </CardTitle>
+            <Sparkles className="h-4 w-4 text-sky-500" />
+          </CardHeader>
+          <CardContent>
+            {isLoading ? (
+              <ChartSkeleton />
+            ) : (
+              <>
+                <BarList
+                  items={topQoderMemberItems}
+                  tone="primary"
+                  emptyText="今日暂无 Qoder 积分消耗"
+                  showRank
+                />
+                {topQoderMemberItems.length > 0 ? (
+                  <p className="mt-3 text-[10px] text-muted-foreground">
+                    今日共 {formatCredits(qoderTodayTop?.totalCredits ?? 0)} 积分 ·{" "}
+                    {qoderTodayTop?.totalEvents ?? 0} 次事件
+                  </p>
+                ) : null}
+              </>
             )}
           </CardContent>
         </Card>

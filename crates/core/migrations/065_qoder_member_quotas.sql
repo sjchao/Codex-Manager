@@ -1,0 +1,13 @@
+ALTER TABLE qoder_members ADD COLUMN plan_used REAL;
+ALTER TABLE qoder_members ADD COLUMN plan_limit REAL;
+ALTER TABLE qoder_members ADD COLUMN resource_package_used REAL;
+ALTER TABLE qoder_members ADD COLUMN resource_package_limit REAL;
+ALTER TABLE qoder_members ADD COLUMN total_used REAL;
+ALTER TABLE qoder_members ADD COLUMN total_limit REAL;
+ALTER TABLE qoder_members ADD COLUMN shared_used REAL;
+ALTER TABLE qoder_members ADD COLUMN shared_limit REAL;
+ALTER TABLE qoder_members ADD COLUMN quota_unit TEXT;
+ALTER TABLE qoder_members ADD COLUMN quota_status TEXT;
+ALTER TABLE qoder_members ADD COLUMN last_reset_at TEXT;
+ALTER TABLE qoder_members ADD COLUMN next_reset_at TEXT;
+ALTER TABLE qoder_members ADD COLUMN quota_synced_at INTEGER;

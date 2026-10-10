@@ -73,6 +73,8 @@ export function Header() {
         return "平台密钥";
       case "/aggregate-api":
         return "聚合API";
+      case "/qoder":
+        return "Qoder 团队用量";
       case "/logs":
         return "请求日志";
       case "/settings":

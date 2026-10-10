@@ -12,6 +12,7 @@ mod gateway;
 mod http;
 mod lifecycle;
 mod plugin;
+mod qoder;
 mod requestlog;
 mod rpc_dispatch;
 mod runtime;
@@ -42,6 +43,10 @@ pub(crate) use aggregate_api_usage::{
 pub(crate) use sub2api::{
     delete_sub2api_account, ensure_sub2api_token_refresh_polling, list_sub2api_accounts,
     save_sub2api_account, sync_all_sub2api_accounts, sync_sub2api_account,
+};
+pub(crate) use qoder::{
+    ensure_qoder_polling, qoder_events, qoder_overview, qoder_settings_result, qoder_status,
+    qoder_today_top, save_qoder_settings, trigger_qoder_sync, QoderSettingsPatch,
 };
 pub(crate) use apikey::create as apikey_create;
 pub(crate) use apikey::delete as apikey_delete;

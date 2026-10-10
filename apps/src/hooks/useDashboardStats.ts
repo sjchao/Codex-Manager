@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { accountClient } from "@/lib/api/account-client";
+import { qoderClient } from "@/lib/api/qoder-client";
 import { serviceClient } from "@/lib/api/service-client";
 import { useDeferredDesktopActivation } from "@/hooks/useDeferredDesktopActivation";
 import {
@@ -120,6 +121,20 @@ export function useDashboardStats() {
     retry: 1,
     refetchInterval: DASHBOARD_REFETCH_INTERVAL_MS,
   });
+  const qoderTodayTopQuery = useQuery({
+    queryKey: ["qoder-today-top", serviceStatus.addr || null],
+    queryFn: () => qoderClient.getTodayTop(10),
+    enabled: isSnapshotQueryEnabled,
+    retry: 1,
+    refetchInterval: DASHBOARD_REFETCH_INTERVAL_MS,
+  });
+  const qoderOverviewQuery = useQuery({
+    queryKey: ["qoder-overview", "member-quotas", serviceStatus.addr || null],
+    queryFn: () => qoderClient.getOverview(),
+    enabled: isSnapshotQueryEnabled,
+    retry: 1,
+    refetchInterval: DASHBOARD_REFETCH_INTERVAL_MS,
+  });
 
   const refreshSub2ApiAccounts = useMutation({
     mutationFn: () => accountClient.syncAllSub2Api(),
@@ -156,6 +171,14 @@ export function useDashboardStats() {
   const modelTokenUsage = useMemo(
     () => modelTokenUsageQuery.data || [],
     [modelTokenUsageQuery.data]
+  );
+  const qoderTodayTop = useMemo(
+    () => qoderTodayTopQuery.data || null,
+    [qoderTodayTopQuery.data]
+  );
+  const qoderMembers = useMemo(
+    () => qoderOverviewQuery.data?.members || [],
+    [qoderOverviewQuery.data]
   );
 
   const apiKeyNames = useMemo(() => {
@@ -223,7 +246,9 @@ export function useDashboardStats() {
       (apiKeyUsageStatsQuery.isPending ||
         aggregateApisQuery.isPending ||
         sub2ApiAccountsQuery.isPending ||
-        modelTokenUsageQuery.isPending));
+        modelTokenUsageQuery.isPending ||
+        qoderTodayTopQuery.isPending ||
+        qoderOverviewQuery.isPending));
 
   return {
     totals,
@@ -233,6 +258,8 @@ export function useDashboardStats() {
     sub2ApiAccounts,
     sub2ApiTotals,
     modelTokenUsage,
+    qoderTodayTop,
+    qoderMembers,
     refreshSub2ApiAccounts,
     isLoading,
     isServiceReady,

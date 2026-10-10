@@ -37,6 +37,7 @@ const PRIMARY_PAGE_ROUTES = [
   "/accounts/",
   "/aggregate-api/",
   "/apikeys/",
+  "/qoder/",
   "/logs/",
   "/settings/",
 ] as const;
