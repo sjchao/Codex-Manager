@@ -1015,6 +1015,16 @@ pub struct QoderMemberQuotaStat {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct QoderSharedPackageStat {
+    /// 组织已购共享资源包的总量（`limitValue` 之和）。
+    pub limit: f64,
+    /// 组织共享资源包当前剩余量（`remainingValue` 之和）。
+    pub remaining: f64,
+    pub synced_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct QoderOverviewResult {
     pub start_day: String,
     pub end_day: String,
@@ -1027,6 +1037,8 @@ pub struct QoderOverviewResult {
     pub models: Vec<QoderModelUsageStat>,
     pub buckets: Vec<QoderUsageBucket>,
     pub members: Vec<QoderMemberQuotaStat>,
+    /// 组织共享资源包汇总；从未同步成功过该接口时为 None。
+    pub shared_package: Option<QoderSharedPackageStat>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

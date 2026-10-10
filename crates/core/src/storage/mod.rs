@@ -793,6 +793,11 @@ impl Storage {
             include_str!("../../migrations/065_qoder_member_quotas.sql"),
             |s| s.ensure_qoder_member_quota_columns(),
         )?;
+        self.apply_sql_or_compat_migration(
+            "066_qoder_shared_package",
+            include_str!("../../migrations/066_qoder_shared_package.sql"),
+            |s| s.ensure_qoder_shared_package_columns(),
+        )?;
         self.ensure_api_key_rotation_columns()?;
         self.ensure_api_key_group_name_column()?;
         self.ensure_api_key_allowed_models_column()?;
@@ -813,6 +818,7 @@ impl Storage {
         self.ensure_aggregate_api_usage_tables()?;
         self.ensure_request_log_sub2api_usage_columns()?;
         self.ensure_qoder_member_quota_columns()?;
+        self.ensure_qoder_shared_package_columns()?;
         let _ = self.maintain_request_token_stats_if_due();
         Ok(())
     }

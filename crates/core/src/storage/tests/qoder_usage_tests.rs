@@ -1,4 +1,4 @@
-use crate::storage::{QoderUsageEvent, Storage};
+use crate::storage::{QoderSyncState, QoderUsageEvent, Storage};
 
 fn usage_event(event_id: &str, model_tier: &str, credits: f64) -> QoderUsageEvent {
     QoderUsageEvent {
@@ -46,4 +46,33 @@ fn upsert_usage_events_overwrites_revised_values() {
     assert_eq!(models.len(), 1);
     assert_eq!(models[0].model_tier.as_deref(), Some("DeepSeek-Flash"));
     assert_eq!(models[0].credits, 9.5);
+}
+
+#[test]
+fn sync_state_roundtrips_shared_package_totals() {
+    let storage = Storage::open_in_memory().expect("open");
+    storage.init().expect("init");
+
+    storage
+        .save_qoder_sync_state(&QoderSyncState {
+            last_sync_at: Some(1_790_000_000),
+            last_sync_status: Some("success".to_string()),
+            last_sync_error: None,
+            covered_until: Some(1_790_000_000_000),
+            backfill_from: Some(1_780_000_000_000),
+            last_event_at: Some(1_790_000_000_000),
+            updated_at: 1_790_000_000,
+            shared_package_limit: Some(3000.0),
+            shared_package_remaining: Some(2200.0),
+            shared_package_synced_at: Some(1_790_000_001),
+        })
+        .expect("save sync state");
+
+    let state = storage
+        .get_qoder_sync_state()
+        .expect("get sync state")
+        .expect("state exists");
+    assert_eq!(state.shared_package_limit, Some(3000.0));
+    assert_eq!(state.shared_package_remaining, Some(2200.0));
+    assert_eq!(state.shared_package_synced_at, Some(1_790_000_001));
 }

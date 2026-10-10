@@ -215,6 +215,12 @@ export interface QoderMemberQuota {
   quotaSyncedAt: number | null;
 }
 
+export interface QoderSharedPackage {
+  limit: number;
+  remaining: number;
+  syncedAt: number | null;
+}
+
 export interface QoderOverview {
   startDay: string;
   endDay: string;
@@ -226,6 +232,7 @@ export interface QoderOverview {
   models: QoderModelUsage[];
   buckets: QoderUsageBucket[];
   members: QoderMemberQuota[];
+  sharedPackage: QoderSharedPackage | null;
 }
 
 export interface QoderUsageEventItem {

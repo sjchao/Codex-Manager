@@ -180,6 +180,10 @@ export function useDashboardStats() {
     () => qoderOverviewQuery.data?.members || [],
     [qoderOverviewQuery.data]
   );
+  const qoderSharedPackage = useMemo(
+    () => qoderOverviewQuery.data?.sharedPackage ?? null,
+    [qoderOverviewQuery.data]
+  );
 
   const apiKeyNames = useMemo(() => {
     const names: Record<string, string> = {};
@@ -260,6 +264,7 @@ export function useDashboardStats() {
     modelTokenUsage,
     qoderTodayTop,
     qoderMembers,
+    qoderSharedPackage,
     refreshSub2ApiAccounts,
     isLoading,
     isServiceReady,

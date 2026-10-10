@@ -1,8 +1,9 @@
 use chrono::{Days, Local, NaiveDate, SecondsFormat, TimeZone, Utc};
 use codexmanager_core::rpc::types::{
     QoderMemberQuotaStat, QoderModelUsageStat, QoderOverviewResult, QoderSettingsResult,
-    QoderSettingsView, QoderSyncStatus, QoderSyncTriggerResult, QoderTodayTopResult,
-    QoderTopMember, QoderUsageBucket, QoderUsageEventItem, QoderUsageEventListResult,
+    QoderSettingsView, QoderSharedPackageStat, QoderSyncStatus, QoderSyncTriggerResult,
+    QoderTodayTopResult, QoderTopMember, QoderUsageBucket, QoderUsageEventItem,
+    QoderUsageEventListResult,
 };
 use codexmanager_core::storage::{
     now_ts, QoderBucketUsageRow, QoderMember, QoderMemberQuota, QoderSyncState, QoderUsageEvent,
@@ -500,6 +501,52 @@ fn fetch_member_quotas(
     Ok(quotas)
 }
 
+fn resource_packages_url(settings: &QoderSettings) -> String {
+    format!(
+        "{}/v1/organizations/{}/resource-packages",
+        settings.base_url, settings.organization_id
+    )
+}
+
+/// 汇总组织当前生效（active）的共享资源包额度：返回 (总量, 剩余量)。
+fn fetch_resource_packages(
+    client: &Client,
+    settings: &QoderSettings,
+) -> Result<(f64, f64), String> {
+    let url = resource_packages_url(settings);
+    let mut limit_total = 0.0_f64;
+    let mut remaining_total = 0.0_f64;
+    let mut next_token: Option<String> = None;
+    for _ in 0..QODER_MAX_PAGES {
+        let mut request = client
+            .get(url.as_str())
+            .bearer_auth(settings.api_key.as_str())
+            .query(&[
+                ("status", "active".to_string()),
+                ("maxResults", QODER_PAGE_SIZE.to_string()),
+            ]);
+        if let Some(token) = next_token.as_deref() {
+            request = request.query(&[("nextToken", token)]);
+        }
+        let payload = request_json(client, request)?;
+        if let Some(items) = payload.get("resourcePackages").and_then(Value::as_array) {
+            for item in items {
+                let limit = number(field(item, &["limitValue", "limit_value"])).unwrap_or(0.0);
+                let used = number(field(item, &["usedValue", "used_value"])).unwrap_or(0.0);
+                let remaining = number(field(item, &["remainingValue", "remaining_value"]))
+                    .unwrap_or_else(|| (limit - used).max(0.0));
+                limit_total += limit.max(0.0);
+                remaining_total += remaining.max(0.0);
+            }
+        }
+        next_token = text(payload.get("nextToken"));
+        if next_token.is_none() {
+            break;
+        }
+    }
+    Ok((limit_total, remaining_total))
+}
+
 fn fetch_usage_events(
     client: &Client,
     settings: &QoderSettings,
@@ -599,6 +646,15 @@ fn run_qoder_sync(settings: &QoderSettings) -> Result<(), String> {
         Err(error) => log::warn!("event=qoder_quota_sync_failed err={}", error),
     }
 
+    // 共享资源包汇总同样属于辅助信息，失败时沿用上一轮结果。
+    let shared_package = match fetch_resource_packages(&client, settings) {
+        Ok(totals) => Some(totals),
+        Err(error) => {
+            log::warn!("event=qoder_shared_package_sync_failed err={}", error);
+            None
+        }
+    };
+
     let state = storage
         .get_qoder_sync_state()
         .map_err(|err| format!("读取 Qoder 同步进度失败: {err}"))?
@@ -639,6 +695,16 @@ fn run_qoder_sync(settings: &QoderSettings) -> Result<(), String> {
             backfill_from: Some(effective_from),
             last_event_at: max_event_at,
             updated_at: now_ts(),
+            shared_package_limit: shared_package
+                .map(|(limit, _)| limit)
+                .or(state.shared_package_limit),
+            shared_package_remaining: shared_package
+                .map(|(_, remaining)| remaining)
+                .or(state.shared_package_remaining),
+            shared_package_synced_at: match shared_package {
+                Some(_) => Some(now_ts()),
+                None => state.shared_package_synced_at,
+            },
         })
         .map_err(|err| format!("保存 Qoder 同步状态失败: {err}"))?;
     log::info!(
@@ -662,6 +728,9 @@ fn record_qoder_sync_failure(error: &str) {
         backfill_from: state.backfill_from,
         last_event_at: state.last_event_at,
         updated_at: now_ts(),
+        shared_package_limit: state.shared_package_limit,
+        shared_package_remaining: state.shared_package_remaining,
+        shared_package_synced_at: state.shared_package_synced_at,
     });
 }
 
@@ -915,6 +984,16 @@ pub(crate) fn qoder_overview(
         .qoder_usage_buckets(&start, &end, half_hour, member_filter.as_deref())
         .map_err(|err| format!("统计 Qoder 分桶用量失败: {err}"))?;
     let buckets = build_bucket_series(bucket_rows, &start, &end, half_hour);
+    let sync_state = storage
+        .get_qoder_sync_state()
+        .map_err(|err| format!("读取 Qoder 同步进度失败: {err}"))?;
+    let shared_package = sync_state.and_then(|state| {
+        Some(QoderSharedPackageStat {
+            limit: state.shared_package_limit?,
+            remaining: state.shared_package_remaining?,
+            synced_at: state.shared_package_synced_at,
+        })
+    });
     let members = storage
         .list_qoder_members()
         .map_err(|err| format!("读取 Qoder 成员失败: {err}"))?
@@ -950,6 +1029,7 @@ pub(crate) fn qoder_overview(
         models,
         buckets,
         members,
+        shared_package,
     })
 }
 

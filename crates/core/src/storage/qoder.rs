@@ -71,6 +71,10 @@ pub struct QoderSyncState {
     pub backfill_from: Option<i64>,
     pub last_event_at: Option<i64>,
     pub updated_at: i64,
+    /// 组织共享资源包（`resource-packages` 接口）额度汇总。
+    pub shared_package_limit: Option<f64>,
+    pub shared_package_remaining: Option<f64>,
+    pub shared_package_synced_at: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -115,6 +119,13 @@ fn row_to_usage_event(row: &rusqlite::Row<'_>) -> rusqlite::Result<QoderUsageEve
 }
 
 impl Storage {
+    pub(super) fn ensure_qoder_shared_package_columns(&self) -> rusqlite::Result<()> {
+        self.ensure_column("qoder_sync_state", "shared_package_limit", "REAL")?;
+        self.ensure_column("qoder_sync_state", "shared_package_remaining", "REAL")?;
+        self.ensure_column("qoder_sync_state", "shared_package_synced_at", "INTEGER")?;
+        Ok(())
+    }
+
     pub(super) fn ensure_qoder_member_quota_columns(&self) -> rusqlite::Result<()> {
         self.ensure_column("qoder_members", "plan_used", "REAL")?;
         self.ensure_column("qoder_members", "plan_limit", "REAL")?;
@@ -262,7 +273,8 @@ impl Storage {
 
     pub fn get_qoder_sync_state(&self) -> rusqlite::Result<Option<QoderSyncState>> {
         let mut stmt = self.conn.prepare(
-            "SELECT last_sync_at, last_sync_status, last_sync_error, covered_until, backfill_from, last_event_at, updated_at
+            "SELECT last_sync_at, last_sync_status, last_sync_error, covered_until, backfill_from, last_event_at, updated_at,
+                    shared_package_limit, shared_package_remaining, shared_package_synced_at
              FROM qoder_sync_state
              WHERE id = 1
              LIMIT 1",
@@ -277,6 +289,9 @@ impl Storage {
                 backfill_from: row.get(4)?,
                 last_event_at: row.get(5)?,
                 updated_at: row.get(6)?,
+                shared_package_limit: row.get(7)?,
+                shared_package_remaining: row.get(8)?,
+                shared_package_synced_at: row.get(9)?,
             }));
         }
         Ok(None)
@@ -284,8 +299,9 @@ impl Storage {
 
     pub fn save_qoder_sync_state(&self, state: &QoderSyncState) -> rusqlite::Result<()> {
         self.conn.execute(
-            "INSERT INTO qoder_sync_state (id, last_sync_at, last_sync_status, last_sync_error, covered_until, backfill_from, last_event_at, updated_at)
-             VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            "INSERT INTO qoder_sync_state (id, last_sync_at, last_sync_status, last_sync_error, covered_until, backfill_from, last_event_at, updated_at,
+                                           shared_package_limit, shared_package_remaining, shared_package_synced_at)
+             VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
              ON CONFLICT(id) DO UPDATE SET
                last_sync_at = excluded.last_sync_at,
                last_sync_status = excluded.last_sync_status,
@@ -293,7 +309,10 @@ impl Storage {
                covered_until = excluded.covered_until,
                backfill_from = excluded.backfill_from,
                last_event_at = excluded.last_event_at,
-               updated_at = excluded.updated_at",
+               updated_at = excluded.updated_at,
+               shared_package_limit = excluded.shared_package_limit,
+               shared_package_remaining = excluded.shared_package_remaining,
+               shared_package_synced_at = excluded.shared_package_synced_at",
             params![
                 state.last_sync_at,
                 state.last_sync_status,
@@ -302,6 +321,9 @@ impl Storage {
                 state.backfill_from,
                 state.last_event_at,
                 state.updated_at,
+                state.shared_package_limit,
+                state.shared_package_remaining,
+                state.shared_package_synced_at,
             ],
         )?;
         Ok(())

@@ -14,7 +14,10 @@ import {
   Zap,
   type LucideIcon,
 } from "lucide-react";
-import { MemberQuotaBarChart } from "@/components/qoder/member-quota-bar-chart";
+import {
+  MemberQuotaBarChart,
+  formatQuota,
+} from "@/components/qoder/member-quota-bar-chart";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -22,6 +25,7 @@ import { useDashboardStats } from "@/hooks/useDashboardStats";
 import { usePageTransitionReady } from "@/hooks/usePageTransitionReady";
 import { cn } from "@/lib/utils";
 import { formatCompactNumber, formatTsFromSeconds } from "@/lib/utils/usage";
+import type { QoderSharedPackage } from "@/types";
 
 interface MetricCardProps {
   title: string;
@@ -167,6 +171,23 @@ function formatCacheHitRate(value: number | null | undefined): string {
     return "-";
   }
   return `${(value * 100).toFixed(1)}%`;
+}
+
+/**
+ * 共享资源包余量：已购资源包时显示“剩余 / 总量”，未同步到数据时显示占位符。
+ */
+function formatSharedPackageRemaining(
+  sharedPackage: QoderSharedPackage | null
+): string {
+  if (!sharedPackage) {
+    return "-";
+  }
+  if (sharedPackage.limit > 0) {
+    return `${formatQuota(sharedPackage.remaining)} / ${formatQuota(
+      sharedPackage.limit
+    )} 积分`;
+  }
+  return `${formatQuota(sharedPackage.remaining)} 积分`;
 }
 
 /**
@@ -338,6 +359,7 @@ export default function DashboardPage() {
     modelTokenUsage,
     qoderTodayTop,
     qoderMembers,
+    qoderSharedPackage,
     refreshSub2ApiAccounts,
     isLoading,
     isServiceReady,
@@ -673,9 +695,17 @@ export default function DashboardPage() {
 
       <Card className="glass-card border-none shadow-md">
         <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
-          <CardTitle className="text-base font-semibold">
-            Qoder成员套餐额度
-          </CardTitle>
+          <div>
+            <CardTitle className="text-base font-semibold">
+              Qoder成员套餐额度
+            </CardTitle>
+            <p className="mt-1 text-[10px] text-muted-foreground">
+              共享资源包余量{" "}
+              <span className="font-mono text-xs font-semibold text-foreground">
+                {formatSharedPackageRemaining(qoderSharedPackage)}
+              </span>
+            </p>
+          </div>
           <div className="flex items-center gap-2">
             {qoderQuotaSyncedAt ? (
               <span className="text-[10px] text-muted-foreground">

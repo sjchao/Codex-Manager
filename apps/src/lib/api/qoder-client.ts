@@ -5,6 +5,7 @@ import {
   QoderOverview,
   QoderSettings,
   QoderSettingsResult,
+  QoderSharedPackage,
   QoderSyncStatus,
   QoderSyncTriggerResult,
   QoderTodayTop,
@@ -166,6 +167,18 @@ function normalizeQoderSettingsResult(payload: unknown): QoderSettingsResult {
   };
 }
 
+function normalizeSharedPackage(payload: unknown): QoderSharedPackage | null {
+  const source = payload ? asObject(payload) : null;
+  if (!source) {
+    return null;
+  }
+  return {
+    limit: asNumber(source.limit),
+    remaining: asNumber(source.remaining),
+    syncedAt: toNullableNumber(source.syncedAt ?? source.synced_at),
+  };
+}
+
 function normalizeQoderOverview(payload: unknown): QoderOverview {
   const source = asObject(payload);
   return {
@@ -179,6 +192,9 @@ function normalizeQoderOverview(payload: unknown): QoderOverview {
     models: asArray(source.models).map(normalizeModelUsage),
     buckets: asArray(source.buckets).map(normalizeUsageBucket),
     members: asArray(source.members).map(normalizeMemberQuota),
+    sharedPackage: normalizeSharedPackage(
+      source.sharedPackage ?? source.shared_package
+    ),
   };
 }
 
