@@ -50,7 +50,7 @@ const BAR_TONES = {
 type BarTone = keyof typeof BAR_TONES;
 
 const TOP_KEY_LIMIT = 10;
-const MODEL_LIMIT = 12;
+const CHART_ITEM_LIMIT = 6;
 
 /**
  * 函数 `formatCompactTokenAmount`
@@ -360,7 +360,7 @@ export default function DashboardPage() {
   const modelItems = useMemo<BarItem[]>(() => {
     const items = modelTokenUsage
       .filter((item) => item.totalTokens > 0)
-      .slice(0, MODEL_LIMIT);
+      .slice(0, CHART_ITEM_LIMIT);
     const maxTokens = items.reduce(
       (max, item) => Math.max(max, item.totalTokens),
       0
@@ -389,6 +389,7 @@ export default function DashboardPage() {
         (left, right) =>
           (right.todayCacheHitRate || 0) - (left.todayCacheHitRate || 0)
       )
+      .slice(0, CHART_ITEM_LIMIT)
       .map((api) => ({
         label: String(api.supplierName || "").trim() || api.url,
         ratio: Math.max(0, Math.min(1, api.todayCacheHitRate || 0)),
@@ -510,11 +511,11 @@ export default function DashboardPage() {
               color="text-violet-500"
             />
             <MetricCard
-              title="今日消费"
-              value={formatUsd(sub2ApiTotals.todayActualCost)}
-              sub={`历史累计 ${formatUsd(totals.totalCostUsd)}`}
-              icon={DollarSign}
-              color="text-emerald-500"
+              title="今日 Qoder 积分"
+              value={formatCredits(qoderTodayTop?.totalCredits ?? 0)}
+              sub={`今日 ${qoderTodayTop?.totalEvents ?? 0} 次事件`}
+              icon={Sparkles}
+              color="text-sky-500"
             />
           </>
         )}
@@ -553,59 +554,77 @@ export default function DashboardPage() {
                 <Skeleton className="h-16 w-full rounded-xl" />
                 <Skeleton className="h-16 w-full rounded-xl" />
               </div>
-            ) : sub2ApiAccounts.length === 0 ? (
-              <div className="flex h-32 items-center justify-center text-xs text-muted-foreground">
-                暂无 Sub2API 账户，可在聚合 API 页面添加
-              </div>
             ) : (
               <div className="space-y-3">
-                {sub2ApiAccounts.map((account) => {
-                  const accountLabel = formatSub2ApiAccountLabel(
-                    account.accountName,
-                    account.accountEmail
-                  );
-                  return (
-                    <div
-                      key={account.id}
-                      className="flex items-center justify-between gap-3 rounded-xl bg-accent/20 p-3"
-                    >
-                      <div className="min-w-0">
-                        <p
-                          className="truncate text-xs font-medium"
-                          title={account.baseUrl}
-                        >
-                          {account.baseUrl}
-                        </p>
-                        <p
-                          className="truncate text-[10px] text-muted-foreground"
-                          title={accountLabel}
-                        >
-                          {accountLabel}
-                        </p>
-                      </div>
-                      <div className="shrink-0 space-y-0.5 text-right">
-                        <p className="font-mono text-sm font-semibold">
-                          <span className="mr-1 font-sans text-[10px] font-normal text-muted-foreground">
-                            余额
-                          </span>
-                          {formatPreciseUsd(account.balance)}
-                        </p>
-                        <p className="font-mono text-sm font-semibold">
-                          <span className="mr-1 font-sans text-[10px] font-normal text-muted-foreground">
-                            当日
-                          </span>
-                          {formatPreciseUsd(account.todayActualCost)}
-                        </p>
-                      </div>
-                    </div>
-                  );
-                })}
-                {sub2ApiTotals.lastSyncAt ? (
-                  <p className="text-[10px] text-muted-foreground">
-                    最后同步{" "}
-                    {formatTsFromSeconds(sub2ApiTotals.lastSyncAt, "未知")}
+                <div className="flex items-center justify-between gap-3 rounded-xl bg-accent/20 p-3">
+                  <p className="font-mono text-sm font-semibold">
+                    <span className="mr-1 font-sans text-[10px] font-normal text-muted-foreground">
+                      今日消费
+                    </span>
+                    {formatUsd(sub2ApiTotals.todayActualCost)}
                   </p>
-                ) : null}
+                  <p className="font-mono text-sm font-semibold">
+                    <span className="mr-1 font-sans text-[10px] font-normal text-muted-foreground">
+                      历史累计
+                    </span>
+                    {formatUsd(totals.totalCostUsd)}
+                  </p>
+                </div>
+                {sub2ApiAccounts.length === 0 ? (
+                  <div className="flex h-32 items-center justify-center text-xs text-muted-foreground">
+                    暂无 Sub2API 账户，可在聚合 API 页面添加
+                  </div>
+                ) : (
+                  <>
+                    {sub2ApiAccounts.map((account) => {
+                      const accountLabel = formatSub2ApiAccountLabel(
+                        account.accountName,
+                        account.accountEmail
+                      );
+                      return (
+                        <div
+                          key={account.id}
+                          className="flex items-center justify-between gap-3 rounded-xl bg-accent/20 p-3"
+                        >
+                          <div className="min-w-0">
+                            <p
+                              className="truncate text-xs font-medium"
+                              title={account.baseUrl}
+                            >
+                              {account.baseUrl}
+                            </p>
+                            <p
+                              className="truncate text-[10px] text-muted-foreground"
+                              title={accountLabel}
+                            >
+                              {accountLabel}
+                            </p>
+                          </div>
+                          <div className="shrink-0 space-y-0.5 text-right">
+                            <p className="font-mono text-sm font-semibold">
+                              <span className="mr-1 font-sans text-[10px] font-normal text-muted-foreground">
+                                余额
+                              </span>
+                              {formatPreciseUsd(account.balance)}
+                            </p>
+                            <p className="font-mono text-sm font-semibold">
+                              <span className="mr-1 font-sans text-[10px] font-normal text-muted-foreground">
+                                当日
+                              </span>
+                              {formatPreciseUsd(account.todayActualCost)}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {sub2ApiTotals.lastSyncAt ? (
+                      <p className="text-[10px] text-muted-foreground">
+                        最后同步{" "}
+                        {formatTsFromSeconds(sub2ApiTotals.lastSyncAt, "未知")}
+                      </p>
+                    ) : null}
+                  </>
+                )}
               </div>
             )}
           </CardContent>
@@ -753,20 +772,12 @@ export default function DashboardPage() {
             {isLoading ? (
               <ChartSkeleton />
             ) : (
-              <>
-                <BarList
-                  items={topQoderMemberItems}
-                  tone="primary"
-                  emptyText="今日暂无 Qoder 积分消耗"
-                  showRank
-                />
-                {topQoderMemberItems.length > 0 ? (
-                  <p className="mt-3 text-[10px] text-muted-foreground">
-                    今日共 {formatCredits(qoderTodayTop?.totalCredits ?? 0)} 积分 ·{" "}
-                    {qoderTodayTop?.totalEvents ?? 0} 次事件
-                  </p>
-                ) : null}
-              </>
+              <BarList
+                items={topQoderMemberItems}
+                tone="primary"
+                emptyText="今日暂无 Qoder 积分消耗"
+                showRank
+              />
             )}
           </CardContent>
         </Card>
