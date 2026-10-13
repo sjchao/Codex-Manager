@@ -1319,6 +1319,7 @@ function LogsPageContent() {
     page === 1;
   const hasStartupLogsSnapshot =
     canUseStartupLogsPlaceholder && startupRequestLogs.length > 0;
+  const startupPlaceholderLogs = startupRequestLogs.slice(0, pageSizeNumber);
 
   const { data: accountsResult } = useQuery({
     queryKey: ["accounts", "lookup"],
@@ -1374,7 +1375,7 @@ function LogsPageContent() {
       (previousQuery?.queryKey[4] === modelTypeFilter ? previousData : undefined) ||
       (hasStartupLogsSnapshot
         ? {
-            items: startupRequestLogs,
+            items: startupPlaceholderLogs,
             total: startupRequestLogs.length,
             page: 1,
             pageSize: pageSizeNumber,
@@ -1397,7 +1398,7 @@ function LogsPageContent() {
     placeholderData: (previousData, previousQuery) =>
       (previousQuery?.queryKey[4] === modelTypeFilter ? previousData : undefined) ||
       (canUseStartupLogsPlaceholder
-        ? buildSummaryPlaceholder(startupRequestLogs)
+        ? buildSummaryPlaceholder(startupPlaceholderLogs)
         : undefined),
   });
 
