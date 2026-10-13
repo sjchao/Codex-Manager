@@ -1,3 +1,5 @@
+#[path = "gateway_logs/aggregate.rs"]
+mod aggregate;
 #[path = "gateway_logs/anthropic.rs"]
 mod anthropic;
 #[path = "gateway_logs/basic.rs"]

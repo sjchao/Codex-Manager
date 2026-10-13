@@ -363,6 +363,11 @@ fn should_skip_forward_header(name: &str) -> bool {
             | "transfer-encoding"
             | "upgrade"
             | "host"
+            // 中文注释：SSE 转发泵按 UTF-8 文本逐行解析上游字节；若透传客户端的
+            // accept-encoding，上游（如 DeepSeek 官方 API）会对 SSE 做 gzip/br/zstd
+            // 压缩，压缩字节流会直接导致 "stream did not contain valid UTF-8"。
+            // 这里统一改为 identity，避免响应被压缩。
+            | "accept-encoding"
     )
 }
 
@@ -614,7 +619,8 @@ fn build_aggregate_api_request(
     }
     builder = builder
         .header("x-request-id", trace_id)
-        .header("x-client-request-id", trace_id);
+        .header("x-client-request-id", trace_id)
+        .header("accept-encoding", "identity");
 
     let secret_trimmed = secret.trim();
     match auth_config {
