@@ -386,6 +386,12 @@ pub struct ApiKeyUsageStatSummary {
     pub today_deepseek_tokens: i64,
     pub total_deepseek_tokens: i64,
     pub today_deepseek_cost_cny: f64,
+    /// 今日按 token 计费的文本用量（已排除 DeepSeek 与生图）
+    pub today_billable_tokens: i64,
+    /// 今日按 token 计费的文本请求真实花费（美元，不含 DeepSeek 与生图）
+    pub today_billable_cost_usd: f64,
+    pub today_image_cost_usd: f64,
+    pub today_image_count: i64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -873,6 +873,28 @@ export function normalizeApiKeyUsageStats(payload: unknown): ApiKeyUsageStat[] {
             current.todayDeepseekCostCny ?? current.today_deepseek_cost_cny
           ) ?? 0
         ),
+        todayBillableTokens: asInteger(
+          current.todayBillableTokens ?? current.today_billable_tokens,
+          0,
+          0
+        ),
+        todayBillableCostUsd: Math.max(
+          0,
+          toNullableNumber(
+            current.todayBillableCostUsd ?? current.today_billable_cost_usd
+          ) ?? 0
+        ),
+        todayImageCostUsd: Math.max(
+          0,
+          toNullableNumber(
+            current.todayImageCostUsd ?? current.today_image_cost_usd
+          ) ?? 0
+        ),
+        todayImageCount: asInteger(
+          current.todayImageCount ?? current.today_image_count,
+          0,
+          0
+        ),
       };
     })
     .filter((item): item is ApiKeyUsageStat => Boolean(item));

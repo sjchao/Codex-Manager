@@ -219,6 +219,17 @@ pub struct ApiKeyTokenUsageSummary {
     pub total_deepseek_tokens: i64,
 }
 
+/// 时间窗口内按平台密钥拆分的用量：`billable_*` 只算按 token 计费的文本请求，
+/// 已排除 DeepSeek（单独按官网价估算）与生图/视频（按张数或时长计费，不按 token）。
+#[derive(Debug, Clone)]
+pub struct ApiKeyBillableUsageSplit {
+    pub key_id: String,
+    pub billable_tokens: i64,
+    pub billable_cost_usd: f64,
+    pub image_cost_usd: f64,
+    pub image_count: i64,
+}
+
 #[derive(Debug, Clone)]
 pub struct ApiKey {
     pub id: String,

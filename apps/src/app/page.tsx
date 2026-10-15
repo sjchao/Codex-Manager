@@ -4,8 +4,8 @@ import { useMemo } from "react";
 import {
   BarChart3,
   BrainCircuit,
-  DollarSign,
   Gauge,
+  Images,
   KeyRound,
   RefreshCw,
   Sparkles,
@@ -422,35 +422,47 @@ export default function DashboardPage() {
       }));
   }, [aggregateApis]);
 
-  const topCostKeyItems = useMemo<BarItem[]>(() => {
+  const topTokenKeyItems = useMemo<BarItem[]>(() => {
     const items = apiKeyUsageStats
-      .filter((item) => item.todayActualCostUsd > 0)
-      .sort((left, right) => right.todayActualCostUsd - left.todayActualCostUsd)
+      .filter((item) => item.todayBillableTokens > 0)
+      .sort(
+        (left, right) => right.todayBillableTokens - left.todayBillableTokens
+      )
       .slice(0, TOP_KEY_LIMIT);
-    const maxCost = items.reduce(
-      (max, item) => Math.max(max, item.todayActualCostUsd),
+    const maxTokens = items.reduce(
+      (max, item) => Math.max(max, item.todayBillableTokens),
       0
     );
     return items.map((item) => ({
       label: apiKeyNames[item.keyId] || item.keyId,
-      ratio: maxCost > 0 ? item.todayActualCostUsd / maxCost : 0,
-      display: formatUsd(item.todayActualCostUsd),
+      ratio: maxTokens > 0 ? item.todayBillableTokens / maxTokens : 0,
+      display: formatCompactTokenAmount(item.todayBillableTokens),
+      secondary: formatUsd(item.todayBillableCostUsd),
+      hint: `${apiKeyNames[item.keyId] || item.keyId} · 今日 ${formatCompactTokenAmount(
+        item.todayBillableTokens
+      )} tokens · ${formatUsd(item.todayBillableCostUsd)}（不含 DeepSeek 与生图）`,
     }));
   }, [apiKeyUsageStats, apiKeyNames]);
 
-  const topTokenKeyItems = useMemo<BarItem[]>(() => {
+  const topImageKeyItems = useMemo<BarItem[]>(() => {
     const items = apiKeyUsageStats
-      .filter((item) => item.todayTokens > 0)
-      .sort((left, right) => right.todayTokens - left.todayTokens)
+      .filter((item) => item.todayImageCount > 0)
+      .sort(
+        (left, right) => right.todayImageCostUsd - left.todayImageCostUsd
+      )
       .slice(0, TOP_KEY_LIMIT);
-    const maxTokens = items.reduce(
-      (max, item) => Math.max(max, item.todayTokens),
+    const maxCost = items.reduce(
+      (max, item) => Math.max(max, item.todayImageCostUsd),
       0
     );
     return items.map((item) => ({
       label: apiKeyNames[item.keyId] || item.keyId,
-      ratio: maxTokens > 0 ? item.todayTokens / maxTokens : 0,
-      display: formatCompactTokenAmount(item.todayTokens),
+      ratio: maxCost > 0 ? item.todayImageCostUsd / maxCost : 0,
+      display: formatUsd(item.todayImageCostUsd),
+      secondary: `${item.todayImageCount} 张`,
+      hint: `${apiKeyNames[item.keyId] || item.keyId} · 今日 ${
+        item.todayImageCount
+      } 张 · ${formatUsd(item.todayImageCostUsd)}`,
     }));
   }, [apiKeyUsageStats, apiKeyNames]);
 
@@ -731,27 +743,6 @@ export default function DashboardPage() {
         <Card className="glass-card border-none shadow-md">
           <CardHeader className="flex flex-row items-center justify-between space-y-0">
             <CardTitle className="text-base font-semibold">
-              今日消费 Top 10
-            </CardTitle>
-            <DollarSign className="h-4 w-4 text-emerald-500" />
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <ChartSkeleton />
-            ) : (
-              <BarList
-                items={topCostKeyItems}
-                tone="emerald"
-                emptyText="今日暂无消费记录"
-                showRank
-              />
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="glass-card border-none shadow-md">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0">
-            <CardTitle className="text-base font-semibold">
               今日 Token Top 10
             </CardTitle>
             <Zap className="h-4 w-4 text-amber-500" />
@@ -764,6 +755,27 @@ export default function DashboardPage() {
                 items={topTokenKeyItems}
                 tone="amber"
                 emptyText="今日暂无 Token 消耗"
+                showRank
+              />
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="glass-card border-none shadow-md">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0">
+            <CardTitle className="text-base font-semibold">
+              今日生图 Top 10
+            </CardTitle>
+            <Images className="h-4 w-4 text-emerald-500" />
+          </CardHeader>
+          <CardContent>
+            {isLoading ? (
+              <ChartSkeleton />
+            ) : (
+              <BarList
+                items={topImageKeyItems}
+                tone="emerald"
+                emptyText="今日暂无生图记录"
                 showRank
               />
             )}

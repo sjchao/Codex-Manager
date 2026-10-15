@@ -339,6 +339,12 @@ export interface ApiKeyUsageStat {
   todayDeepseekTokens: number;
   totalDeepseekTokens: number;
   todayDeepseekCostCny: number;
+  /** 今日按 token 计费的文本用量（已排除 DeepSeek 与生图） */
+  todayBillableTokens: number;
+  /** 今日按 token 计费的文本请求真实花费（美元，不含 DeepSeek 与生图） */
+  todayBillableCostUsd: number;
+  todayImageCostUsd: number;
+  todayImageCount: number;
 }
 
 export interface PluginCatalogTask {

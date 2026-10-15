@@ -47,11 +47,18 @@ pub(crate) fn read_api_key_usage_stats() -> Result<Vec<ApiKeyUsageStatSummary>, 
         .summarize_request_token_stats_by_key(start_ts, end_ts)
         .map_err(|err| format!("summarize api key token stats failed: {err}"))?;
     let deepseek_costs = read_deepseek_cost_by_key(&storage, start_ts, end_ts)?;
+    let splits = storage
+        .summarize_request_token_billable_usage_by_key(start_ts, end_ts)
+        .map_err(|err| format!("summarize api key billable usage failed: {err}"))?
+        .into_iter()
+        .map(|split| (split.key_id.clone(), split))
+        .collect::<HashMap<_, _>>();
 
     Ok(items
         .into_iter()
         .map(|item| {
             let today_deepseek_cost_cny = deepseek_costs.get(&item.key_id).copied().unwrap_or(0.0);
+            let split = splits.get(&item.key_id);
             ApiKeyUsageStatSummary {
                 key_id: item.key_id,
                 today_tokens: item.today_tokens.max(0),
@@ -61,6 +68,11 @@ pub(crate) fn read_api_key_usage_stats() -> Result<Vec<ApiKeyUsageStatSummary>, 
                 today_deepseek_tokens: item.today_deepseek_tokens.max(0),
                 total_deepseek_tokens: item.total_deepseek_tokens.max(0),
                 today_deepseek_cost_cny: today_deepseek_cost_cny.max(0.0),
+                today_billable_tokens: split.map_or(0, |split| split.billable_tokens.max(0)),
+                today_billable_cost_usd: split
+                    .map_or(0.0, |split| split.billable_cost_usd.max(0.0)),
+                today_image_cost_usd: split.map_or(0.0, |split| split.image_cost_usd.max(0.0)),
+                today_image_count: split.map_or(0, |split| split.image_count.max(0)),
             }
         })
         .collect())

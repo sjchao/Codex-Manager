@@ -1,8 +1,8 @@
 use rusqlite::{params, Connection, Result};
 
 use super::{
-    now_ts, ApiKeyTokenUsageSummary, RequestLogTodaySummary, RequestTokenStat,
-    RequestTokenUsageByAggregateApi, RequestTokenUsageByModel, Storage,
+    now_ts, ApiKeyBillableUsageSplit, ApiKeyTokenUsageSummary, RequestLogTodaySummary,
+    RequestTokenStat, RequestTokenUsageByAggregateApi, RequestTokenUsageByModel, Storage,
 };
 
 const DEEPSEEK_MODEL_FAMILY: &str = "deepseek";
@@ -472,6 +472,79 @@ impl Storage {
                 actual_cost_usd: row.get(4)?,
                 today_deepseek_tokens: row.get(5)?,
                 total_deepseek_tokens: row.get(6)?,
+            });
+        }
+        Ok(items)
+    }
+
+    /// 按密钥拆分时间窗口内的“按 token 计费文本用量”与“生图用量”，用于首页 Top 10 分开呈现。
+    pub fn summarize_request_token_billable_usage_by_key(
+        &self,
+        start_ts: i64,
+        end_ts: i64,
+    ) -> Result<Vec<ApiKeyBillableUsageSplit>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT
+                TRIM(r.key_id) AS key_id,
+                IFNULL(
+                    SUM(
+                        CASE
+                            WHEN r.model_type = 'text'
+                                 AND LOWER(TRIM(IFNULL(r.model, ''))) NOT LIKE 'deepseek%'
+                                THEN
+                                    CASE
+                                        WHEN IFNULL(t.total_tokens, 0) > 0 THEN t.total_tokens
+                                        ELSE MAX(
+                                            IFNULL(t.input_tokens, 0) - IFNULL(t.cached_input_tokens, 0) + IFNULL(t.output_tokens, 0),
+                                            0
+                                        )
+                                    END
+                            ELSE 0
+                        END
+                    ),
+                    0
+                ) AS billable_tokens,
+                IFNULL(
+                    SUM(
+                        CASE
+                            WHEN r.model_type = 'text'
+                                 AND LOWER(TRIM(IFNULL(r.model, ''))) NOT LIKE 'deepseek%'
+                                THEN IFNULL(r.upstream_actual_cost, 0.0)
+                            ELSE 0.0
+                        END
+                    ),
+                    0.0
+                ) AS billable_cost_usd,
+                IFNULL(
+                    SUM(
+                        CASE
+                            WHEN r.model_type = 'image' THEN IFNULL(r.upstream_actual_cost, 0.0)
+                            ELSE 0.0
+                        END
+                    ),
+                    0.0
+                ) AS image_cost_usd,
+                IFNULL(
+                    SUM(CASE WHEN r.model_type = 'image' THEN IFNULL(r.image_count, 1) ELSE 0 END),
+                    0
+                ) AS image_count
+             FROM request_logs r
+             LEFT JOIN request_token_stats t ON t.request_log_id = r.id
+             WHERE r.created_at >= ?1
+               AND r.created_at < ?2
+               AND r.key_id IS NOT NULL
+               AND TRIM(r.key_id) <> ''
+             GROUP BY TRIM(r.key_id)",
+        )?;
+        let mut rows = stmt.query((start_ts, end_ts))?;
+        let mut items = Vec::new();
+        while let Some(row) = rows.next()? {
+            items.push(ApiKeyBillableUsageSplit {
+                key_id: row.get(0)?,
+                billable_tokens: row.get(1)?,
+                billable_cost_usd: row.get::<_, Option<f64>>(2)?.unwrap_or(0.0),
+                image_cost_usd: row.get::<_, Option<f64>>(3)?.unwrap_or(0.0),
+                image_count: row.get(4)?,
             });
         }
         Ok(items)

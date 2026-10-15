@@ -1384,6 +1384,153 @@ fn request_token_stats_can_summarize_total_tokens_by_key() {
 }
 
 #[test]
+fn request_token_billable_usage_by_key_excludes_deepseek_and_image() {
+    let storage = Storage::open_in_memory().expect("open in memory");
+    storage.init().expect("init schema");
+    let created_at = now_ts();
+
+    let cases = [
+        (
+            "gk_split",
+            "gpt-5.6-terra",
+            "text",
+            None,
+            Some(100_i64),
+            None,
+            None,
+            None,
+            Some(1.0_f64),
+        ),
+        (
+            "gk_split",
+            "DeepSeek-V3",
+            "text",
+            None,
+            Some(50_i64),
+            None,
+            None,
+            None,
+            Some(0.5),
+        ),
+        (
+            "gk_split",
+            "gpt-image2",
+            "image",
+            Some(3_i64),
+            Some(20_i64),
+            None,
+            None,
+            None,
+            Some(0.9),
+        ),
+        (
+            "gk_split",
+            "sora-2",
+            "video",
+            None,
+            Some(40_i64),
+            None,
+            None,
+            None,
+            Some(0.7),
+        ),
+        // 中文注释：total_tokens 缺失时按 输入 - 缓存 + 输出 折算，与日统计表口径一致。
+        (
+            "gk_split",
+            "gpt-5.6-terra",
+            "text",
+            None,
+            None,
+            Some(40_i64),
+            Some(10_i64),
+            Some(5_i64),
+            Some(0.25),
+        ),
+        // 中文注释：未记录张数的生图请求按 1 张兜底。
+        (
+            "gk_other",
+            "gpt-image2",
+            "image",
+            None,
+            Some(8_i64),
+            None,
+            None,
+            None,
+            Some(0.4),
+        ),
+    ];
+
+    for (
+        index,
+        (
+            key_id,
+            model,
+            model_type,
+            image_count,
+            total_tokens,
+            input_tokens,
+            cached_input_tokens,
+            output_tokens,
+            cost,
+        ),
+    ) in cases.into_iter().enumerate()
+    {
+        let request_log_id = storage
+            .insert_request_log(&RequestLog {
+                trace_id: Some(format!("trc-split-{index}")),
+                key_id: Some(key_id.to_string()),
+                request_path: if model_type == "image" {
+                    "/v1/images/generations".to_string()
+                } else {
+                    "/v1/responses".to_string()
+                },
+                method: "POST".to_string(),
+                model: Some(model.to_string()),
+                model_type: Some(model_type.to_string()),
+                image_count,
+                upstream_actual_cost: cost,
+                created_at,
+                ..Default::default()
+            })
+            .expect("insert request log");
+        storage
+            .insert_request_token_stat(&RequestTokenStat {
+                request_log_id,
+                key_id: Some(key_id.to_string()),
+                account_id: Some("acc-split".to_string()),
+                model: Some(model.to_string()),
+                input_tokens,
+                cached_input_tokens,
+                output_tokens,
+                total_tokens,
+                reasoning_output_tokens: Some(0),
+                created_at,
+            })
+            .expect("insert token stat");
+    }
+
+    let splits = storage
+        .summarize_request_token_billable_usage_by_key(created_at - 1, created_at + 1)
+        .expect("summarize billable usage");
+    let split = splits
+        .iter()
+        .find(|item| item.key_id == "gk_split")
+        .expect("gk_split present");
+    assert_eq!(split.billable_tokens, 135);
+    assert!((split.billable_cost_usd - 1.25).abs() < f64::EPSILON);
+    assert!((split.image_cost_usd - 0.9).abs() < f64::EPSILON);
+    assert_eq!(split.image_count, 3);
+
+    let other = splits
+        .iter()
+        .find(|item| item.key_id == "gk_other")
+        .expect("gk_other present");
+    assert_eq!(other.billable_tokens, 0);
+    assert!((other.image_cost_usd - 0.4).abs() < f64::EPSILON);
+    assert_eq!(other.image_count, 1);
+}
+
+#[test]
 fn request_token_daily_stats_updates_with_raw_insert() {
     let storage = Storage::open_in_memory().expect("open in memory");
     storage.init().expect("init schema");
